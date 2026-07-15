@@ -6,7 +6,7 @@
 const uint8_t SMBUS_SDA_PINS[SMBUS_NUM_CHANNELS] = {0, 2, 4, 12, 14, 26};
 const uint8_t SMBUS_SCL_PINS[SMBUS_NUM_CHANNELS] = {1, 3, 5, 13, 15, 27};
 
-#define I2C_DELAY_US 5 // 100kHz = 10us period (5us high, 5us low)
+#define I2C_DELAY_US 15 // Increased delay to 15us per phase to completely swallow RC rise time delays (approx 30kHz)
 
 // Helper to set SDA state (Open-Drain)
 static void i2c_set_sda(uint8_t sda, bool high) {
@@ -22,7 +22,7 @@ static void i2c_set_sda(uint8_t sda, bool high) {
 static bool i2c_set_scl(uint8_t scl, bool high) {
     if (high) {
         gpio_set_dir(scl, GPIO_IN); // High-Z
-        // Wait for clock stretching
+        // Wait for clock stretching and RC rise time
         uint32_t start = to_ms_since_boot(get_absolute_time());
         while (!gpio_get(scl)) {
             if (to_ms_since_boot(get_absolute_time()) - start > SMBUS_TIMEOUT_MS) {
@@ -41,70 +41,103 @@ static bool i2c_get_sda(uint8_t sda) {
     return gpio_get(sda);
 }
 
+// Ensure bus is idle before start
 static void i2c_start(uint8_t sda, uint8_t scl) {
     i2c_set_sda(sda, true);
     i2c_set_scl(scl, true);
-    sleep_us(I2C_DELAY_US);
-    i2c_set_sda(sda, false); // SDA goes low while SCL is high
-    sleep_us(I2C_DELAY_US);
+    sleep_us(I2C_DELAY_US * 2); // Wait for bus idle state to settle
+    
+    // Start condition: SDA goes low while SCL is high
+    i2c_set_sda(sda, false); 
+    sleep_us(I2C_DELAY_US); // Hold start condition
+    
+    // Drop SCL to prepare for first data bit
     i2c_set_scl(scl, false);
     sleep_us(I2C_DELAY_US);
 }
 
 static void i2c_stop(uint8_t sda, uint8_t scl) {
+    // SCL should be low before preparing stop
     i2c_set_sda(sda, false);
     sleep_us(I2C_DELAY_US);
+    
+    // Raise SCL
     i2c_set_scl(scl, true);
     sleep_us(I2C_DELAY_US);
-    i2c_set_sda(sda, true); // SDA goes high while SCL is high
-    sleep_us(I2C_DELAY_US);
+    
+    // Stop condition: SDA goes high while SCL is high
+    i2c_set_sda(sda, true);
+    sleep_us(I2C_DELAY_US * 2); // Ensure bus is seen as idle
 }
 
 static int i2c_tx_byte(uint8_t sda, uint8_t scl, uint8_t byte) {
+    // Write 8 bits
     for (int i = 7; i >= 0; i--) {
+        // SCL is LOW here. Give a small delay to ensure SCL has fully fallen.
+        sleep_us(5);
+        
+        // Change SDA.
         i2c_set_sda(sda, (byte >> i) & 1);
-        sleep_us(I2C_DELAY_US / 2); // Wait for data to settle
+        
+        // Generous Setup Time: Wait for SDA RC rise time to fully charge to High.
+        sleep_us(I2C_DELAY_US); 
+        
+        // Raise SCL for slave to sample.
         if (!i2c_set_scl(scl, true)) return SMBUS_ERR_TIMEOUT;
-        sleep_us(I2C_DELAY_US);
+        
+        // Generous Hold Time: Keep SCL high long enough for safe sampling.
+        sleep_us(I2C_DELAY_US); 
+        
+        // Drop SCL.
         i2c_set_scl(scl, false);
-        sleep_us(I2C_DELAY_US / 2);
     }
     
-    // Read ACK
-    i2c_set_sda(sda, true); // Release SDA for slave to ACK
-    sleep_us(I2C_DELAY_US / 2);
+    // Read ACK from slave
+    sleep_us(5);
+    i2c_set_sda(sda, true); // Release SDA
+    sleep_us(I2C_DELAY_US); // Setup time for slave to pull SDA low
+    
     if (!i2c_set_scl(scl, true)) return SMBUS_ERR_TIMEOUT;
-    sleep_us(I2C_DELAY_US / 2);
+    sleep_us(I2C_DELAY_US / 2); // Sample at middle of high pulse
     bool nack = i2c_get_sda(sda);
     sleep_us(I2C_DELAY_US / 2);
+    
     i2c_set_scl(scl, false);
-    sleep_us(I2C_DELAY_US / 2);
+    sleep_us(I2C_DELAY_US); // Prepare next operation
     
     return nack ? SMBUS_ERR_NACK : SMBUS_OK;
 }
 
 static int i2c_rx_byte(uint8_t sda, uint8_t scl, uint8_t *byte, bool send_nack) {
     uint8_t data = 0;
+    
+    sleep_us(5);
     i2c_set_sda(sda, true); // Release SDA to read
+    
+    // Read 8 bits
     for (int i = 7; i >= 0; i--) {
-        sleep_us(I2C_DELAY_US / 2);
+        sleep_us(I2C_DELAY_US); // Setup time for slave to pull SDA
+        
         if (!i2c_set_scl(scl, true)) return SMBUS_ERR_TIMEOUT;
-        sleep_us(I2C_DELAY_US / 2);
+        sleep_us(I2C_DELAY_US / 2); // Sample at middle of high pulse
         if (i2c_get_sda(sda)) {
             data |= (1 << i);
         }
         sleep_us(I2C_DELAY_US / 2);
+        
         i2c_set_scl(scl, false);
-        sleep_us(I2C_DELAY_US / 2);
     }
     
     // Send ACK/NACK
+    sleep_us(5);
     i2c_set_sda(sda, send_nack); // NACK=true (High), ACK=false (Low)
-    sleep_us(I2C_DELAY_US / 2);
+    sleep_us(I2C_DELAY_US); // Setup time for master ACK/NACK
+    
     if (!i2c_set_scl(scl, true)) return SMBUS_ERR_TIMEOUT;
     sleep_us(I2C_DELAY_US);
+    
     i2c_set_scl(scl, false);
-    sleep_us(I2C_DELAY_US / 2);
+    sleep_us(I2C_DELAY_US); // Prepare next operation
     
     *byte = data;
     return SMBUS_OK;
