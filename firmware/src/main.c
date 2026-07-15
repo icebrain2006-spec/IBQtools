@@ -1,0 +1,242 @@
+#include "pico/stdlib.h"
+#include "pico/bootrom.h"
+#include "smbus.h"
+#include "relay.h"
+#include "flash_store.h"
+#include "protocol.h"
+#include "bq_updater.h"
+#include <string.h>
+
+static inline uint32_t read_u32_be(const uint8_t *buf) {
+    return ((uint32_t)buf[0] << 24) | ((uint32_t)buf[1] << 16) | ((uint32_t)buf[2] << 8) | buf[3];
+}
+
+static inline void write_u32_be(uint8_t *buf, uint32_t val) {
+    buf[0] = (val >> 24) & 0xFF;
+    buf[1] = (val >> 16) & 0xFF;
+    buf[2] = (val >> 8) & 0xFF;
+    buf[3] = val & 0xFF;
+}
+
+static inline uint16_t read_u16_be(const uint8_t *buf) {
+    return ((uint16_t)buf[0] << 8) | buf[1];
+}
+
+static inline void write_u16_be(uint8_t *buf, uint16_t val) {
+    buf[0] = (val >> 8) & 0xFF;
+    buf[1] = val & 0xFF;
+}
+
+static void handle_packet(const rx_packet_t *pkt) {
+    uint8_t resp_payload[64];
+    uint16_t resp_len = 0;
+    
+    switch (pkt->cmd) {
+        case CMD_GET_VERSION: {
+            const char *version = "v1.0.14";
+            resp_payload[0] = RESP_OK;
+            strcpy((char *)(resp_payload + 1), version);
+            protocol_send_packet(CMD_GET_VERSION, resp_payload, 1 + strlen(version));
+            break;
+        }
+        
+        case CMD_REBOOT_BOOTSEL: {
+            resp_payload[0] = RESP_OK;
+            protocol_send_packet(CMD_REBOOT_BOOTSEL, resp_payload, 1);
+            sleep_ms(100); // Allow UART/USB transmit to finish
+            reset_usb_boot(0, 0); // Reboot into BOOTSEL mode
+            break;
+        }
+        
+        case CMD_RELAY_SET: {
+            if (pkt->length < 2) { // 1 byte cmd + 1 byte payload
+                resp_payload[0] = RESP_ERR_PARAM;
+                protocol_send_packet(CMD_RELAY_SET, resp_payload, 1);
+                break;
+            }
+            uint8_t mask = pkt->payload[0];
+            relay_set_mask(mask);
+            
+            resp_payload[0] = RESP_OK;
+            resp_payload[1] = relay_get_mask();
+            protocol_send_packet(CMD_RELAY_SET, resp_payload, 2);
+            break;
+        }
+        
+        case CMD_RELAY_GET: {
+            resp_payload[0] = RESP_OK;
+            resp_payload[1] = relay_get_mask();
+            protocol_send_packet(CMD_RELAY_GET, resp_payload, 2);
+            break;
+        }
+        
+        case CMD_SMBUS_CMD: {
+            if (pkt->length < 7) { // ch(1), addr(1), cmd(1), rw(1), len(1), pec(1) + data(at least 1)
+                resp_payload[0] = RESP_ERR_PARAM;
+                protocol_send_packet(CMD_SMBUS_CMD, resp_payload, 1);
+                break;
+            }
+            uint8_t ch = pkt->payload[0];
+            uint8_t addr = pkt->payload[1];
+            uint8_t cmd_reg = pkt->payload[2];
+            uint8_t rw = pkt->payload[3];
+            uint8_t len = pkt->payload[4];
+            uint8_t use_pec = pkt->payload[5];
+            const uint8_t *data = pkt->payload + 6;
+            
+            int err = SMBUS_OK;
+            
+            if (rw == 0) { // Write
+                if (len == 1) {
+                    err = smbus_write_byte(ch, addr, cmd_reg, data[0], use_pec != 0);
+                } else if (len == 2) {
+                    uint16_t val = (uint16_t)data[0] | ((uint16_t)data[1] << 8);
+                    err = smbus_write_word(ch, addr, cmd_reg, val, use_pec != 0);
+                } else {
+                    err = smbus_write_block(ch, addr, cmd_reg, data, len, use_pec != 0);
+                }
+                
+                resp_payload[0] = (err == SMBUS_OK) ? RESP_OK : RESP_ERR_HW;
+                resp_payload[1] = (uint8_t)(-err); // Detail error code
+                resp_len = 2;
+            } else { // Read
+                if (len == 1) {
+                    uint8_t val = 0;
+                    err = smbus_read_byte(ch, addr, cmd_reg, &val, use_pec != 0);
+                    resp_payload[1] = val;
+                    resp_len = 2;
+                } else if (len == 2) {
+                    uint16_t val = 0;
+                    err = smbus_read_word(ch, addr, cmd_reg, &val, use_pec != 0);
+                    resp_payload[1] = val & 0xFF;
+                    resp_payload[2] = (val >> 8) & 0xFF;
+                    resp_len = 3;
+                } else {
+                    uint8_t rx_len = 0;
+                    err = smbus_read_block(ch, addr, cmd_reg, resp_payload + 2, &rx_len, use_pec != 0);
+                    resp_payload[1] = rx_len;
+                    resp_len = 2 + rx_len;
+                }
+                
+                resp_payload[0] = (err == SMBUS_OK) ? RESP_OK : RESP_ERR_HW;
+                if (err != SMBUS_OK) {
+                    resp_payload[1] = (uint8_t)(-err);
+                    resp_len = 2;
+                }
+            }
+            protocol_send_packet(CMD_SMBUS_CMD, resp_payload, resp_len);
+            break;
+        }
+        
+        case CMD_FW_UPLOAD_START: {
+            if (pkt->length < 5) {
+                resp_payload[0] = RESP_ERR_PARAM;
+                protocol_send_packet(CMD_FW_UPLOAD_START, resp_payload, 1);
+                break;
+            }
+            uint32_t file_size = read_u32_be(pkt->payload);
+            int res = flash_store_upload_start(file_size);
+            
+            resp_payload[0] = (res == 0) ? RESP_OK : RESP_ERR_HW;
+            protocol_send_packet(CMD_FW_UPLOAD_START, resp_payload, 1);
+            break;
+        }
+        
+        case CMD_FW_UPLOAD_DATA: {
+            if (pkt->length < 7) {
+                resp_payload[0] = RESP_ERR_PARAM;
+                protocol_send_packet(CMD_FW_UPLOAD_DATA, resp_payload, 1);
+                break;
+            }
+            uint32_t offset = read_u32_be(pkt->payload);
+            uint16_t chunk_len = read_u16_be(pkt->payload + 4);
+            const uint8_t *chunk_data = pkt->payload + 6;
+            
+            int res = flash_store_upload_chunk(offset, chunk_data, chunk_len);
+            
+            resp_payload[0] = (res == 0) ? RESP_OK : RESP_ERR_HW;
+            protocol_send_packet(CMD_FW_UPLOAD_DATA, resp_payload, 1);
+            break;
+        }
+        
+        case CMD_FW_UPLOAD_END: {
+            if (pkt->length < 5) {
+                resp_payload[0] = RESP_ERR_PARAM;
+                protocol_send_packet(CMD_FW_UPLOAD_END, resp_payload, 1);
+                break;
+            }
+            uint32_t expected_crc = read_u32_be(pkt->payload);
+            int res = flash_store_upload_end(expected_crc);
+            
+            resp_payload[0] = (res == 0) ? RESP_OK : RESP_ERR_HW;
+            protocol_send_packet(CMD_FW_UPLOAD_END, resp_payload, 1);
+            break;
+        }
+        
+        case CMD_FW_UPDATE_RUN: {
+            if (pkt->length < 2) {
+                resp_payload[0] = RESP_ERR_PARAM;
+                protocol_send_packet(CMD_FW_UPDATE_RUN, resp_payload, 1);
+                break;
+            }
+            uint8_t ch_mask = pkt->payload[0];
+            bool success = bq_updater_start(ch_mask);
+            
+            resp_payload[0] = success ? RESP_OK : RESP_ERR_BUSY;
+            protocol_send_packet(CMD_FW_UPDATE_RUN, resp_payload, 1);
+            break;
+        }
+        
+        case CMD_FW_UPDATE_STATUS: {
+            resp_payload[0] = RESP_OK;
+            resp_payload[1] = update_status.is_running ? 1 : 0;
+            write_u32_be(resp_payload + 2, update_status.current_line);
+            write_u32_be(resp_payload + 6, update_status.total_lines);
+            resp_payload[10] = update_status.active_channels;
+            resp_payload[11] = update_status.error_channels;
+            write_u32_be(resp_payload + 12, (uint32_t)update_status.error_code);
+            protocol_send_packet(CMD_FW_UPDATE_STATUS, resp_payload, 16);
+            break;
+        }
+        
+        case CMD_FW_UPDATE_STOP: {
+            bq_updater_stop();
+            resp_payload[0] = RESP_OK;
+            protocol_send_packet(CMD_FW_UPDATE_STOP, resp_payload, 1);
+            break;
+        }
+        
+        default: {
+            resp_payload[0] = RESP_ERR_UNKNOWN_CMD;
+            protocol_send_packet(pkt->cmd, resp_payload, 1);
+            break;
+        }
+    }
+}
+
+int main() {
+    // Enable system and USB Serial IO
+    stdio_init_all();
+    
+    // Initialize custom hardware modules
+    smbus_init_all();
+    relay_init();
+    flash_store_init();
+    
+    // Initialize multicore firmware updater
+    bq_updater_init();
+    
+    rx_packet_t rx_pkt;
+    
+    while (true) {
+        // Read character from USB CDC Non-blockingly
+        int c = getchar_timeout_us(0);
+        if (c != PICO_ERROR_TIMEOUT) {
+            if (protocol_parse_byte((uint8_t)c, &rx_pkt)) {
+                handle_packet(&rx_pkt);
+            }
+        }
+    }
+    
+    return 0;
+}

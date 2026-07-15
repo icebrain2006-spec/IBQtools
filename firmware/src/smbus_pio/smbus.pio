@@ -1,0 +1,43 @@
+.program smbus
+.side_set 1 opt pindirs
+
+; SCL is side-set pin 0. SDA is OUT pin 0 and IN pin 0.
+; SDA/SCL are active low (pindirs = 1 drives SCL/SDA low, pindirs = 0 releases them for pull-up)
+
+public entry_point:
+    set pindirs, 0 side 0        ; Release SCL and SDA (both high impedance)
+
+public start:
+    set pindirs, 1 side 0 [1]    ; SDA low, SCL high
+    set pindirs, 1 side 1 [1]    ; SDA low, SCL low
+
+public stop:
+    set pindirs, 1 side 1 [1]    ; SDA low, SCL low
+    set pindirs, 1 side 0 [1]    ; SDA low, SCL high
+    set pindirs, 0 side 0 [1]    ; SDA high, SCL high
+
+public rx_ack:
+    set pindirs, 0 side 1 [1]    ; Float SDA, SCL low
+    nop            side 0 [1]    ; SCL high
+    in pins, 1     side 0        ; Sample SDA
+    jmp entry_point side 1       ; SCL low, finish
+
+public tx_byte:
+    set y, 7       side 1        ; Loop counter, SCL low
+write_loop:
+    out pindirs, 1 side 1        ; Set SDA from OSR, SCL low
+    nop            side 0 [1]    ; SCL high
+    jmp y--, write_loop side 1   ; SCL low, repeat
+
+public rx_byte:
+    set pindirs, 0 side 1        ; Float SDA, SCL low
+    set y, 7       side 1        ; Loop counter, SCL low
+read_loop:
+    nop            side 0 [1]    ; SCL high
+    in pins, 1     side 0        ; Sample SDA to ISR, SCL high
+    jmp y--, read_loop side 1 [1] ; SCL low, repeat
+
+public tx_ack:
+    out pindirs, 1 side 1        ; Set SDA (ACK/NACK) from OSR, SCL low
+    nop            side 0 [1]    ; SCL high
+    jmp entry_point side 1       ; SCL low, finish
