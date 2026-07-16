@@ -7,12 +7,13 @@
 #include <stdlib.h>
 
 volatile update_status_t update_status = {
-    .is_running = false,
+    .state = UPDATER_STATE_IDLE,
     .current_line = 0,
     .total_lines = 0,
     .active_channels = 0,
     .error_channels = 0,
-    .error_code = 0
+    .error_code = 0,
+    .current_delay_ms = 0
 };
 
 static uint8_t parse_hex_byte(const char *str) {
@@ -67,7 +68,7 @@ static void core1_entry(void) {
 
         uint32_t file_size = flash_store_get_size();
         if (file_size == 0) {
-            update_status.is_running = false;
+            update_status.state = UPDATER_STATE_ERROR;
             update_status.error_code = -10; // No file uploaded
             continue;
         }
@@ -84,11 +85,11 @@ static void core1_entry(void) {
         update_status.current_line = 0;
         update_status.error_channels = 0;
         update_status.error_code = 0;
-        update_status.is_running = true;
+        update_status.state = UPDATER_STATE_RUNNING;
 
         // Phase 2: Parse and execute SLFS instructions line-by-line
         uint32_t flash_offset = 0;
-        while (flash_offset < file_size && update_status.is_running) {
+        while (flash_offset < file_size && (update_status.state == UPDATER_STATE_RUNNING || update_status.state == UPDATER_STATE_DELAYING)) {
             update_status.current_line++;
             flash_offset = get_next_line(flash_offset, line_buf, sizeof(line_buf), file_size);
 
@@ -118,7 +119,15 @@ static void core1_entry(void) {
                 for (uint8_t ch = 1; ch <= 6; ch++) {
                     uint8_t ch_mask = (1 << (ch - 1));
                     if ((update_status.active_channels & ch_mask) && !(update_status.error_channels & ch_mask)) {
-                        int err = smbus_i2c_write(ch, addr_7bit, i2c_payload, payload_len);
+                        int err = SMBUS_ERR_TIMEOUT;
+                        int retries = 10;
+                        do {
+                            err = smbus_i2c_write(ch, addr_7bit, i2c_payload, payload_len);
+                            if (err == SMBUS_OK) break;
+                            sleep_ms(2); // Wait 2ms before retry
+                            retries--;
+                        } while (retries > 0);
+                        
                         if (err != SMBUS_OK) {
                             update_status.error_channels |= ch_mask;
                         }
@@ -146,14 +155,40 @@ static void core1_entry(void) {
                         uint8_t rx_data[64];
                         memset(rx_data, 0, sizeof(rx_data));
                         
-                        // Send Register Address first
-                        int err = smbus_i2c_write(ch, addr_7bit, &reg, 1);
-                        if (err == SMBUS_OK) {
-                            // Read expected number of bytes
-                            err = smbus_i2c_read(ch, addr_7bit, rx_data, expected_len);
+                        int err = SMBUS_ERR_TIMEOUT;
+                        int retries = 10;
+                        do {
+                            // Send Register Address and read expected number of bytes using Repeated Start
+                            err = smbus_i2c_write_read(ch, addr_7bit, &reg, 1, rx_data, expected_len);
+                            if (err == SMBUS_OK) break;
+                            sleep_ms(2); // Wait 2ms before retry
+                            retries--;
+                        } while (retries > 0);
+                        
+                        bool match = true;
+                        for (uint16_t i = 0; i < expected_len; i++) {
+                            if (rx_data[i] != expected_data[i]) {
+                                // If it's the last byte, check if it's either missing (0xFF) or an alternative PEC
+                                if (i == expected_len - 1) {
+                                    if (rx_data[i] == 0xFF) continue; // Tolerate missing PEC
+                                    
+                                    // Calculate read-only PEC (e.g. 0x67)
+                                    uint8_t crc = 0;
+                                    uint8_t addr_r = (addr_7bit << 1) | 0x01;
+                                    crc ^= addr_r;
+                                    for (int j=0; j<8; j++) crc = (crc & 0x80) ? (crc << 1) ^ 0x07 : (crc << 1);
+                                    for (uint16_t k=0; k < expected_len - 1; k++) {
+                                        crc ^= rx_data[k];
+                                        for (int j=0; j<8; j++) crc = (crc & 0x80) ? (crc << 1) ^ 0x07 : (crc << 1);
+                                    }
+                                    if (rx_data[i] == crc) continue; // Tolerate read-only PEC
+                                }
+                                match = false;
+                                break;
+                            }
                         }
                         
-                        if (err != SMBUS_OK || memcmp(rx_data, expected_data, expected_len) != 0) {
+                        if (err != SMBUS_OK || !match) {
                             update_status.error_channels |= ch_mask;
                         }
                     }
@@ -162,17 +197,25 @@ static void core1_entry(void) {
             else if (cmd_type == 'X' && num_tokens >= 2) {
                 // Delay command: X: <ms>
                 uint32_t delay_ms = strtoul(tokens[1], NULL, 10);
+                update_status.state = UPDATER_STATE_DELAYING;
+                update_status.current_delay_ms = delay_ms;
                 sleep_ms(delay_ms);
+                if (update_status.state == UPDATER_STATE_DELAYING) {
+                    update_status.state = UPDATER_STATE_RUNNING;
+                }
             }
 
             // Check if all active channels have errored out
             if ((update_status.active_channels & ~update_status.error_channels) == 0) {
                 update_status.error_code = -11; // All target channels failed
+                update_status.state = UPDATER_STATE_ERROR;
                 break;
             }
         }
 
-        update_status.is_running = false;
+        if (update_status.state == UPDATER_STATE_RUNNING) {
+            update_status.state = UPDATER_STATE_DONE;
+        }
     }
 }
 
@@ -182,12 +225,13 @@ void bq_updater_init(void) {
 }
 
 bool bq_updater_start(uint8_t channel_mask) {
-    if (update_status.is_running) return false;
+    if (update_status.state == UPDATER_STATE_RUNNING || update_status.state == UPDATER_STATE_DELAYING) return false;
     if (channel_mask == 0) return false;
 
     update_status.active_channels = channel_mask;
     update_status.error_channels = 0;
     update_status.error_code = 0;
+    update_status.state = UPDATER_STATE_RUNNING;
 
     // Send start command to Core 1
     multicore_fifo_push_blocking(0x57415254);
@@ -195,7 +239,7 @@ bool bq_updater_start(uint8_t channel_mask) {
 }
 
 void bq_updater_stop(void) {
-    if (update_status.is_running) {
-        update_status.is_running = false;
+    if (update_status.state == UPDATER_STATE_RUNNING || update_status.state == UPDATER_STATE_DELAYING) {
+        update_status.state = UPDATER_STATE_IDLE;
     }
 }

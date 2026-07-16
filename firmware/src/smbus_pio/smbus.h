@@ -41,6 +41,7 @@ int smbus_read_block(uint8_t ch, uint8_t addr, uint8_t cmd, uint8_t *data, uint8
 // Direct I2C commands for SLFS flashing
 int smbus_i2c_write(uint8_t ch, uint8_t addr, const uint8_t *data, uint8_t len);
 int smbus_i2c_read(uint8_t ch, uint8_t addr, uint8_t *data, uint8_t len);
+int smbus_i2c_write_read(uint8_t ch, uint8_t addr, const uint8_t *tx_data, uint8_t tx_len, uint8_t *rx_data, uint8_t rx_len);
 
 // Helper function to calculate SMBus PEC (CRC-8)
 uint8_t smbus_pec_calculate(const uint8_t *data, size_t len);

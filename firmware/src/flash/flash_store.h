@@ -14,6 +14,8 @@ typedef struct {
     uint32_t magic;
     uint32_t size;
     uint32_t crc32;
+    uint32_t timestamp;
+    char filename[64];
 } flash_meta_t;
 
 // Initialize flash store (read metadata)
@@ -26,7 +28,10 @@ int flash_store_upload_start(uint32_t size);
 int flash_store_upload_chunk(uint32_t offset, const uint8_t *data, uint16_t len);
 
 // Finish upload session: flushes remaining buffer, computes CRC32, and writes metadata
-int flash_store_upload_end(uint32_t expected_crc32);
+int flash_store_upload_end(uint32_t expected_crc32, uint32_t timestamp, const char *filename);
+
+// Get current metadata
+bool flash_store_get_meta(flash_meta_t *out_meta);
 
 // Get current saved SLFS file size
 uint32_t flash_store_get_size(void);

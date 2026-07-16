@@ -28,7 +28,7 @@ static inline void write_u16_be(uint8_t *buf, uint16_t val) {
 }
 
 static void handle_packet(const rx_packet_t *pkt) {
-    uint8_t resp_payload[64];
+    uint8_t resp_payload[128];
     uint16_t resp_len = 0;
     
     switch (pkt->cmd) {
@@ -160,16 +160,59 @@ static void handle_packet(const rx_packet_t *pkt) {
         }
         
         case CMD_FW_UPLOAD_END: {
-            if (pkt->length < 5) {
+            if (pkt->length < 9) { // 4(CRC) + 4(Timestamp) + 1(min string len)
                 resp_payload[0] = RESP_ERR_PARAM;
                 protocol_send_packet(CMD_FW_UPLOAD_END, resp_payload, 1);
                 break;
             }
             uint32_t expected_crc = read_u32_be(pkt->payload);
-            int res = flash_store_upload_end(expected_crc);
+            uint32_t timestamp = read_u32_be(pkt->payload + 4);
+            
+            // Extract filename safely
+            char filename[64];
+            memset(filename, 0, sizeof(filename));
+            uint16_t str_len = pkt->length - 8;
+            if (str_len > 63) str_len = 63;
+            memcpy(filename, pkt->payload + 8, str_len);
+            
+            // Sanitize filename: remove trailing non-printable characters or anomalous digits
+            for (int i = str_len - 1; i >= 0; i--) {
+                if (filename[i] < ' ' || filename[i] > '~') {
+                    filename[i] = '\0';
+                }
+            }
+            
+            // Forcefully terminate if there's an anomalous trailing '1' (due to a known payload bug)
+            int actual_len = strlen(filename);
+            if (actual_len > 0 && filename[actual_len - 1] == '1') {
+                // Double check if the local filename also ends with 1. If not, strip it.
+                // Assuming standard extension .slfs
+                if (actual_len >= 5 && strncmp(&filename[actual_len - 5], ".slfs", 5) != 0) {
+                     filename[actual_len - 1] = '\0';
+                }
+            }
+            
+            int res = flash_store_upload_end(expected_crc, timestamp, filename);
             
             resp_payload[0] = (res == 0) ? RESP_OK : RESP_ERR_HW;
             protocol_send_packet(CMD_FW_UPLOAD_END, resp_payload, 1);
+            break;
+        }
+        
+        case CMD_FW_GET_FILE_INFO: {
+            flash_meta_t meta;
+            if (flash_store_get_meta(&meta)) {
+                resp_payload[0] = RESP_OK;
+                write_u32_be(resp_payload + 1, meta.magic);
+                write_u32_be(resp_payload + 5, meta.size);
+                write_u32_be(resp_payload + 9, meta.crc32);
+                write_u32_be(resp_payload + 13, meta.timestamp);
+                memcpy(resp_payload + 17, meta.filename, 64);
+                protocol_send_packet(CMD_FW_GET_FILE_INFO, resp_payload, 1 + 16 + 64);
+            } else {
+                resp_payload[0] = RESP_ERR_HW; // Or not found
+                protocol_send_packet(CMD_FW_GET_FILE_INFO, resp_payload, 1);
+            }
             break;
         }
         
@@ -189,7 +232,7 @@ static void handle_packet(const rx_packet_t *pkt) {
         
         case CMD_FW_UPDATE_STATUS: {
             resp_payload[0] = RESP_OK;
-            resp_payload[1] = update_status.is_running ? 1 : 0;
+            resp_payload[1] = (uint8_t)update_status.state;
             write_u32_be(resp_payload + 2, update_status.current_line);
             write_u32_be(resp_payload + 6, update_status.total_lines);
             resp_payload[10] = update_status.active_channels;

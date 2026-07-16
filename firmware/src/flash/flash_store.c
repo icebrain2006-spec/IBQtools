@@ -40,8 +40,18 @@ void flash_store_init(void) {
         current_meta.magic = 0;
         current_meta.size = 0;
         current_meta.crc32 = 0;
+        current_meta.timestamp = 0;
+        memset((void*)current_meta.filename, 0, sizeof(current_meta.filename));
         meta_loaded = false;
     }
+}
+
+bool flash_store_get_meta(flash_meta_t *out_meta) {
+    if (!meta_loaded) return false;
+    if (out_meta) {
+        *out_meta = current_meta;
+    }
+    return true;
 }
 
 int flash_store_upload_start(uint32_t size) {
@@ -65,6 +75,8 @@ int flash_store_upload_start(uint32_t size) {
     current_meta.magic = 0;
     current_meta.size = size;
     current_meta.crc32 = 0;
+    current_meta.timestamp = 0;
+    memset((void*)current_meta.filename, 0, sizeof(current_meta.filename));
     meta_loaded = false;
     
     return 0;
@@ -89,7 +101,7 @@ int flash_store_upload_chunk(uint32_t offset, const uint8_t *data, uint16_t len)
     return 0;
 }
 
-int flash_store_upload_end(uint32_t expected_crc32) {
+int flash_store_upload_end(uint32_t expected_crc32, uint32_t timestamp, const char *filename) {
     // Flush remaining buffer
     if (write_buf_idx > 0) {
         // Pad the rest of the page with zeros
@@ -121,11 +133,16 @@ int flash_store_upload_end(uint32_t expected_crc32) {
     // Program metadata
     current_meta.magic = SLFS_MAGIC;
     current_meta.crc32 = computed_crc;
+    current_meta.timestamp = timestamp;
+    memset((void*)current_meta.filename, 0, sizeof(current_meta.filename));
+    if (filename) {
+        strncpy((char*)current_meta.filename, filename, sizeof(current_meta.filename) - 1);
+    }
     
     // Prepare metadata block (must be 256 bytes aligned for program)
     uint8_t meta_block[256];
     memset(meta_block, 0, sizeof(meta_block));
-    memcpy(meta_block, &current_meta, sizeof(flash_meta_t));
+    memcpy(meta_block, (void*)&current_meta, sizeof(flash_meta_t));
     
     uint32_t ints = save_and_disable_interrupts();
     flash_range_program(FLASH_SLFS_META_OFFSET, meta_block, 256);

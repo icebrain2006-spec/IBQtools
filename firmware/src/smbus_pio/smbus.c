@@ -73,6 +73,15 @@ static void i2c_start(uint8_t sda, uint8_t scl) {
 static bool i2c_rep_start(uint8_t sda, uint8_t scl) {
     // Ensure SCL is low and release SDA to High
     i2c_set_sda(sda, true);
+    
+    // Wait for the slave to release SDA (clock/data stretching)
+    uint32_t start = to_ms_since_boot(get_absolute_time());
+    while (!i2c_get_sda(sda)) {
+        if (to_ms_since_boot(get_absolute_time()) - start > SMBUS_TIMEOUT_MS) {
+            return false; // Timeout waiting for SDA release
+        }
+        tight_loop_contents();
+    }
     i2c_delay_us(I2C_DELAY_US);
     
     // Raise SCL to HIGH
@@ -506,6 +515,45 @@ int smbus_i2c_read(uint8_t ch, uint8_t addr, uint8_t *data, uint8_t len) {
     for (uint8_t i = 0; i < len; i++) {
         bool send_nack = (i == len - 1);
         if ((err = i2c_rx_byte(sda, scl, &data[i], send_nack)) != SMBUS_OK) goto error;
+    }
+
+    i2c_stop(sda, scl);
+    return SMBUS_OK;
+
+error:
+    i2c_stop(sda, scl);
+    return err;
+}
+
+// Raw I2C Write then Read (Repeated Start) for Flash Stream flashing
+int smbus_i2c_write_read(uint8_t ch, uint8_t addr, const uint8_t *tx_data, uint8_t tx_len, uint8_t *rx_data, uint8_t rx_len) {
+    if (ch < 1 || ch > 6) return SMBUS_ERR_INVALID;
+    uint8_t idx = ch - 1;
+    uint sda = SMBUS_SDA_PINS[idx];
+    uint scl = SMBUS_SCL_PINS[idx];
+    uint8_t addr_w = (addr << 1);
+    uint8_t addr_r = (addr << 1) | 0x01;
+    int err;
+
+    // 1. Write Phase
+    i2c_start(sda, scl);
+    if ((err = i2c_tx_byte(sda, scl, addr_w)) != SMBUS_OK) goto error;
+    
+    for (uint8_t i = 0; i < tx_len; i++) {
+        if ((err = i2c_tx_byte(sda, scl, tx_data[i])) != SMBUS_OK) goto error;
+    }
+
+    // 2. Read Phase (Repeated Start)
+    if (!i2c_rep_start(sda, scl)) {
+        err = SMBUS_ERR_TIMEOUT;
+        goto error;
+    }
+    
+    if ((err = i2c_tx_byte(sda, scl, addr_r)) != SMBUS_OK) goto error;
+
+    for (uint8_t i = 0; i < rx_len; i++) {
+        bool send_nack = (i == rx_len - 1);
+        if ((err = i2c_rx_byte(sda, scl, &rx_data[i], send_nack)) != SMBUS_OK) goto error;
     }
 
     i2c_stop(sda, scl);
