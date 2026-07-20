@@ -6,7 +6,7 @@
 const uint8_t SMBUS_SDA_PINS[SMBUS_NUM_CHANNELS] = {0, 2, 4, 12, 14, 26};
 const uint8_t SMBUS_SCL_PINS[SMBUS_NUM_CHANNELS] = {1, 3, 5, 13, 15, 27};
 
-#define I2C_DELAY_US 15 // 15us delay produces approx 30kHz (Safe SMBus speed, >10kHz minimum)
+#define I2C_DELAY_US 4 // 4us delay produces approx 83kHz (Safely under 100kHz limit)
 
 // Helper to set SDA state (Open-Drain)
 static void i2c_set_sda(uint8_t sda, bool high) {
@@ -39,14 +39,7 @@ static bool i2c_set_scl(uint8_t scl, bool high) {
 
 // Cycle-accurate delay for Bit-Banging (Avoids SDK sleep_us timer overhead/bugs)
 static inline void i2c_delay_us(uint32_t us) {
-    // RP2040 running at 133MHz.
-    // A single loop iteration with nop takes approx 3-4 cycles.
-    // 133 cycles per microsecond.
-    // us * 35 iterations gives roughly 1 microsecond delay.
-    volatile uint32_t count = us * 35;
-    while (count--) {
-        __asm volatile("nop");
-    }
+    busy_wait_us_32(us);
 }
 
 static bool i2c_get_sda(uint8_t sda) {
@@ -118,7 +111,7 @@ static int i2c_tx_byte(uint8_t sda, uint8_t scl, uint8_t byte) {
     // Write 8 bits
     for (int i = 7; i >= 0; i--) {
         // SCL is LOW here. Give a small delay to ensure SCL has fully fallen.
-        i2c_delay_us(5);
+        i2c_delay_us(I2C_DELAY_US);
         
         // Change SDA.
         i2c_set_sda(sda, (byte >> i) & 1);
@@ -137,7 +130,7 @@ static int i2c_tx_byte(uint8_t sda, uint8_t scl, uint8_t byte) {
     }
     
     // Read ACK from slave
-    i2c_delay_us(5);
+    i2c_delay_us(I2C_DELAY_US);
     i2c_set_sda(sda, true); // Release SDA
     i2c_delay_us(I2C_DELAY_US); // Setup time for slave to pull SDA low
     

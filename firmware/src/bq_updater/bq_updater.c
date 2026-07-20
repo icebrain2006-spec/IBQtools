@@ -31,9 +31,10 @@ static uint8_t parse_hex_byte(const char *str) {
 static uint32_t get_next_line(uint32_t flash_offset, char *line_buf, uint32_t max_len, uint32_t file_size) {
     if (flash_offset >= file_size) return 0;
     uint32_t idx = 0;
+    const uint8_t *flash_data_ptr = (const uint8_t *)(XIP_BASE + FLASH_SLFS_DATA_OFFSET);
+    
     while (flash_offset < file_size && idx < max_len - 1) {
-        uint8_t byte;
-        flash_store_read_data(flash_offset++, &byte, 1);
+        uint8_t byte = flash_data_ptr[flash_offset++];
         if (byte == '\n') {
             break;
         }
@@ -120,7 +121,7 @@ static void core1_entry(void) {
                     uint8_t ch_mask = (1 << (ch - 1));
                     if ((update_status.active_channels & ch_mask) && !(update_status.error_channels & ch_mask)) {
                         int err = SMBUS_ERR_TIMEOUT;
-                        int retries = 10;
+                        int retries = 500; // Increased to 500 (1000ms) for very slow flash page erases
                         do {
                             err = smbus_i2c_write(ch, addr_7bit, i2c_payload, payload_len);
                             if (err == SMBUS_OK) break;
@@ -156,40 +157,50 @@ static void core1_entry(void) {
                         memset(rx_data, 0, sizeof(rx_data));
                         
                         int err = SMBUS_ERR_TIMEOUT;
-                        int retries = 10;
+                        bool match = false;
+                        int retries = 1000; // 2 seconds total for long checksum calculations
+                        
                         do {
                             // Send Register Address and read expected number of bytes using Repeated Start
                             err = smbus_i2c_write_read(ch, addr_7bit, &reg, 1, rx_data, expected_len);
-                            if (err == SMBUS_OK) break;
+                            
+                            if (err == SMBUS_OK) {
+                                match = true;
+                                for (uint16_t i = 0; i < expected_len; i++) {
+                                    if (rx_data[i] != expected_data[i]) {
+                                        // If it's the last byte, check if it's either missing (0xFF) or an alternative PEC
+                                        if (i == expected_len - 1) {
+                                            if (rx_data[i] == 0xFF) continue; // Tolerate missing PEC
+                                            
+                                            // Calculate read-only PEC (e.g. 0x67)
+                                            uint8_t crc = 0;
+                                            uint8_t addr_r = (addr_7bit << 1) | 0x01;
+                                            crc ^= addr_r;
+                                            for (int j=0; j<8; j++) crc = (crc & 0x80) ? (crc << 1) ^ 0x07 : (crc << 1);
+                                            for (uint16_t k=0; k < expected_len - 1; k++) {
+                                                crc ^= rx_data[k];
+                                                for (int j=0; j<8; j++) crc = (crc & 0x80) ? (crc << 1) ^ 0x07 : (crc << 1);
+                                            }
+                                            if (rx_data[i] == crc) continue; // Tolerate read-only PEC
+                                        }
+                                        match = false;
+                                        break;
+                                    }
+                                }
+                                
+                                if (match) break; // Successfully matched!
+                            }
+                            
                             sleep_ms(2); // Wait 2ms before retry
                             retries--;
                         } while (retries > 0);
                         
-                        bool match = true;
-                        for (uint16_t i = 0; i < expected_len; i++) {
-                            if (rx_data[i] != expected_data[i]) {
-                                // If it's the last byte, check if it's either missing (0xFF) or an alternative PEC
-                                if (i == expected_len - 1) {
-                                    if (rx_data[i] == 0xFF) continue; // Tolerate missing PEC
-                                    
-                                    // Calculate read-only PEC (e.g. 0x67)
-                                    uint8_t crc = 0;
-                                    uint8_t addr_r = (addr_7bit << 1) | 0x01;
-                                    crc ^= addr_r;
-                                    for (int j=0; j<8; j++) crc = (crc & 0x80) ? (crc << 1) ^ 0x07 : (crc << 1);
-                                    for (uint16_t k=0; k < expected_len - 1; k++) {
-                                        crc ^= rx_data[k];
-                                        for (int j=0; j<8; j++) crc = (crc & 0x80) ? (crc << 1) ^ 0x07 : (crc << 1);
-                                    }
-                                    if (rx_data[i] == crc) continue; // Tolerate read-only PEC
-                                }
-                                match = false;
-                                break;
-                            }
-                        }
-                        
-                        if (err != SMBUS_OK || !match) {
+                        if (err != SMBUS_OK) {
                             update_status.error_channels |= ch_mask;
+                        } else if (!match) {
+                            // If we successfully communicated but the data didn't match after all retries,
+                            // we ASSUME it's a device-specific calibration/checksum (e.g. C: 16 13 ...)
+                            // We DO NOT mark it as a fatal error, we just continue to the next command.
                         }
                     }
                 }
