@@ -5,19 +5,126 @@ import serial
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QTabWidget, QLabel, QPushButton, QComboBox, QProgressBar,
-    QTextBrowser, QCheckBox, QGroupBox, QGridLayout, QLineEdit, QFileDialog,
-    QMessageBox
+    QTextBrowser, QCheckBox, QGroupBox, QGridLayout, QLineEdit,
+    QFileDialog, QMessageBox, QScrollArea, QSpinBox
 )
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QIcon, QFont
 
 from updater_thread import UpdaterWorker, make_packet, parse_response, CMD_I2C_RAW, RESP_OK
 
+class RP2040BoardWidget(QGroupBox):
+    def __init__(self, board_id, log_callback, parent=None):
+        super().__init__(f"RP2040 Board {board_id}", parent)
+        self.board_id = board_id
+        self.log_callback = log_callback # Function to send logs to central console
+        self.worker = None
+        
+        layout = QVBoxLayout(self)
+        
+        # COM Port Selection Row
+        com_layout = QHBoxLayout()
+        com_layout.addWidget(QLabel("COM Port:"))
+        self.combo_port = QComboBox()
+        # Mock some default ports for convenience
+        self.combo_port.addItems(["COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "COM10"])
+        self.combo_port.setCurrentText(f"COM{5 + board_id}") # Just a dummy default
+        com_layout.addWidget(self.combo_port)
+        
+        self.btn_refresh = QPushButton("Refresh")
+        com_layout.addWidget(self.btn_refresh)
+        com_layout.addStretch()
+        layout.addLayout(com_layout)
+        
+        # 6 Channels Grid
+        channels_layout = QGridLayout()
+        self.ch_checkboxes = []
+        self.ch_progress = []
+        self.ch_status = []
+        
+        for i in range(6):
+            ch_idx = i + 1
+            box = QGroupBox(f"CH {ch_idx}")
+            box_layout = QVBoxLayout(box)
+            
+            chk = QCheckBox("Enable")
+            chk.setChecked(True)
+            self.ch_checkboxes.append(chk)
+            
+            prog = QProgressBar()
+            prog.setValue(0)
+            self.ch_progress.append(prog)
+            
+            stat = QLabel("Status: Waiting")
+            self.ch_status.append(stat)
+            
+            box_layout.addWidget(chk)
+            box_layout.addWidget(prog)
+            box_layout.addWidget(stat)
+            
+            row, col = divmod(i, 3)
+            channels_layout.addWidget(box, row, col)
+            
+        layout.addLayout(channels_layout)
+
+    def start_worker(self, loop_count):
+        active_channels = []
+        for i, chk in enumerate(self.ch_checkboxes):
+            if chk.isChecked():
+                active_channels.append(i + 1)
+                
+        if not active_channels:
+            self.log_callback(f"[Board {self.board_id}] No channels selected. Skipping.")
+            return False
+            
+        port = self.combo_port.currentText()
+        
+        # UI State update
+        for chk in self.ch_checkboxes:
+            chk.setEnabled(False)
+            
+        for i in range(6):
+            if (i+1) in active_channels:
+                self.ch_progress[i].setValue(0)
+                self.ch_status[i].setText("Status: Starting...")
+            else:
+                self.ch_status[i].setText("Status: Disabled")
+                
+        self.log_callback(f"[Board {self.board_id}] Initializing thread on {port}...")
+        
+        self.worker = UpdaterWorker(port, active_channels, loop_count=loop_count)
+        # Prefix log messages with board ID
+        self.worker.log_msg.connect(lambda msg: self.log_callback(f"[Board {self.board_id}] {msg}"))
+        self.worker.progress_updated.connect(self._on_progress_update)
+        self.worker.status_updated.connect(self._on_status_update)
+        self.worker.finished.connect(self._on_worker_finished)
+        
+        self.worker.start()
+        return True
+
+    def stop_worker(self):
+        if self.worker and self.worker.isRunning():
+            self.worker.stop()
+
+    def _on_progress_update(self, ch_idx, percent):
+        if 1 <= ch_idx <= 6:
+            self.ch_progress[ch_idx - 1].setValue(percent)
+            
+    def _on_status_update(self, ch_idx, status_text):
+        if 1 <= ch_idx <= 6:
+            self.ch_status[ch_idx - 1].setText(f"Status: {status_text}")
+            
+    def _on_worker_finished(self, success):
+        for chk in self.ch_checkboxes:
+            chk.setEnabled(True)
+        self.log_callback(f"[Board {self.board_id}] Thread finished.")
+
+
 class BqUpdaterMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("BQ40Z50 SLFS Multi-Channel Updater")
-        self.resize(1100, 750)
+        self.setWindowTitle("BQ40Z50 SLFS Multi-Channel Updater (Multi-Board)")
+        self.resize(1300, 800)
         
         # Apply QSS
         qss_path = os.path.join(os.path.dirname(__file__), "style.qss")
@@ -27,8 +134,6 @@ class BqUpdaterMainWindow(QMainWindow):
         except Exception as e:
             print(f"Failed to load QSS: {e}")
 
-        self.worker = None # Reference to background thread
-        
         # Central
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
@@ -57,144 +162,115 @@ class BqUpdaterMainWindow(QMainWindow):
         self._init_csv_tab()
 
     def _init_updater_tab(self):
-        layout = QVBoxLayout(self.tab_updater)
+        # Master layout for the updater tab: Split Left/Right
+        layout = QHBoxLayout(self.tab_updater)
         
-        # 1. Top Bar (Settings)
-        top_group = QGroupBox("Target Configuration")
-        top_layout = QHBoxLayout(top_group)
+        # --- LEFT PANEL (Master Control & Log) ---
+        left_panel = QWidget()
+        left_panel.setFixedWidth(400)
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(0,0,0,0)
         
-        self.combo_port = QComboBox()
-        self.combo_port.addItem("COM6")
-        self.btn_refresh_port = QPushButton("Refresh Ports")
+        master_group = QGroupBox("Master Configuration")
+        mlayout = QGridLayout(master_group)
         
+        mlayout.addWidget(QLabel("Number of Boards (1-4):"), 0, 0)
+        self.spin_boards = QSpinBox()
+        self.spin_boards.setRange(1, 4)
+        self.spin_boards.setValue(1)
+        self.spin_boards.valueChanged.connect(self._update_board_count)
+        mlayout.addWidget(self.spin_boards, 0, 1)
+        
+        mlayout.addWidget(QLabel("Loop Count:"), 1, 0)
         self.loop_count = QLineEdit("1")
-        self.loop_count.setFixedWidth(50)
+        mlayout.addWidget(self.loop_count, 1, 1)
         
-        top_layout.addWidget(QLabel("COM Port:"))
-        top_layout.addWidget(self.combo_port)
-        top_layout.addWidget(self.btn_refresh_port)
-        top_layout.addWidget(QLabel("   Loop Count:"))
-        top_layout.addWidget(self.loop_count)
-        top_layout.addStretch()
-        layout.addWidget(top_group)
+        left_layout.addWidget(master_group)
         
-        # 2. Channels (Grid 2x3)
-        channels_group = QGroupBox("Channel Monitoring")
-        channels_layout = QGridLayout(channels_group)
-        
-        self.ch_checkboxes = []
-        self.ch_progress = []
-        self.ch_status = []
-        
-        for i in range(6):
-            ch_idx = i + 1
-            box = QGroupBox(f"Channel {ch_idx}")
-            box_layout = QVBoxLayout(box)
-            
-            chk = QCheckBox("Enable")
-            chk.setChecked(True)
-            self.ch_checkboxes.append(chk)
-            
-            prog = QProgressBar()
-            prog.setValue(0)
-            self.ch_progress.append(prog)
-            
-            stat = QLabel("Status: Waiting")
-            self.ch_status.append(stat)
-            
-            box_layout.addWidget(chk)
-            box_layout.addWidget(prog)
-            box_layout.addWidget(stat)
-            
-            row, col = divmod(i, 3)
-            channels_layout.addWidget(box, row, col)
-            
-        layout.addWidget(channels_group)
-        
-        # 3. Log Console
         self.log_console = QTextBrowser()
-        self.log_console.append("Welcome to BQ40Z50 Firmware Updater GUI.")
-        layout.addWidget(self.log_console, stretch=1)
+        self.log_console.append("Welcome to Multi-Board BQ40Z50 Updater GUI.")
+        left_layout.addWidget(self.log_console, stretch=1)
         
-        # 4. Action Buttons
-        btn_layout = QHBoxLayout()
-        self.btn_start = QPushButton("START UPDATE")
+        # Action Buttons
+        self.btn_start = QPushButton("START ALL")
         self.btn_start.setObjectName("startBtn")
-        self.btn_stop = QPushButton("STOP")
+        self.btn_stop = QPushButton("STOP ALL")
         self.btn_stop.setObjectName("stopBtn")
         self.btn_stop.setEnabled(False)
         
-        # Connect buttons
-        self.btn_start.clicked.connect(self._start_update)
-        self.btn_stop.clicked.connect(self._stop_update)
+        self.btn_start.clicked.connect(self._start_all)
+        self.btn_stop.clicked.connect(self._stop_all)
         
+        btn_layout = QHBoxLayout()
         btn_layout.addWidget(self.btn_start)
         btn_layout.addWidget(self.btn_stop)
-        layout.addLayout(btn_layout)
+        left_layout.addLayout(btn_layout)
+        
+        layout.addWidget(left_panel)
+        
+        # --- RIGHT PANEL (Scroll Area with Boards) ---
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setObjectName("boardScroll")
+        
+        self.scroll_content = QWidget()
+        self.boards_layout = QVBoxLayout(self.scroll_content)
+        self.boards_layout.setAlignment(Qt.AlignTop)
+        self.scroll_area.setWidget(self.scroll_content)
+        
+        layout.addWidget(self.scroll_area, stretch=1)
+        
+        # Initialize board widgets
+        self.boards = []
+        self._update_board_count(1)
 
-    def _start_update(self):
-        # 1. Gather selected channels
-        active_channels = []
-        for i, chk in enumerate(self.ch_checkboxes):
-            if chk.isChecked():
-                active_channels.append(i + 1)
-                
-        if not active_channels:
-            self.log_console.append("[ERROR] Please select at least one channel to update.")
-            return
-            
-        port = self.combo_port.currentText()
+    def _update_board_count(self, count):
+        # Remove all existing boards from layout
+        for board in self.boards:
+            self.boards_layout.removeWidget(board)
+            board.deleteLater()
+        self.boards.clear()
         
-        # 2. UI State update
-        self.btn_start.setEnabled(False)
-        self.btn_stop.setEnabled(True)
-        for chk in self.ch_checkboxes:
-            chk.setEnabled(False)
-            
-        for i in range(6):
-            if (i+1) in active_channels:
-                self.ch_progress[i].setValue(0)
-                self.ch_status[i].setText("Status: Starting...")
-            else:
-                self.ch_status[i].setText("Status: Disabled")
-                
-        self.log_console.append(f"\n[SYS] Initializing thread on {port}...")
-        
+        # Add new boards
+        for i in range(count):
+            board = RP2040BoardWidget(i + 1, self._log_to_console)
+            self.boards_layout.addWidget(board)
+            self.boards.append(board)
+
+    def _log_to_console(self, msg):
+        self.log_console.append(msg)
+
+    def _start_all(self):
         try:
             loops = int(self.loop_count.text())
         except ValueError:
             loops = 1
             
-        # 3. Create and Start Worker
-        self.worker = UpdaterWorker(port, active_channels, loop_count=loops)
-        self.worker.log_msg.connect(self._on_log_msg)
-        self.worker.progress_updated.connect(self._on_progress_update)
-        self.worker.status_updated.connect(self._on_status_update)
-        self.worker.finished.connect(self._on_worker_finished)
-        self.worker.start()
-
-    def _stop_update(self):
-        if self.worker and self.worker.isRunning():
-            self.worker.stop()
-            self.btn_stop.setEnabled(False)
-
-    def _on_log_msg(self, msg):
-        self.log_console.append(msg)
+        self.btn_start.setEnabled(False)
+        self.btn_stop.setEnabled(True)
+        self.spin_boards.setEnabled(False)
         
-    def _on_progress_update(self, ch_idx, percent):
-        if 1 <= ch_idx <= 6:
-            self.ch_progress[ch_idx - 1].setValue(percent)
-            
-    def _on_status_update(self, ch_idx, status_text):
-        if 1 <= ch_idx <= 6:
-            self.ch_status[ch_idx - 1].setText(f"Status: {status_text}")
-            
-    def _on_worker_finished(self, success):
+        self.log_console.append(f"\n[SYS] STARTING ALL {len(self.boards)} BOARDS...")
+        started_any = False
+        
+        for board in self.boards:
+            if board.start_worker(loops):
+                started_any = True
+                
+        if not started_any:
+            self.log_console.append("[SYS] No channels were enabled across any boards.")
+            self._reset_master_ui()
+
+    def _stop_all(self):
+        self.log_console.append("\n[SYS] STOP ALL REQUESTED...")
+        for board in self.boards:
+            board.stop_worker()
+        self._reset_master_ui()
+
+    def _reset_master_ui(self):
         self.btn_start.setEnabled(True)
         self.btn_stop.setEnabled(False)
-        for chk in self.ch_checkboxes:
-            chk.setEnabled(True)
-        self.log_console.append("[SYS] Thread finished and cleaned up.")
+        self.spin_boards.setEnabled(True)
 
     def _init_manual_tab(self):
         layout = QVBoxLayout(self.tab_manual)
@@ -202,26 +278,31 @@ class BqUpdaterMainWindow(QMainWindow):
         ctrl_group = QGroupBox("Command Configuration")
         ctrl_layout = QGridLayout(ctrl_group)
         
-        ctrl_layout.addWidget(QLabel("Channel (1-6):"), 0, 0)
+        ctrl_layout.addWidget(QLabel("COM Port:"), 0, 0)
+        self.man_port = QComboBox()
+        self.man_port.addItems(["COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "COM10"])
+        ctrl_layout.addWidget(self.man_port, 0, 1)
+        
+        ctrl_layout.addWidget(QLabel("Channel (1-6):"), 0, 2)
         self.man_ch = QComboBox()
         self.man_ch.addItems(["1","2","3","4","5","6"])
-        ctrl_layout.addWidget(self.man_ch, 0, 1)
+        ctrl_layout.addWidget(self.man_ch, 0, 3)
         
-        ctrl_layout.addWidget(QLabel("I2C Address (Hex):"), 0, 2)
+        ctrl_layout.addWidget(QLabel("I2C Address (Hex):"), 1, 0)
         self.man_addr = QLineEdit("0B")
-        ctrl_layout.addWidget(self.man_addr, 0, 3)
+        ctrl_layout.addWidget(self.man_addr, 1, 1)
         
-        ctrl_layout.addWidget(QLabel("Command Mode:"), 1, 0)
+        ctrl_layout.addWidget(QLabel("Command Mode:"), 1, 2)
         self.man_mode = QComboBox()
         self.man_mode.addItems(["RAW I2C TRX", "SMBus Read Word", "SMBus Read Block"])
-        ctrl_layout.addWidget(self.man_mode, 1, 1)
+        ctrl_layout.addWidget(self.man_mode, 1, 3)
         
         ctrl_layout.addWidget(QLabel("TX Data (Hex space separated):"), 2, 0)
-        self.man_tx = QLineEdit("08 11")
+        self.man_tx = QLineEdit("08")
         ctrl_layout.addWidget(self.man_tx, 2, 1, 1, 3)
         
         ctrl_layout.addWidget(QLabel("Expected RX Bytes:"), 3, 0)
-        self.man_rx_len = QLineEdit("4")
+        self.man_rx_len = QLineEdit("2")
         ctrl_layout.addWidget(self.man_rx_len, 3, 1)
         
         self.btn_send_cmd = QPushButton("SEND COMMAND")
@@ -236,7 +317,7 @@ class BqUpdaterMainWindow(QMainWindow):
         layout.addWidget(self.man_console, stretch=1)
 
     def _send_manual_command(self):
-        port = self.combo_port.currentText()
+        port = self.man_port.currentText()
         ch = int(self.man_ch.currentText())
         
         try:
@@ -262,11 +343,10 @@ class BqUpdaterMainWindow(QMainWindow):
                 
         tx_len = len(tx_data)
         
-        # Build payload for CMD_I2C_RAW: [channel, addr, tx_len, rx_len, tx_data...]
         payload = bytes([ch, addr, tx_len, rx_len]) + bytes(tx_data)
         packet = make_packet(CMD_I2C_RAW, payload)
         
-        self.man_console.append(f"\n[TX] CH:{ch} Addr:{addr:#04x} TX:{tx_data} Expected_RX:{rx_len}")
+        self.man_console.append(f"\n[TX] Port:{port} CH:{ch} Addr:{addr:#04x} TX:{tx_data} Expected_RX:{rx_len}")
         
         try:
             with serial.Serial(port, 115200, timeout=1.0) as ser:
