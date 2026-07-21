@@ -1,79 +1,210 @@
 import sys
+import os
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, 
-    QTabWidget, QLabel
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QTabWidget, QLabel, QPushButton, QComboBox, QProgressBar,
+    QTextBrowser, QCheckBox, QGroupBox, QGridLayout, QLineEdit, QFileDialog
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSize
+from PySide6.QtGui import QIcon, QFont
 
 class BqUpdaterMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("BQ40Z50 SLFS Multi-Channel Updater")
-        self.resize(1000, 700)
+        self.resize(1100, 750)
         
-        # Main widget and layout
+        # Apply QSS
+        qss_path = os.path.join(os.path.dirname(__file__), "style.qss")
+        try:
+            with open(qss_path, "r", encoding="utf-8") as f:
+                self.setStyleSheet(f.read())
+        except Exception as e:
+            print(f"Failed to load QSS: {e}")
+
+        # Central
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         self.main_layout = QVBoxLayout(self.central_widget)
+        self.main_layout.setContentsMargins(15, 15, 15, 15)
         
         # Tabs
         self.tabs = QTabWidget()
         self.main_layout.addWidget(self.tabs)
         
-        # Tab 1: Multi-Channel Updater
+        # Init Tabs
         self.tab_updater = QWidget()
         self.tabs.addTab(self.tab_updater, "Firmware Update (Main)")
         self._init_updater_tab()
         
-        # Tab 2: Manual I2C Debug
         self.tab_manual = QWidget()
         self.tabs.addTab(self.tab_manual, "Manual I2C Debug")
         self._init_manual_tab()
         
-        # Tab 3: SLFS Upload (to RP2040)
         self.tab_upload = QWidget()
         self.tabs.addTab(self.tab_upload, "SLFS Upload")
         self._init_upload_tab()
         
-        # Tab 4: CSV to SLFS
         self.tab_csv = QWidget()
         self.tabs.addTab(self.tab_csv, "CSV to SLFS")
         self._init_csv_tab()
 
     def _init_updater_tab(self):
         layout = QVBoxLayout(self.tab_updater)
-        label = QLabel("Multi-Channel Firmware Updater GUI will go here.")
-        label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(label)
         
+        # 1. Top Bar (Settings)
+        top_group = QGroupBox("Target Configuration")
+        top_layout = QHBoxLayout(top_group)
+        
+        self.combo_port = QComboBox()
+        self.combo_port.addItem("COM6")
+        self.btn_refresh_port = QPushButton("Refresh Ports")
+        
+        top_layout.addWidget(QLabel("COM Port:"))
+        top_layout.addWidget(self.combo_port)
+        top_layout.addWidget(self.btn_refresh_port)
+        top_layout.addStretch()
+        layout.addWidget(top_group)
+        
+        # 2. Channels (Grid 2x3)
+        channels_group = QGroupBox("Channel Monitoring")
+        channels_layout = QGridLayout(channels_group)
+        
+        self.ch_checkboxes = []
+        self.ch_progress = []
+        self.ch_status = []
+        
+        for i in range(6):
+            ch_idx = i + 1
+            box = QGroupBox(f"Channel {ch_idx}")
+            box_layout = QVBoxLayout(box)
+            
+            chk = QCheckBox("Enable")
+            chk.setChecked(True)
+            self.ch_checkboxes.append(chk)
+            
+            prog = QProgressBar()
+            prog.setValue(0)
+            self.ch_progress.append(prog)
+            
+            stat = QLabel("Status: Waiting")
+            self.ch_status.append(stat)
+            
+            box_layout.addWidget(chk)
+            box_layout.addWidget(prog)
+            box_layout.addWidget(stat)
+            
+            row, col = divmod(i, 3)
+            channels_layout.addWidget(box, row, col)
+            
+        layout.addWidget(channels_group)
+        
+        # 3. Log Console
+        self.log_console = QTextBrowser()
+        self.log_console.append("Welcome to BQ40Z50 Firmware Updater GUI.")
+        layout.addWidget(self.log_console, stretch=1)
+        
+        # 4. Action Buttons
+        btn_layout = QHBoxLayout()
+        self.btn_start = QPushButton("START UPDATE")
+        self.btn_start.setObjectName("startBtn")
+        self.btn_stop = QPushButton("STOP")
+        self.btn_stop.setObjectName("stopBtn")
+        self.btn_stop.setEnabled(False)
+        
+        btn_layout.addWidget(self.btn_start)
+        btn_layout.addWidget(self.btn_stop)
+        layout.addLayout(btn_layout)
+
     def _init_manual_tab(self):
         layout = QVBoxLayout(self.tab_manual)
-        label = QLabel("Manual I2C/SMBus Command Interface will go here.")
-        label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(label)
+        
+        ctrl_group = QGroupBox("Command Configuration")
+        ctrl_layout = QGridLayout(ctrl_group)
+        
+        ctrl_layout.addWidget(QLabel("Channel (1-6):"), 0, 0)
+        self.man_ch = QComboBox()
+        self.man_ch.addItems(["1","2","3","4","5","6"])
+        ctrl_layout.addWidget(self.man_ch, 0, 1)
+        
+        ctrl_layout.addWidget(QLabel("I2C Address (Hex):"), 0, 2)
+        self.man_addr = QLineEdit("0B")
+        ctrl_layout.addWidget(self.man_addr, 0, 3)
+        
+        ctrl_layout.addWidget(QLabel("Command Mode:"), 1, 0)
+        self.man_mode = QComboBox()
+        self.man_mode.addItems(["RAW I2C TRX", "SMBus Read Word", "SMBus Read Block"])
+        ctrl_layout.addWidget(self.man_mode, 1, 1)
+        
+        ctrl_layout.addWidget(QLabel("TX Data (Hex space separated):"), 2, 0)
+        self.man_tx = QLineEdit("08 11")
+        ctrl_layout.addWidget(self.man_tx, 2, 1, 1, 3)
+        
+        ctrl_layout.addWidget(QLabel("Expected RX Bytes:"), 3, 0)
+        self.man_rx_len = QLineEdit("4")
+        ctrl_layout.addWidget(self.man_rx_len, 3, 1)
+        
+        self.btn_send_cmd = QPushButton("SEND COMMAND")
+        self.btn_send_cmd.setObjectName("startBtn")
+        ctrl_layout.addWidget(self.btn_send_cmd, 3, 3)
+        
+        layout.addWidget(ctrl_group)
+        
+        self.man_console = QTextBrowser()
+        self.man_console.append("Ready for manual I2C commands.")
+        layout.addWidget(self.man_console, stretch=1)
 
     def _init_upload_tab(self):
         layout = QVBoxLayout(self.tab_upload)
-        label = QLabel("Upload .slfs file to RP2040 Flash Memory will go here.")
-        label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(label)
+        
+        group = QGroupBox("SLFS Data Upload (RP2040 Flash)")
+        glayout = QVBoxLayout(group)
+        
+        file_layout = QHBoxLayout()
+        self.upload_file_path = QLineEdit()
+        self.upload_file_path.setPlaceholderText("Select .slfs file...")
+        self.btn_browse = QPushButton("Browse")
+        file_layout.addWidget(self.upload_file_path)
+        file_layout.addWidget(self.btn_browse)
+        
+        glayout.addLayout(file_layout)
+        
+        self.btn_upload = QPushButton("UPLOAD TO RP2040")
+        self.btn_upload.setObjectName("startBtn")
+        glayout.addWidget(self.btn_upload)
+        
+        layout.addWidget(group)
+        
+        self.upload_console = QTextBrowser()
+        layout.addWidget(self.upload_console, stretch=1)
 
     def _init_csv_tab(self):
         layout = QVBoxLayout(self.tab_csv)
-        label = QLabel("CSV to SLFS Converter Tool will go here.")
-        label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(label)
+        group = QGroupBox("CSV to SLFS Generation")
+        glayout = QVBoxLayout(group)
+        
+        file_layout = QHBoxLayout()
+        self.csv_file_path = QLineEdit()
+        self.csv_file_path.setPlaceholderText("Select .csv file...")
+        self.btn_csv_browse = QPushButton("Browse")
+        file_layout.addWidget(self.csv_file_path)
+        file_layout.addWidget(self.btn_csv_browse)
+        
+        glayout.addLayout(file_layout)
+        
+        self.btn_convert = QPushButton("GENERATE SLFS")
+        self.btn_convert.setObjectName("startBtn")
+        glayout.addWidget(self.btn_convert)
+        
+        layout.addWidget(group)
+        
+        self.csv_console = QTextBrowser()
+        layout.addWidget(self.csv_console, stretch=1)
 
 def main():
     app = QApplication(sys.argv)
-    
-    # Enable high DPI scaling
-    app.setAttribute(Qt.AA_EnableHighDpiScaling, True)
-    app.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
-    
     window = BqUpdaterMainWindow()
     window.show()
-    
     sys.exit(app.exec())
 
 if __name__ == "__main__":
