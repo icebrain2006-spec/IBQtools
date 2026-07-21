@@ -13,7 +13,23 @@ from PySide6.QtGui import QIcon, QFont
 
 from updater_thread import UpdaterWorker, make_packet, parse_response, CMD_I2C_RAW, RESP_OK
 
+class ClickableProgressBar(QProgressBar):
+    from PySide6.QtCore import Signal
+    clicked = Signal(int)
+    
+    def __init__(self, ch_idx, parent=None):
+        super().__init__(parent)
+        self.ch_idx = ch_idx
+        
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit(self.ch_idx)
+        super().mousePressEvent(event)
+
 class RP2040BoardWidget(QGroupBox):
+    from PySide6.QtCore import Signal
+    board_finished = Signal()
+    
     def __init__(self, board_id, log_callback, parent=None):
         super().__init__(f"RP2040 Board {board_id}", parent)
         self.board_id = board_id
@@ -21,9 +37,12 @@ class RP2040BoardWidget(QGroupBox):
         self.worker = None
         
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 15, 10, 10)
+        layout.setSpacing(5)
         
         # COM Port Selection Row
         com_layout = QHBoxLayout()
+        com_layout.setContentsMargins(5, 0, 5, 0)
         com_layout.addWidget(QLabel("COM Port:"))
         self.combo_port = QComboBox()
         # Mock some default ports for convenience
@@ -38,6 +57,10 @@ class RP2040BoardWidget(QGroupBox):
         
         # 6 Channels Grid
         channels_layout = QGridLayout()
+        channels_layout.setContentsMargins(5, 0, 5, 5)
+        channels_layout.setVerticalSpacing(5)
+        channels_layout.setHorizontalSpacing(10)
+        
         self.ch_checkboxes = []
         self.ch_progress = []
         self.ch_status = []
@@ -46,13 +69,16 @@ class RP2040BoardWidget(QGroupBox):
             ch_idx = i + 1
             box = QGroupBox(f"CH {ch_idx}")
             box_layout = QVBoxLayout(box)
+            box_layout.setContentsMargins(8, 12, 8, 8)
+            box_layout.setSpacing(4)
             
             chk = QCheckBox("Enable")
             chk.setChecked(True)
             self.ch_checkboxes.append(chk)
             
-            prog = QProgressBar()
+            prog = ClickableProgressBar(ch_idx)
             prog.setValue(0)
+            prog.clicked.connect(self.start_single_channel)
             self.ch_progress.append(prog)
             
             stat = QLabel("Status: Waiting")
@@ -62,7 +88,7 @@ class RP2040BoardWidget(QGroupBox):
             box_layout.addWidget(prog)
             box_layout.addWidget(stat)
             
-            row, col = divmod(i, 3)
+            row, col = divmod(i, 6)
             channels_layout.addWidget(box, row, col)
             
         layout.addLayout(channels_layout)
@@ -102,6 +128,29 @@ class RP2040BoardWidget(QGroupBox):
         self.worker.start()
         return True
 
+    def start_single_channel(self, ch_idx):
+        if self.worker and self.worker.isRunning():
+            self.log_callback(f"[Board {self.board_id}] Worker is already running. Please stop it first.")
+            return
+            
+        port = self.combo_port.currentText()
+        
+        for chk in self.ch_checkboxes:
+            chk.setEnabled(False)
+            
+        self.ch_progress[ch_idx - 1].setValue(0)
+        self.ch_status[ch_idx - 1].setText("Status: Starting...")
+        
+        self.log_callback(f"[Board {self.board_id}] Initializing SINGLE update for CH {ch_idx} on {port}...")
+        
+        self.worker = UpdaterWorker(port, [ch_idx], loop_count=1)
+        self.worker.log_msg.connect(lambda msg: self.log_callback(f"[Board {self.board_id}] {msg}"))
+        self.worker.progress_updated.connect(self._on_progress_update)
+        self.worker.status_updated.connect(self._on_status_update)
+        self.worker.finished.connect(self._on_worker_finished)
+        
+        self.worker.start()
+
     def stop_worker(self):
         if self.worker and self.worker.isRunning():
             self.worker.stop()
@@ -118,13 +167,15 @@ class RP2040BoardWidget(QGroupBox):
         for chk in self.ch_checkboxes:
             chk.setEnabled(True)
         self.log_callback(f"[Board {self.board_id}] Thread finished.")
+        self.board_finished.emit()
 
 
 class BqUpdaterMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.active_workers = 0
         self.setWindowTitle("BQ40Z50 SLFS Multi-Channel Updater (Multi-Board)")
-        self.resize(1300, 800)
+        self.resize(1500, 800)
         
         # Apply QSS
         qss_path = os.path.join(os.path.dirname(__file__), "style.qss")
@@ -234,8 +285,15 @@ class BqUpdaterMainWindow(QMainWindow):
         # Add new boards
         for i in range(count):
             board = RP2040BoardWidget(i + 1, self._log_to_console)
+            board.board_finished.connect(self._on_board_finished_callback)
             self.boards_layout.addWidget(board)
             self.boards.append(board)
+
+    def _on_board_finished_callback(self):
+        self.active_workers -= 1
+        if self.active_workers <= 0:
+            self.active_workers = 0
+            self._reset_master_ui()
 
     def _log_to_console(self, msg):
         self.log_console.append(msg)
@@ -251,13 +309,13 @@ class BqUpdaterMainWindow(QMainWindow):
         self.spin_boards.setEnabled(False)
         
         self.log_console.append(f"\n[SYS] STARTING ALL {len(self.boards)} BOARDS...")
-        started_any = False
         
+        self.active_workers = 0
         for board in self.boards:
             if board.start_worker(loops):
-                started_any = True
+                self.active_workers += 1
                 
-        if not started_any:
+        if self.active_workers == 0:
             self.log_console.append("[SYS] No channels were enabled across any boards.")
             self._reset_master_ui()
 

@@ -43,15 +43,15 @@ QTabBar::tab:hover:!selected {
 QGroupBox {
     border: 1px solid #333333;
     border-radius: 8px;
-    margin-top: 15px;
+    margin-top: 10px;
     background-color: #1A1A1A;
 }
 
 QGroupBox::title {
     subcontrol-origin: margin;
     subcontrol-position: top left;
-    left: 15px;
-    padding: 0 5px;
+    left: 10px;
+    padding: 0 3px;
     color: #888888;
     font-weight: bold;
 }
@@ -118,13 +118,13 @@ QPushButton#stopBtn:hover {
 }
 
 QProgressBar {
-    background-color: #252525;
+    background-color: #2A2A2A;
     border: 1px solid #333333;
-    border-radius: 6px;
+    border-radius: 5px;
     text-align: center;
     color: #FFFFFF;
     font-weight: bold;
-    height: 18px;
+    height: 12px;
 }
 
 QProgressBar::chunk {
