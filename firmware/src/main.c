@@ -127,6 +127,45 @@ static void handle_packet(const rx_packet_t *pkt) {
             protocol_send_packet(CMD_SMBUS_CMD, resp_payload, resp_len);
             break;
         }
+        case CMD_I2C_RAW: {
+            if (pkt->length < 4) {
+                resp_payload[0] = RESP_ERR_PARAM;
+                protocol_send_packet(CMD_I2C_RAW, resp_payload, 1);
+                break;
+            }
+            uint8_t ch = pkt->payload[0];
+            uint8_t addr = pkt->payload[1];
+            uint8_t tx_len = pkt->payload[2];
+            uint8_t rx_len = pkt->payload[3];
+            
+            if (pkt->length < 4 + tx_len || rx_len > (PROTOCOL_MAX_PAYLOAD - 2)) {
+                resp_payload[0] = RESP_ERR_PARAM;
+                protocol_send_packet(CMD_I2C_RAW, resp_payload, 1);
+                break;
+            }
+            
+            const uint8_t *tx_data = pkt->payload + 4;
+            int err = SMBUS_OK;
+            
+            if (tx_len > 0 && rx_len == 0) {
+                err = smbus_i2c_write(ch, addr, tx_data, tx_len);
+                resp_len = 2;
+            } else if (tx_len == 0 && rx_len > 0) {
+                err = smbus_i2c_read(ch, addr, resp_payload + 2, rx_len);
+                resp_len = 2 + rx_len;
+            } else if (tx_len > 0 && rx_len > 0) {
+                err = smbus_i2c_write_read(ch, addr, tx_data, tx_len, resp_payload + 2, rx_len);
+                resp_len = 2 + rx_len;
+            } else {
+                err = SMBUS_ERR_INVALID;
+                resp_len = 2;
+            }
+            
+            resp_payload[0] = (err == SMBUS_OK) ? RESP_OK : RESP_ERR_HW;
+            resp_payload[1] = (uint8_t)(-err);
+            protocol_send_packet(CMD_I2C_RAW, resp_payload, resp_len);
+            break;
+        }
         
         case CMD_FW_UPLOAD_START: {
             if (pkt->length < 5) {
@@ -272,8 +311,8 @@ int main() {
     rx_packet_t rx_pkt;
     
     while (true) {
-        // Read character from USB CDC Non-blockingly
-        int c = getchar_timeout_us(0);
+        // Read character from USB CDC with 1ms timeout to prevent 100% CPU spinning (reduces heat/power draw)
+        int c = getchar_timeout_us(1000);
         if (c != PICO_ERROR_TIMEOUT) {
             if (protocol_parse_byte((uint8_t)c, &rx_pkt)) {
                 handle_packet(&rx_pkt);

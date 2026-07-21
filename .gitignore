@@ -1,0 +1,20 @@
+# Build output
+firmware/build/
+build/
+*.bin
+*.elf
+*.uf2
+*.o
+*.obj
+
+# IDE & Editor
+.vscode/
+.idea/
+scratch/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.env
+

@@ -206,6 +206,7 @@ def main():
     parser = argparse.ArgumentParser(description="Multi-Channel SLFS Updater Monitor")
     parser.add_argument("-port", required=True, help="Serial port to connect (e.g., com7)")
     parser.add_argument("-ch", type=int, nargs='+', required=True, help="List of channels to update (e.g., -ch 1 2 3)")
+    parser.add_argument("-loop", type=int, default=1, help="Number of consecutive times to run the update")
     
     args = parser.parse_args()
     
@@ -221,7 +222,17 @@ def main():
         print("Error: No valid channels specified. Must be between 1 and 6.")
         return
         
-    run_monitor(args.port, valid_channels)
+    for i in range(args.loop):
+        if args.loop > 1:
+            print(f"\n========================================")
+            print(f"===     STARTING TEST LOOP {i+1}/{args.loop}    ===")
+            print(f"========================================\n")
+        
+        run_monitor(args.port, valid_channels)
+        
+        if i < args.loop - 1:
+            print(f"Waiting 2 seconds before next loop...")
+            time.sleep(2.0)
 
 if __name__ == "__main__":
     main()
