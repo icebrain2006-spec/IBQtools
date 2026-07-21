@@ -8,6 +8,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QIcon, QFont
 
+from updater_thread import UpdaterWorker
+
 class BqUpdaterMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -22,6 +24,8 @@ class BqUpdaterMainWindow(QMainWindow):
         except Exception as e:
             print(f"Failed to load QSS: {e}")
 
+        self.worker = None # Reference to background thread
+        
         # Central
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
@@ -60,9 +64,14 @@ class BqUpdaterMainWindow(QMainWindow):
         self.combo_port.addItem("COM6")
         self.btn_refresh_port = QPushButton("Refresh Ports")
         
+        self.loop_count = QLineEdit("1")
+        self.loop_count.setFixedWidth(50)
+        
         top_layout.addWidget(QLabel("COM Port:"))
         top_layout.addWidget(self.combo_port)
         top_layout.addWidget(self.btn_refresh_port)
+        top_layout.addWidget(QLabel("   Loop Count:"))
+        top_layout.addWidget(self.loop_count)
         top_layout.addStretch()
         layout.addWidget(top_group)
         
@@ -112,9 +121,77 @@ class BqUpdaterMainWindow(QMainWindow):
         self.btn_stop.setObjectName("stopBtn")
         self.btn_stop.setEnabled(False)
         
+        # Connect buttons
+        self.btn_start.clicked.connect(self._start_update)
+        self.btn_stop.clicked.connect(self._stop_update)
+        
         btn_layout.addWidget(self.btn_start)
         btn_layout.addWidget(self.btn_stop)
         layout.addLayout(btn_layout)
+
+    def _start_update(self):
+        # 1. Gather selected channels
+        active_channels = []
+        for i, chk in enumerate(self.ch_checkboxes):
+            if chk.isChecked():
+                active_channels.append(i + 1)
+                
+        if not active_channels:
+            self.log_console.append("[ERROR] Please select at least one channel to update.")
+            return
+            
+        port = self.combo_port.currentText()
+        
+        # 2. UI State update
+        self.btn_start.setEnabled(False)
+        self.btn_stop.setEnabled(True)
+        for chk in self.ch_checkboxes:
+            chk.setEnabled(False)
+            
+        for i in range(6):
+            if (i+1) in active_channels:
+                self.ch_progress[i].setValue(0)
+                self.ch_status[i].setText("Status: Starting...")
+            else:
+                self.ch_status[i].setText("Status: Disabled")
+                
+        self.log_console.append(f"\n[SYS] Initializing thread on {port}...")
+        
+        try:
+            loops = int(self.loop_count.text())
+        except ValueError:
+            loops = 1
+            
+        # 3. Create and Start Worker
+        self.worker = UpdaterWorker(port, active_channels, loop_count=loops)
+        self.worker.log_msg.connect(self._on_log_msg)
+        self.worker.progress_updated.connect(self._on_progress_update)
+        self.worker.status_updated.connect(self._on_status_update)
+        self.worker.finished.connect(self._on_worker_finished)
+        self.worker.start()
+
+    def _stop_update(self):
+        if self.worker and self.worker.isRunning():
+            self.worker.stop()
+            self.btn_stop.setEnabled(False)
+
+    def _on_log_msg(self, msg):
+        self.log_console.append(msg)
+        
+    def _on_progress_update(self, ch_idx, percent):
+        if 1 <= ch_idx <= 6:
+            self.ch_progress[ch_idx - 1].setValue(percent)
+            
+    def _on_status_update(self, ch_idx, status_text):
+        if 1 <= ch_idx <= 6:
+            self.ch_status[ch_idx - 1].setText(f"Status: {status_text}")
+            
+    def _on_worker_finished(self, success):
+        self.btn_start.setEnabled(True)
+        self.btn_stop.setEnabled(False)
+        for chk in self.ch_checkboxes:
+            chk.setEnabled(True)
+        self.log_console.append("[SYS] Thread finished and cleaned up.")
 
     def _init_manual_tab(self):
         layout = QVBoxLayout(self.tab_manual)
