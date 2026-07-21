@@ -1,0 +1,3 @@
+@echo off
+echo Starting BQ40Z50 GUI...
+uv run --with PySide6 --with pyserial python gui/main.py
