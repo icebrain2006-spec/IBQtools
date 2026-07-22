@@ -11,8 +11,39 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize, QRegularExpression, Signal
 from PySide6.QtGui import QIcon, QFont, QRegularExpressionValidator
 import threading
+import logging
+import datetime
+import csv
+import traceback
 
 from updater_thread import UpdaterWorker, make_packet, parse_response, CMD_I2C_RAW, RESP_OK, get_file_info
+from config import config
+
+def setup_error_logging(filepath):
+    logger = logging.getLogger('IBQtools')
+    logger.setLevel(logging.ERROR)
+    
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+        
+    try:
+        fh = logging.FileHandler(filepath, encoding='utf-8')
+        fh.setLevel(logging.ERROR)
+        formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] %(message)s')
+        fh.setFormatter(formatter)
+        logger.addHandler(fh)
+    except Exception as e:
+        print(f"Failed to setup error logging: {e}")
+
+def handle_exception(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    logger = logging.getLogger('IBQtools')
+    logger.error("Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback))
+
+sys.excepthook = handle_exception
+
 
 class ClickableProgressBar(QProgressBar):
     from PySide6.QtCore import Signal
@@ -220,27 +251,53 @@ class RP2040BoardWidget(QGroupBox):
                 exp_date = self.expected_date_map[ch_idx]
                 exp_sn_int = self.expected_sn_map[ch_idx]
                 sn_fmt = self.expected_fmt
+                _, _, _, should_write = self.get_expected_cb(False)
             else:
-                exp_date, exp_sn_int, sn_fmt, _ = self.get_expected_cb(False)
+                exp_date, exp_sn_int, sn_fmt, should_write = self.get_expected_cb(False)
+            
+            result_str = "ERROR"
             
             if not date_str or sn_int < 0:
                 self.ch_status[ch_idx - 1].setText("Verify: ERROR")
                 self.ch_status[ch_idx - 1].setStyleSheet("color: #FF4444; font-weight: bold;")
-                return
-                
-            if sn_fmt == "HEX":
-                sn_str = f"0x{sn_int:04X}"
-                exp_sn_str = f"0x{exp_sn_int:04X}"
             else:
-                sn_str = str(sn_int)
-                exp_sn_str = str(exp_sn_int)
-                
-            if date_str == exp_date and sn_int == exp_sn_int:
-                self.ch_status[ch_idx - 1].setText(f"PASS (M:{date_str} SN:{sn_str})")
-                self.ch_status[ch_idx - 1].setStyleSheet("color: #00FF00; font-weight: bold;")
-            else:
-                self.ch_status[ch_idx - 1].setText(f"FAIL (M:{date_str} SN:{sn_str})")
-                self.ch_status[ch_idx - 1].setStyleSheet("color: #FF4444; font-weight: bold;")
+                if sn_fmt == "HEX":
+                    sn_str = f"0x{sn_int:04X}"
+                    exp_sn_str = f"0x{exp_sn_int:04X}"
+                else:
+                    sn_str = str(sn_int)
+                    exp_sn_str = str(exp_sn_int)
+                    
+                if date_str == exp_date and sn_int == exp_sn_int:
+                    self.ch_status[ch_idx - 1].setText(f"PASS (M:{date_str} SN:{sn_str})")
+                    self.ch_status[ch_idx - 1].setStyleSheet("color: #00FF00; font-weight: bold;")
+                    result_str = "PASS"
+                else:
+                    self.ch_status[ch_idx - 1].setText(f"FAIL (M:{date_str} SN:{sn_str})")
+                    self.ch_status[ch_idx - 1].setStyleSheet("color: #FF4444; font-weight: bold;")
+                    result_str = "FAIL"
+                    
+            try:
+                work_log = config.get_work_log_path()
+                if work_log:
+                    file_exists = os.path.exists(work_log)
+                    with open(work_log, mode='a', newline='', encoding='utf-8') as f:
+                        writer = csv.writer(f)
+                        if not file_exists:
+                            writer.writerow(["Timestamp", "Board_ID", "Channel", "SLFS_File", "Wrote_SN", "Read_Date", "Read_SN", "Result"])
+                        
+                        ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        slfs_file = self.lbl_slfs_info.text().replace("SLFS: ", "")
+                        wrote_sn = "Yes" if should_write else "No"
+                        
+                        if sn_int >= 0:
+                            ch_sn_str = f"0x{sn_int:04X}" if sn_fmt == "HEX" else str(sn_int)
+                        else:
+                            ch_sn_str = "N/A"
+                            
+                        writer.writerow([ts, self.board_id, ch_idx, slfs_file, wrote_sn, date_str or "N/A", ch_sn_str, result_str])
+            except Exception as e:
+                logging.getLogger('IBQtools').error(f"Failed to write work log: {e}")
             
     def _on_worker_finished(self, success):
         for chk in self.ch_checkboxes:
@@ -303,6 +360,62 @@ class BqUpdaterMainWindow(QMainWindow):
         self.tab_csv = QWidget()
         self.tabs.addTab(self.tab_csv, "CSV to SLFS")
         self._init_csv_tab()
+        
+        self.tab_options = QWidget()
+        self.tabs.addTab(self.tab_options, "Options")
+        self._init_options_tab()
+
+    def _init_options_tab(self):
+        layout_options = QVBoxLayout(self.tab_options)
+        
+        group_log_settings = QGroupBox("Logging Settings")
+        layout_log = QFormLayout(group_log_settings)
+        
+        self.input_work_log = QLineEdit()
+        self.btn_browse_work = QPushButton("Browse...")
+        work_layout = QHBoxLayout()
+        work_layout.addWidget(self.input_work_log)
+        work_layout.addWidget(self.btn_browse_work)
+        
+        self.input_error_log = QLineEdit()
+        self.btn_browse_error = QPushButton("Browse...")
+        error_layout = QHBoxLayout()
+        error_layout.addWidget(self.input_error_log)
+        error_layout.addWidget(self.btn_browse_error)
+        
+        layout_log.addRow("Work Log (CSV):", work_layout)
+        layout_log.addRow("Error Log (TXT):", error_layout)
+        
+        self.btn_save_options = QPushButton("Save Settings")
+        
+        layout_options.addWidget(group_log_settings)
+        layout_options.addWidget(self.btn_save_options)
+        layout_options.addStretch()
+        
+        self.input_work_log.setText(config.get_work_log_path())
+        self.input_error_log.setText(config.get_error_log_path())
+        
+        self.btn_browse_work.clicked.connect(self._browse_work_log)
+        self.btn_browse_error.clicked.connect(self._browse_error_log)
+        self.btn_save_options.clicked.connect(self._save_options)
+        
+    def _browse_work_log(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Select Work Log File", self.input_work_log.text(), "CSV Files (*.csv);;All Files (*)")
+        if path:
+            self.input_work_log.setText(path)
+            
+    def _browse_error_log(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Select Error Log File", self.input_error_log.text(), "Text Files (*.txt *.log);;All Files (*)")
+        if path:
+            self.input_error_log.setText(path)
+            
+    def _save_options(self):
+        config.set_work_log_path(self.input_work_log.text())
+        config.set_error_log_path(self.input_error_log.text())
+        
+        setup_error_logging(self.input_error_log.text())
+        
+        QMessageBox.information(self, "Settings Saved", "Logging configuration saved successfully.")
 
     def _init_updater_tab(self):
         # Master layout for the updater tab: Split Left/Right
@@ -658,6 +771,10 @@ class BqUpdaterMainWindow(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
+    
+    # Initialize error logging right at startup
+    setup_error_logging(config.get_error_log_path())
+    
     window = BqUpdaterMainWindow()
     window.show()
     sys.exit(app.exec())
