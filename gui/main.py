@@ -6,12 +6,13 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QTabWidget, QLabel, QPushButton, QComboBox, QProgressBar,
     QTextBrowser, QCheckBox, QGroupBox, QGridLayout, QLineEdit,
-    QFileDialog, QMessageBox, QScrollArea, QSpinBox
+    QFileDialog, QMessageBox, QScrollArea, QSpinBox, QFormLayout
 )
-from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QIcon, QFont
+from PySide6.QtCore import Qt, QSize, QRegularExpression, Signal
+from PySide6.QtGui import QIcon, QFont, QRegularExpressionValidator
+import threading
 
-from updater_thread import UpdaterWorker, make_packet, parse_response, CMD_I2C_RAW, RESP_OK
+from updater_thread import UpdaterWorker, make_packet, parse_response, CMD_I2C_RAW, RESP_OK, get_file_info
 
 class ClickableProgressBar(QProgressBar):
     from PySide6.QtCore import Signal
@@ -30,11 +31,16 @@ class RP2040BoardWidget(QGroupBox):
     from PySide6.QtCore import Signal
     board_finished = Signal()
     
-    def __init__(self, board_id, log_callback, parent=None):
+    def __init__(self, board_id, log_callback, get_expected_cb, cache_values_cb, parent=None):
         super().__init__(f"RP2040 Board {board_id}", parent)
         self.board_id = board_id
         self.log_callback = log_callback # Function to send logs to central console
+        self.get_expected_cb = get_expected_cb
+        self.cache_values_cb = cache_values_cb
         self.worker = None
+        self.expected_sn_map = {}
+        self.expected_date_map = {}
+        self.expected_fmt = "DEC"
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 15, 10, 10)
@@ -51,7 +57,13 @@ class RP2040BoardWidget(QGroupBox):
         com_layout.addWidget(self.combo_port)
         
         self.btn_refresh = QPushButton("Refresh")
+        self.btn_refresh.clicked.connect(self.refresh_info)
         com_layout.addWidget(self.btn_refresh)
+        
+        self.lbl_slfs_info = QLabel("SLFS: Unknown")
+        self.lbl_slfs_info.setStyleSheet("color: #00E5FF; font-weight: bold; margin-left: 15px;")
+        com_layout.addWidget(self.lbl_slfs_info)
+        
         com_layout.addStretch()
         layout.addLayout(com_layout)
         
@@ -93,7 +105,20 @@ class RP2040BoardWidget(QGroupBox):
             
         layout.addLayout(channels_layout)
 
+    def refresh_info(self):
+        port = self.combo_port.currentText()
+        fname = get_file_info(port)
+        if fname:
+            self.lbl_slfs_info.setText(f"SLFS: {fname}")
+        else:
+            self.lbl_slfs_info.setText("SLFS: Not Connected / Error")
+
     def start_worker(self, loop_count):
+        self.refresh_info()
+        if "Unknown" in self.lbl_slfs_info.text() or "Error" in self.lbl_slfs_info.text():
+            QMessageBox.warning(self, "SLFS Check", f"Board {self.board_id}: SLFS file not found! Please check the connection or upload the SLFS file first.")
+            return False
+            
         active_channels = []
         for i, chk in enumerate(self.ch_checkboxes):
             if chk.isChecked():
@@ -102,6 +127,9 @@ class RP2040BoardWidget(QGroupBox):
         if not active_channels:
             self.log_callback(f"[Board {self.board_id}] No channels selected. Skipping.")
             return False
+            
+        if self.cache_values_cb:
+            self.cache_values_cb()
             
         port = self.combo_port.currentText()
         
@@ -117,12 +145,15 @@ class RP2040BoardWidget(QGroupBox):
                 self.ch_status[i].setText("Status: Disabled")
                 
         self.log_callback(f"[Board {self.board_id}] Initializing thread on {port}...")
+        self.expected_sn_map.clear()
+        self.expected_date_map.clear()
         
-        self.worker = UpdaterWorker(port, active_channels, loop_count=loop_count)
+        self.worker = UpdaterWorker(port, active_channels, loop_count=loop_count, get_expected_cb=self._get_sn_for_worker)
         # Prefix log messages with board ID
         self.worker.log_msg.connect(lambda msg: self.log_callback(f"[Board {self.board_id}] {msg}"))
         self.worker.progress_updated.connect(self._on_progress_update)
         self.worker.status_updated.connect(self._on_status_update)
+        self.worker.verify_updated.connect(self._on_verify_update)
         self.worker.finished.connect(self._on_worker_finished)
         
         self.worker.start()
@@ -133,6 +164,14 @@ class RP2040BoardWidget(QGroupBox):
             self.log_callback(f"[Board {self.board_id}] Worker is already running. Please stop it first.")
             return
             
+        self.refresh_info()
+        if "Unknown" in self.lbl_slfs_info.text() or "Error" in self.lbl_slfs_info.text():
+            QMessageBox.warning(self, "SLFS Check", f"Board {self.board_id}: SLFS file not found! Please check the connection or upload the SLFS file first.")
+            return
+            
+        if self.cache_values_cb:
+            self.cache_values_cb()
+            
         port = self.combo_port.currentText()
         
         for chk in self.ch_checkboxes:
@@ -142,11 +181,14 @@ class RP2040BoardWidget(QGroupBox):
         self.ch_status[ch_idx - 1].setText("Status: Starting...")
         
         self.log_callback(f"[Board {self.board_id}] Initializing SINGLE update for CH {ch_idx} on {port}...")
+        self.expected_sn_map.clear()
+        self.expected_date_map.clear()
         
-        self.worker = UpdaterWorker(port, [ch_idx], loop_count=1)
+        self.worker = UpdaterWorker(port, [ch_idx], loop_count=1, get_expected_cb=self._get_sn_for_worker)
         self.worker.log_msg.connect(lambda msg: self.log_callback(f"[Board {self.board_id}] {msg}"))
         self.worker.progress_updated.connect(self._on_progress_update)
         self.worker.status_updated.connect(self._on_status_update)
+        self.worker.verify_updated.connect(self._on_verify_update)
         self.worker.finished.connect(self._on_worker_finished)
         
         self.worker.start()
@@ -155,6 +197,14 @@ class RP2040BoardWidget(QGroupBox):
         if self.worker and self.worker.isRunning():
             self.worker.stop()
 
+    def _get_sn_for_worker(self, ch_idx):
+        exp_date, sn_int, fmt, should_write = self.get_expected_cb(True)
+        if should_write:
+            self.expected_date_map[ch_idx] = exp_date
+            self.expected_sn_map[ch_idx] = sn_int
+            self.expected_fmt = fmt
+        return exp_date, sn_int, fmt, should_write
+
     def _on_progress_update(self, ch_idx, percent):
         if 1 <= ch_idx <= 6:
             self.ch_progress[ch_idx - 1].setValue(percent)
@@ -162,6 +212,35 @@ class RP2040BoardWidget(QGroupBox):
     def _on_status_update(self, ch_idx, status_text):
         if 1 <= ch_idx <= 6:
             self.ch_status[ch_idx - 1].setText(f"Status: {status_text}")
+            self.ch_status[ch_idx - 1].setStyleSheet("") # Reset style
+            
+    def _on_verify_update(self, ch_idx, date_str, sn_int):
+        if 1 <= ch_idx <= 6:
+            if ch_idx in self.expected_sn_map:
+                exp_date = self.expected_date_map[ch_idx]
+                exp_sn_int = self.expected_sn_map[ch_idx]
+                sn_fmt = self.expected_fmt
+            else:
+                exp_date, exp_sn_int, sn_fmt, _ = self.get_expected_cb(False)
+            
+            if not date_str or sn_int < 0:
+                self.ch_status[ch_idx - 1].setText("Verify: ERROR")
+                self.ch_status[ch_idx - 1].setStyleSheet("color: #FF4444; font-weight: bold;")
+                return
+                
+            if sn_fmt == "HEX":
+                sn_str = f"0x{sn_int:04X}"
+                exp_sn_str = f"0x{exp_sn_int:04X}"
+            else:
+                sn_str = str(sn_int)
+                exp_sn_str = str(exp_sn_int)
+                
+            if date_str == exp_date and sn_int == exp_sn_int:
+                self.ch_status[ch_idx - 1].setText(f"PASS (M:{date_str} SN:{sn_str})")
+                self.ch_status[ch_idx - 1].setStyleSheet("color: #00FF00; font-weight: bold;")
+            else:
+                self.ch_status[ch_idx - 1].setText(f"FAIL (M:{date_str} SN:{sn_str})")
+                self.ch_status[ch_idx - 1].setStyleSheet("color: #FF4444; font-weight: bold;")
             
     def _on_worker_finished(self, success):
         for chk in self.ch_checkboxes:
@@ -171,11 +250,24 @@ class RP2040BoardWidget(QGroupBox):
 
 
 class BqUpdaterMainWindow(QMainWindow):
+    update_sn_ui_signal = Signal(str)
+
     def __init__(self):
         super().__init__()
-        self.active_workers = 0
-        self.setWindowTitle("BQ40Z50 SLFS Multi-Channel Updater (Multi-Board)")
+        self.setWindowTitle("Multi-Board BQ40Z50 Firmware Updater")
         self.resize(1500, 800)
+        
+        self.boards = []
+        self.active_workers = 0
+        self.sn_lock = threading.Lock()
+        
+        self.cached_exp_date = ""
+        self.cached_fmt = "DEC"
+        self.cached_should_write = False
+        self.cached_should_inc = False
+        self.cached_sn_int = 0
+        
+        self.update_sn_ui_signal.connect(self._safe_update_sn_ui)
         
         # Apply QSS
         qss_path = os.path.join(os.path.dirname(__file__), "style.qss")
@@ -236,7 +328,56 @@ class BqUpdaterMainWindow(QMainWindow):
         self.loop_count = QLineEdit("1")
         mlayout.addWidget(self.loop_count, 1, 1)
         
+        # Expected Verification Targets row
+        verify_group = QGroupBox("Verification Targets")
+        verify_form = QFormLayout(verify_group)
+        self.input_exp_date = QLineEdit("2024-03-05")
+        self.input_exp_date.setInputMask("9999-99-99")
+        
+        chk_layout = QHBoxLayout()
+        self.chk_write_sn = QCheckBox("Write SN to Chip")
+        self.chk_auto_inc = QCheckBox("Auto Increment (+1)")
+        self.chk_auto_inc.setEnabled(False)
+        self.chk_write_sn.toggled.connect(self.chk_auto_inc.setEnabled)
+        chk_layout.addWidget(self.chk_write_sn)
+        chk_layout.addWidget(self.chk_auto_inc)
+        verify_form.addRow("SN Options:", chk_layout)
+        
+        sn_layout = QHBoxLayout()
+        self.combo_sn_fmt = QComboBox()
+        self.combo_sn_fmt.addItems(["DEC", "HEX"])
+        self.input_exp_sn = QLineEdit("1")
+        
+        self.val_dec = QRegularExpressionValidator(QRegularExpression(r"^[0-9]{1,4}$"))
+        self.val_hex = QRegularExpressionValidator(QRegularExpression(r"^[0-9A-Fa-f]{1,4}$"))
+        self.input_exp_sn.setValidator(self.val_dec)
+        
+        def _on_sn_fmt_changed(fmt):
+            if fmt == "DEC":
+                self.input_exp_sn.setValidator(self.val_dec)
+                try:
+                    val = int(self.input_exp_sn.text() or "0", 16)
+                    if val > 9999: val = 9999
+                    self.input_exp_sn.setText(str(val))
+                except ValueError:
+                    self.input_exp_sn.setText("0")
+            else:
+                self.input_exp_sn.setValidator(self.val_hex)
+                try:
+                    val = int(self.input_exp_sn.text() or "0")
+                    self.input_exp_sn.setText(f"{val:X}")
+                except ValueError:
+                    self.input_exp_sn.setText("0")
+                    
+        self.combo_sn_fmt.currentTextChanged.connect(_on_sn_fmt_changed)
+        
+        sn_layout.addWidget(self.combo_sn_fmt)
+        sn_layout.addWidget(self.input_exp_sn)
+        
+        verify_form.addRow("Expected Date:", self.input_exp_date)
+        verify_form.addRow("Start SN:", sn_layout)
         left_layout.addWidget(master_group)
+        left_layout.addWidget(verify_group)
         
         self.log_console = QTextBrowser()
         self.log_console.append("Welcome to Multi-Board BQ40Z50 Updater GUI.")
@@ -284,10 +425,48 @@ class BqUpdaterMainWindow(QMainWindow):
         
         # Add new boards
         for i in range(count):
-            board = RP2040BoardWidget(i + 1, self._log_to_console)
+            board = RP2040BoardWidget(i + 1, self._log_to_console, self._get_expected_values, self._cache_values_if_needed)
             board.board_finished.connect(self._on_board_finished_callback)
             self.boards_layout.addWidget(board)
             self.boards.append(board)
+
+    def _safe_update_sn_ui(self, sn_str):
+        self.input_exp_sn.setText(sn_str)
+
+    def _cache_values_if_needed(self):
+        with self.sn_lock:
+            if self.active_workers == 0:
+                self.cached_exp_date = self.input_exp_date.text().strip()
+                self.cached_fmt = self.combo_sn_fmt.currentText()
+                self.cached_should_write = self.chk_write_sn.isChecked()
+                self.cached_should_inc = self.chk_auto_inc.isChecked()
+                sn_text = self.input_exp_sn.text().strip() or "0"
+                self.cached_sn_int = int(sn_text, 16) if self.cached_fmt == "HEX" else int(sn_text)
+
+    def _get_expected_values(self, is_writing=False):
+        with self.sn_lock:
+            exp_date = self.cached_exp_date
+            fmt = self.cached_fmt
+            should_write = self.cached_should_write
+            should_inc = self.cached_should_inc
+            ui_sn_int = self.cached_sn_int
+            
+            # For BCD behavior: treat the decimal string as a base-16 number to form the chip value
+            chip_sn_int = int(str(ui_sn_int), 16) if fmt == "DEC" else ui_sn_int
+            
+            if is_writing and should_write and should_inc:
+                self.cached_sn_int += 1
+                if fmt == "DEC" and self.cached_sn_int > 9999:
+                    self.cached_sn_int = 0
+                elif fmt == "HEX" and self.cached_sn_int > 65535:
+                    self.cached_sn_int = 0
+                    
+                if fmt == "HEX":
+                    self.update_sn_ui_signal.emit(f"{self.cached_sn_int:X}")
+                else:
+                    self.update_sn_ui_signal.emit(str(self.cached_sn_int))
+                    
+            return exp_date, chip_sn_int, fmt, should_write
 
     def _on_board_finished_callback(self):
         self.active_workers -= 1
