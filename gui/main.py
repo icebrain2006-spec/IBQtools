@@ -16,7 +16,7 @@ import datetime
 import csv
 import traceback
 
-from updater_thread import UpdaterWorker, make_packet, parse_response, CMD_I2C_RAW, RESP_OK, get_file_info
+from updater_thread import UpdaterWorker, SerialCheckWorker, make_packet, parse_response, CMD_I2C_RAW, RESP_OK, get_file_info, get_fw_version
 from config import config
 
 def setup_error_logging(filepath):
@@ -91,6 +91,10 @@ class RP2040BoardWidget(QGroupBox):
         self.btn_refresh.clicked.connect(self.refresh_info)
         com_layout.addWidget(self.btn_refresh)
         
+        self.lbl_fw_ver = QLabel("FW: -")
+        self.lbl_fw_ver.setStyleSheet("color: #00FFFF; font-weight: bold; margin-left: 10px;")
+        com_layout.addWidget(self.lbl_fw_ver)
+        
         self.lbl_slfs_info = QLabel("SLFS: Unknown")
         self.lbl_slfs_info.setStyleSheet("color: #00E5FF; font-weight: bold; margin-left: 15px;")
         com_layout.addWidget(self.lbl_slfs_info)
@@ -143,6 +147,12 @@ class RP2040BoardWidget(QGroupBox):
             self.lbl_slfs_info.setText(f"SLFS: {fname}")
         else:
             self.lbl_slfs_info.setText("SLFS: Not Connected / Error")
+            
+        fw_ver = get_fw_version(port)
+        if fw_ver:
+            self.lbl_fw_ver.setText(f"FW: {fw_ver}")
+        else:
+            self.lbl_fw_ver.setText("FW: -")
 
     def start_worker(self, loop_count):
         self.refresh_info()
@@ -227,6 +237,38 @@ class RP2040BoardWidget(QGroupBox):
     def stop_worker(self):
         if self.worker and self.worker.isRunning():
             self.worker.stop()
+
+    def check_serial(self):
+        if self.worker and self.worker.isRunning():
+            self.log_callback(f"[Board {self.board_id}] Worker is running. Please stop it first.")
+            return
+
+        active_channels = []
+        for i, chk in enumerate(self.ch_checkboxes):
+            if chk.isChecked():
+                active_channels.append(i + 1)
+                
+        if not active_channels:
+            self.log_callback(f"[Board {self.board_id}] No channels selected. Skipping.")
+            return
+            
+        port = self.combo_port.currentText()
+        
+        for chk in self.ch_checkboxes:
+            chk.setEnabled(False)
+            
+        for i in range(6):
+            if (i+1) in active_channels:
+                self.ch_progress[i].setValue(0)
+                self.ch_status[i].setText("Status: Starting Read...")
+            else:
+                self.ch_status[i].setText("Status: Disabled")
+                
+        self.worker = SerialCheckWorker(port, active_channels)
+        self.worker.log_msg.connect(lambda msg: self.log_callback(f"[Board {self.board_id}] {msg}"))
+        self.worker.status_updated.connect(self._on_status_update)
+        self.worker.finished.connect(self._on_worker_finished)
+        self.worker.start()
 
     def _get_sn_for_worker(self, ch_idx):
         exp_date, sn_int, fmt, should_write = self.get_expected_cb(True)
@@ -364,6 +406,9 @@ class BqUpdaterMainWindow(QMainWindow):
         self.tab_options = QWidget()
         self.tabs.addTab(self.tab_options, "Options")
         self._init_options_tab()
+        
+        # Load all persistent UI states at the very end
+        self._load_ui_states()
 
     def _init_options_tab(self):
         layout_options = QVBoxLayout(self.tab_options)
@@ -492,11 +537,8 @@ class BqUpdaterMainWindow(QMainWindow):
         left_layout.addWidget(master_group)
         left_layout.addWidget(verify_group)
         
-        self.log_console = QTextBrowser()
-        self.log_console.append("Welcome to Multi-Board BQ40Z50 Updater GUI.")
-        left_layout.addWidget(self.log_console, stretch=1)
-        
         # Action Buttons
+        action_layout = QHBoxLayout()
         self.btn_start = QPushButton("START ALL")
         self.btn_start.setObjectName("startBtn")
         self.btn_stop = QPushButton("STOP ALL")
@@ -506,10 +548,20 @@ class BqUpdaterMainWindow(QMainWindow):
         self.btn_start.clicked.connect(self._start_all)
         self.btn_stop.clicked.connect(self._stop_all)
         
-        btn_layout = QHBoxLayout()
-        btn_layout.addWidget(self.btn_start)
-        btn_layout.addWidget(self.btn_stop)
-        left_layout.addLayout(btn_layout)
+        action_layout.addWidget(self.btn_start)
+        action_layout.addWidget(self.btn_stop)
+        
+        left_layout.addLayout(action_layout)
+        
+        self.btn_check_all = QPushButton("SERIAL CHECK")
+        self.btn_check_all.setObjectName("checkBtn")
+        left_layout.addWidget(self.btn_check_all)
+        
+        # Log Console
+        self.log_console = QTextBrowser()
+        self.log_console.setStyleSheet("background-color: #1E1E1E; color: #00FF00; font-family: Consolas;")
+        self.log_console.append("Welcome to Multi-Board BQ40Z50 Updater GUI.")
+        left_layout.addWidget(self.log_console, stretch=1)
         
         layout.addWidget(left_panel)
         
@@ -524,6 +576,11 @@ class BqUpdaterMainWindow(QMainWindow):
         self.scroll_area.setWidget(self.scroll_content)
         
         layout.addWidget(self.scroll_area, stretch=1)
+        
+        # Connect buttons
+        self.btn_start.clicked.connect(self._start_all)
+        self.btn_stop.clicked.connect(self._stop_all)
+        self.btn_check_all.clicked.connect(self._check_all)
         
         # Initialize board widgets
         self.boards = []
@@ -589,6 +646,24 @@ class BqUpdaterMainWindow(QMainWindow):
 
     def _log_to_console(self, msg):
         self.log_console.append(msg)
+
+    def _check_all(self):
+        if self.active_workers > 0:
+            self._log_to_console("Workers are already running. Stop them first.")
+            return
+            
+        # UI Pre-cache
+        self.cached_fmt = self.combo_sn_fmt.currentText()
+            
+        started = 0
+        for board in self.boards:
+            board.check_serial()
+            if hasattr(board, 'worker') and board.worker and board.worker.isRunning():
+                started += 1
+                
+        self.active_workers = started
+        if started == 0:
+            self._log_to_console("No boards were started for check.")
 
     def _start_all(self):
         try:
@@ -768,6 +843,53 @@ class BqUpdaterMainWindow(QMainWindow):
         
         self.csv_console = QTextBrowser()
         layout.addWidget(self.csv_console, stretch=1)
+        
+    def _save_ui_states(self):
+        settings = config.settings
+        settings.setValue("ui_boards", self.spin_boards.value())
+        settings.setValue("ui_loop_count", self.loop_count.text())
+        settings.setValue("ui_exp_date", self.input_exp_date.text())
+        settings.setValue("ui_sn_fmt", self.combo_sn_fmt.currentText())
+        settings.setValue("ui_exp_sn", self.input_exp_sn.text())
+        settings.setValue("ui_write_sn", self.chk_write_sn.isChecked())
+        settings.setValue("ui_auto_inc", self.chk_auto_inc.isChecked())
+        
+        for board in self.boards:
+            bid = board.board_id
+            settings.setValue(f"ui_board_{bid}_port", board.combo_port.currentText())
+            for i, chk in enumerate(board.ch_checkboxes):
+                settings.setValue(f"ui_board_{bid}_ch_{i+1}", chk.isChecked())
+                
+    def _load_ui_states(self):
+        settings = config.settings
+        
+        try:
+            boards_count = int(settings.value("ui_boards", 1))
+            self.spin_boards.setValue(boards_count)
+            self.loop_count.setText(str(settings.value("ui_loop_count", "1")))
+            self.input_exp_date.setText(str(settings.value("ui_exp_date", "2024-03-05")))
+            self.combo_sn_fmt.setCurrentText(str(settings.value("ui_sn_fmt", "DEC")))
+            self.input_exp_sn.setText(str(settings.value("ui_exp_sn", "1")))
+            
+            write_sn_str = str(settings.value("ui_write_sn", "False")).lower()
+            auto_inc_str = str(settings.value("ui_auto_inc", "False")).lower()
+            self.chk_write_sn.setChecked(write_sn_str == "true")
+            self.chk_auto_inc.setChecked(auto_inc_str == "true")
+            
+            for board in self.boards:
+                bid = board.board_id
+                port = str(settings.value(f"ui_board_{bid}_port", f"COM{5 + bid}"))
+                board.combo_port.setCurrentText(port)
+                
+                for i, chk in enumerate(board.ch_checkboxes):
+                    ch_str = str(settings.value(f"ui_board_{bid}_ch_{i+1}", "True")).lower()
+                    chk.setChecked(ch_str == "true")
+        except Exception as e:
+            logging.getLogger('IBQtools').error(f"Failed to load UI states: {e}")
+            
+    def closeEvent(self, event):
+        self._save_ui_states()
+        super().closeEvent(event)
 
 def main():
     app = QApplication(sys.argv)

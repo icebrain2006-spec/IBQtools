@@ -11,6 +11,7 @@ CMD_FW_UPDATE_STOP   = 0x42
 CMD_I2C_RAW          = 0x21
 CMD_FW_GET_FILE_INFO = 0x35
 CMD_SMBUS_CMD        = 0x20
+CMD_GET_VERSION      = 0x01
 RESP_OK = 0x00
 
 UPDATER_STATE_IDLE = 0
@@ -82,6 +83,21 @@ def get_file_info(port):
             if cmd == CMD_FW_GET_FILE_INFO and resp[0] == RESP_OK:
                 fname = resp[17:81].split(b'\x00')[0].decode('ascii', errors='ignore')
                 return fname
+    except Exception:
+        pass
+    return None
+
+def get_fw_version(port):
+    packet = make_packet(CMD_GET_VERSION, b'')
+    try:
+        with serial.Serial(port, 115200, timeout=0.5) as ser:
+            ser.write(packet)
+            rx = ser.read(128)
+            if not rx or len(rx) < 7:
+                return None
+            cmd, resp = parse_response(rx)
+            if cmd == CMD_GET_VERSION and resp[0] == RESP_OK:
+                return resp[1:].split(b'\x00')[0].decode('ascii', errors='ignore')
     except Exception:
         pass
     return None
@@ -385,3 +401,39 @@ class UpdaterWorker(QThread):
     def stop(self):
         self.is_running = False
         self.log_msg.emit("[INFO] Stop requested...")
+
+class SerialCheckWorker(UpdaterWorker):
+    def __init__(self, port, channels, parent=None):
+        super().__init__(port, channels, loop_count=1, get_expected_cb=None, parent=parent)
+        
+    def run(self):
+        self.log_msg.emit(f"[INFO] Connecting to {self.port} for Serial Check...")
+        try:
+            self.ser = serial.Serial(self.port, 115200, timeout=1.5)
+        except Exception as e:
+            self.log_msg.emit(f"[ERROR] Failed to open {self.port}: {e}")
+            self.finished.emit(False)
+            return
+
+        self.ser.reset_input_buffer()
+        
+        for ch in self.channels:
+            if not self.is_running:
+                break
+                
+            self.status_updated.emit(ch, "Reading...")
+            date_str, sn_val = self._read_sbd_info(ch)
+            
+            if date_str and sn_val is not None:
+                sn_hex = f"0x{sn_val:04X}"
+                sn_dec = str(sn_val)
+                self.log_msg.emit(f"[CH {ch}] READ -> M: {date_str}, SN: {sn_dec} ({sn_hex})")
+                self.status_updated.emit(ch, f"Read: {sn_hex}")
+            else:
+                self.log_msg.emit(f"[CH {ch}] READ -> Failed to read from chip.")
+                self.status_updated.emit(ch, "Read Failed")
+                
+        if self.ser:
+            self.ser.close()
+            
+        self.finished.emit(True)
