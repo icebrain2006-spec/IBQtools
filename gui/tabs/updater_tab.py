@@ -535,13 +535,15 @@ class UpdaterTab(QWidget):
             def _play_sound(is_err):
                 try:
                     if is_err:
-                        winsound.Beep(400, 300)
-                        time.sleep(0.05)
-                        winsound.Beep(300, 600)
+                        # Fail: 띠띡 (Ti-tik) - Short and abrupt low tones
+                        winsound.Beep(350, 80)
+                        time.sleep(0.03)
+                        winsound.Beep(350, 80)
                     else:
-                        winsound.Beep(1200, 150)
-                        time.sleep(0.05)
-                        winsound.Beep(1600, 200)
+                        # Pass: 띠리링 (Ti-ri-ring) - Rapid ascending cheerful tones
+                        winsound.Beep(880, 80)
+                        winsound.Beep(1046, 80)
+                        winsound.Beep(1318, 150)
                 except:
                     pass
             
