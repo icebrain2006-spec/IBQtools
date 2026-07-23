@@ -27,6 +27,32 @@ class ClickableProgressBar(QProgressBar):
             self.clicked.emit(self.ch_idx)
         super().mousePressEvent(event)
 
+class PortComboBox(QComboBox):
+    def showPopup(self):
+        import serial.tools.list_ports
+        current_text = self.currentText()
+        self.clear()
+        
+        active_ports = []
+        for p in serial.tools.list_ports.comports():
+            hwid = str(p.hwid).upper()
+            desc = str(p.description).upper()
+            # Filter out virtual/bluetooth ports
+            if "BTHENUM" in hwid or "BLUETOOTH" in desc or "BTHENUM" in desc:
+                continue
+            if "USB" not in hwid and "USB" not in desc:
+                continue
+            active_ports.append(p.device)
+            
+        if not active_ports:
+            active_ports = ["None"]
+            
+        self.addItems(active_ports)
+        if current_text in active_ports:
+            self.setCurrentText(current_text)
+            
+        super().showPopup()
+
 class RP2040BoardWidget(QGroupBox):
     board_finished = Signal()
     
@@ -49,9 +75,28 @@ class RP2040BoardWidget(QGroupBox):
         com_layout = QHBoxLayout()
         com_layout.setContentsMargins(5, 0, 5, 0)
         com_layout.addWidget(QLabel("COM Port:"))
-        self.combo_port = QComboBox()
-        self.combo_port.addItems(["COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "COM10"])
-        self.combo_port.setCurrentText(f"COM{5 + board_id}")
+        self.combo_port = PortComboBox()
+        # Initial population of ports
+        import serial.tools.list_ports
+        active_ports = []
+        for p in serial.tools.list_ports.comports():
+            hwid = str(p.hwid).upper()
+            desc = str(p.description).upper()
+            if "BTHENUM" in hwid or "BLUETOOTH" in desc or "BTHENUM" in desc: continue
+            if "USB" not in hwid and "USB" not in desc: continue
+            active_ports.append(p.device)
+            
+        if active_ports:
+            self.combo_port.addItems(active_ports)
+            
+        # Try to select the default based on board_id if it exists, otherwise just pick the first one
+        default_port = f"COM{5 + board_id}"
+        if default_port in active_ports:
+            self.combo_port.setCurrentText(default_port)
+        elif not active_ports:
+            self.combo_port.addItems([default_port])
+            self.combo_port.setCurrentText(default_port)
+            
         com_layout.addWidget(self.combo_port)
         
         self.btn_refresh = QPushButton("Refresh")
