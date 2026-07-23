@@ -536,7 +536,7 @@ class UpdaterTab(QWidget):
                 try:
                     import os
                     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                    ref_dir = os.path.join(base_dir, "reference_data")
+                    ref_dir = os.path.join(base_dir, "assets", "wav")
                     
                     if is_err:
                         wav_path = os.path.join(ref_dir, "testFail.wav")
