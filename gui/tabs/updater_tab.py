@@ -534,16 +534,27 @@ class UpdaterTab(QWidget):
                     
             def _play_sound(is_err):
                 try:
+                    import os
+                    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                    ref_dir = os.path.join(base_dir, "reference_data")
+                    
                     if is_err:
-                        # Fail: 띠띡 (Ti-tik) - Short and abrupt low tones
-                        winsound.Beep(350, 80)
-                        time.sleep(0.03)
-                        winsound.Beep(350, 80)
+                        wav_path = os.path.join(ref_dir, "testFail.wav")
                     else:
-                        # Pass: 띠리링 (Ti-ri-ring) - Rapid ascending cheerful tones
-                        winsound.Beep(880, 80)
-                        winsound.Beep(1046, 80)
-                        winsound.Beep(1318, 150)
+                        wav_path = os.path.join(ref_dir, "testComplete.wav")
+                        
+                    if os.path.exists(wav_path):
+                        winsound.PlaySound(wav_path, winsound.SND_FILENAME)
+                    else:
+                        # Fallback if wav not found
+                        if is_err:
+                            winsound.Beep(350, 80)
+                            time.sleep(0.03)
+                            winsound.Beep(350, 80)
+                        else:
+                            winsound.Beep(880, 80)
+                            winsound.Beep(1046, 80)
+                            winsound.Beep(1318, 150)
                 except:
                     pass
             
