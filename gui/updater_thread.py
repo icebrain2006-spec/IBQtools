@@ -372,6 +372,7 @@ class UpdaterWorker(QThread):
                             else:
                                 self.log_msg.emit(f"[CH {ch}] Verify Failed")
                         else:
+                            self.log_msg.emit(f"[CH {ch}] Skipped verify due to flash error.")
                             self.verify_updated.emit(ch, "", -1)
                     break
                     
@@ -432,7 +433,7 @@ class SerialCheckWorker(UpdaterWorker):
                 sn_hex = f"0x{sn_val:04X}"
                 sn_dec = str(sn_val)
                 self.log_msg.emit(f"[CH {ch}] READ -> M: {date_str}, SN: {sn_dec} ({sn_hex})")
-                self.status_updated.emit(ch, f"Read: {sn_hex}")
+                self.status_updated.emit(ch, f"Read: {sn_dec} ({sn_hex})")
             else:
                 self.log_msg.emit(f"[CH {ch}] READ -> Failed to read from chip.")
                 self.status_updated.emit(ch, "Read Failed")
