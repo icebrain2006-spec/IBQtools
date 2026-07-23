@@ -532,13 +532,20 @@ class UpdaterTab(QWidget):
                 if has_error:
                     break
                     
-            try:
-                if has_error:
-                    winsound.MessageBeep(winsound.MB_ICONHAND)
-                else:
-                    winsound.MessageBeep(winsound.MB_OK)
-            except:
-                pass
+            def _play_sound(is_err):
+                try:
+                    if is_err:
+                        winsound.Beep(400, 300)
+                        time.sleep(0.05)
+                        winsound.Beep(300, 600)
+                    else:
+                        winsound.Beep(1200, 150)
+                        time.sleep(0.05)
+                        winsound.Beep(1600, 200)
+                except:
+                    pass
+            
+            threading.Thread(target=_play_sound, args=(has_error,), daemon=True).start()
             
             if hasattr(self, 'start_time'):
                 elapsed = time.time() - self.start_time
