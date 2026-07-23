@@ -178,9 +178,14 @@ class RP2040BoardWidget(QGroupBox):
             self.lbl_fw_ver.setText("FW: -")
 
     def start_worker(self, loop_count, skip_preflight=False):
-        self.refresh_info()
+        if not skip_preflight:
+            self.refresh_info()
+            
         if "Unknown" in self.lbl_slfs_info.text() or "Error" in self.lbl_slfs_info.text():
-            QMessageBox.warning(self, "SLFS Check", f"Board {self.board_id}: SLFS file not found! Please check the connection or upload the SLFS file first.")
+            if not skip_preflight:
+                QMessageBox.warning(self, "SLFS Check", f"Board {self.board_id}: SLFS file not found! Please check the connection or upload the SLFS file first.")
+            else:
+                self.log_callback(f"[Board {self.board_id}] SLFS file not found! Board disabled.")
             return False
             
         active_channels = []
