@@ -1,0 +1,80 @@
+[2026-07-23 14:19:56,043] [ERROR] Uncaught exception
+Traceback (most recent call last):
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 535, in _check_all
+    board.check_serial()
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 230, in check_serial
+    fmt = self.combo_sn_fmt.currentText()
+          ^^^^^^^^^^^^^^^^^
+AttributeError: 'RP2040BoardWidget' object has no attribute 'combo_sn_fmt'
+[2026-07-23 14:20:09,297] [ERROR] Uncaught exception
+Traceback (most recent call last):
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 535, in _check_all
+    board.check_serial()
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 230, in check_serial
+    fmt = self.combo_sn_fmt.currentText()
+          ^^^^^^^^^^^^^^^^^
+AttributeError: 'RP2040BoardWidget' object has no attribute 'combo_sn_fmt'
+[2026-07-23 14:20:18,169] [ERROR] Uncaught exception
+Traceback (most recent call last):
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 535, in _check_all
+    board.check_serial()
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 230, in check_serial
+    fmt = self.combo_sn_fmt.currentText()
+          ^^^^^^^^^^^^^^^^^
+AttributeError: 'RP2040BoardWidget' object has no attribute 'combo_sn_fmt'
+[2026-07-23 14:20:45,079] [ERROR] Uncaught exception
+Traceback (most recent call last):
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 535, in _check_all
+    board.check_serial()
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 230, in check_serial
+    fmt = self.combo_sn_fmt.currentText()
+          ^^^^^^^^^^^^^^^^^
+AttributeError: 'RP2040BoardWidget' object has no attribute 'combo_sn_fmt'
+[2026-07-23 14:20:45,882] [ERROR] Uncaught exception
+Traceback (most recent call last):
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 535, in _check_all
+    board.check_serial()
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 230, in check_serial
+    fmt = self.combo_sn_fmt.currentText()
+          ^^^^^^^^^^^^^^^^^
+AttributeError: 'RP2040BoardWidget' object has no attribute 'combo_sn_fmt'
+[2026-07-23 14:20:48,746] [ERROR] Uncaught exception
+Traceback (most recent call last):
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 535, in _check_all
+    board.check_serial()
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 230, in check_serial
+    fmt = self.combo_sn_fmt.currentText()
+          ^^^^^^^^^^^^^^^^^
+AttributeError: 'RP2040BoardWidget' object has no attribute 'combo_sn_fmt'
+[2026-07-23 14:20:49,160] [ERROR] Uncaught exception
+Traceback (most recent call last):
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 535, in _check_all
+    board.check_serial()
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 230, in check_serial
+    fmt = self.combo_sn_fmt.currentText()
+          ^^^^^^^^^^^^^^^^^
+AttributeError: 'RP2040BoardWidget' object has no attribute 'combo_sn_fmt'
+[2026-07-23 14:20:49,347] [ERROR] Uncaught exception
+Traceback (most recent call last):
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 535, in _check_all
+    board.check_serial()
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 230, in check_serial
+    fmt = self.combo_sn_fmt.currentText()
+          ^^^^^^^^^^^^^^^^^
+AttributeError: 'RP2040BoardWidget' object has no attribute 'combo_sn_fmt'
+[2026-07-23 14:20:49,520] [ERROR] Uncaught exception
+Traceback (most recent call last):
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 535, in _check_all
+    board.check_serial()
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 230, in check_serial
+    fmt = self.combo_sn_fmt.currentText()
+          ^^^^^^^^^^^^^^^^^
+AttributeError: 'RP2040BoardWidget' object has no attribute 'combo_sn_fmt'
+[2026-07-23 14:22:13,140] [ERROR] Uncaught exception
+Traceback (most recent call last):
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 535, in _check_all
+    board.check_serial()
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 230, in check_serial
+    fmt = self.combo_sn_fmt.currentText()
+          ^^^^^^^^^^^^^^^^^
+AttributeError: 'RP2040BoardWidget' object has no attribute 'combo_sn_fmt'

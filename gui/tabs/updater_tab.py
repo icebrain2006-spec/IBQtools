@@ -206,6 +206,9 @@ class RP2040BoardWidget(QGroupBox):
             self.log_callback(f"[Board {self.board_id}] Worker is running. Please stop it first.")
             return
 
+        if self.cache_values_cb:
+            self.cache_values_cb()
+
         active_channels = []
         for i, chk in enumerate(self.ch_checkboxes):
             if chk.isChecked():
@@ -227,7 +230,7 @@ class RP2040BoardWidget(QGroupBox):
             else:
                 self.ch_status[i].setText("Status: Disabled")
                 
-        fmt = self.combo_sn_fmt.currentText()
+        _, _, fmt, _ = self.get_expected_cb(False)
         self.worker = SerialCheckWorker(port, active_channels, fmt=fmt)
         self.worker.log_msg.connect(lambda msg: self.log_callback(f"[Board {self.board_id}] {msg}"))
         self.worker.status_updated.connect(self._on_status_update)
