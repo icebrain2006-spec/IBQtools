@@ -77,7 +77,7 @@ class RP2040BoardWidget(QGroupBox):
         com_layout.setContentsMargins(5, 0, 5, 0)
         
         self.btn_start_board = QPushButton("▶ Start")
-        self.btn_start_board.setFixedWidth(70)
+        self.btn_start_board.setFixedWidth(90)
         self.btn_start_board.setStyleSheet("background-color: #2E7D32; color: white; font-weight: bold;")
         self.btn_start_board.clicked.connect(lambda: self.request_start.emit(self))
         com_layout.addWidget(self.btn_start_board)
