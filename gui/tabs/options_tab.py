@@ -25,7 +25,16 @@ class CheckUpdateWorker(QThread):
             # 2. Get current board version by scanning active COM ports
             current_ver = "Not Connected"
             import serial.tools.list_ports
-            active_ports = [p.device for p in serial.tools.list_ports.comports()]
+            active_ports = []
+            for p in serial.tools.list_ports.comports():
+                hwid = str(p.hwid).upper()
+                desc = str(p.description).upper()
+                if "BTHENUM" in hwid or "BLUETOOTH" in desc or "BTHENUM" in desc:
+                    continue
+                if "USB" not in hwid and "USB" not in desc:
+                    continue
+                active_ports.append(p.device)
+                
             for port in active_ports:
                 ver = get_fw_version(port)
                 if ver:
