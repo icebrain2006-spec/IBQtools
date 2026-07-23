@@ -267,8 +267,10 @@ class RP2040BoardWidget(QGroupBox):
             result_str = "ERROR"
             
             if not date_str or sn_int < 0:
-                self.ch_status[ch_idx - 1].setText("Verify: ERROR")
-                self.ch_status[ch_idx - 1].setStyleSheet("color: #FF4444; font-weight: bold;")
+                current_text = self.ch_status[ch_idx - 1].text().lower()
+                if not ("error" in current_text or "fail" in current_text or "오류" in current_text):
+                    self.ch_status[ch_idx - 1].setText("Verify: ERROR")
+                    self.ch_status[ch_idx - 1].setStyleSheet("color: #FF4444; font-weight: bold;")
             else:
                 if sn_fmt == "HEX":
                     sn_str = f"0x{sn_int:04X}"

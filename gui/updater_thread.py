@@ -338,6 +338,8 @@ class UpdaterWorker(QThread):
                 
                 if state == UPDATER_STATE_ERROR:
                     self.log_msg.emit(f"[CRITICAL] Updater Error Code: {err_code}")
+                    for ch in self.channels:
+                        self.verify_updated.emit(ch, "", -1)
                     self._stop_updater()
                     overall_success = False
                     break
@@ -369,6 +371,8 @@ class UpdaterWorker(QThread):
                                 self.log_msg.emit(f"[CH {ch}] M: {date_str}, SN: {sn_str}")
                             else:
                                 self.log_msg.emit(f"[CH {ch}] Verify Failed")
+                        else:
+                            self.verify_updated.emit(ch, "", -1)
                     break
                     
                 if current_line == last_line and state != UPDATER_STATE_DELAYING:
