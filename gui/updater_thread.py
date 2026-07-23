@@ -296,6 +296,34 @@ class UpdaterWorker(QThread):
                 break
                 
             self.log_msg.emit(f"\n[INFO] Starting Loop {loop + 1}/{self.loop_count}")
+            
+            # --- Pre-flight SMBus Check ---
+            self.log_msg.emit("[INFO] Pre-flight SMBus check...")
+            ch_errors = []
+            for ch in self.channels:
+                if not self.is_running:
+                    break
+                self.status_updated.emit(ch, "Checking SMBus...")
+                date_str, sn_val = self._read_sbd_info(ch)
+                if date_str is None or sn_val is None:
+                    ch_errors.append(ch)
+                    self.status_updated.emit(ch, "SMBus Error")
+                else:
+                    self.status_updated.emit(ch, "SMBus OK")
+                    
+            if not self.is_running:
+                break
+                
+            if ch_errors:
+                self.log_msg.emit(f"[ERROR] Pre-flight check failed on CH: {ch_errors}. Aborting board.")
+                # Mark healthy channels as Aborted so they don't stay on "SMBus OK"
+                for ch in self.channels:
+                    if ch not in ch_errors:
+                        self.status_updated.emit(ch, "Aborted")
+                overall_success = False
+                break
+            # ------------------------------
+            
             ok, msg = self._start_updater_multi()
             if not ok:
                 self.log_msg.emit(f"[ERROR] Failed to start updater: {msg}")
