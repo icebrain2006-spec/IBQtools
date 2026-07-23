@@ -168,7 +168,7 @@ class CsvTab(QWidget):
         layout.addWidget(self.console, stretch=1)
         
     def _load_ic_data(self):
-        info_path = os.path.join(os.path.dirname(__file__), "BQ_Information.csv")
+        info_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "BQ_Information.csv")
         self.ic_dict = {} # {ic_name: [versions]}
         
         try:
