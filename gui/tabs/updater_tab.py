@@ -55,6 +55,7 @@ class PortComboBox(QComboBox):
 
 class RP2040BoardWidget(QGroupBox):
     board_finished = Signal()
+    request_start = Signal(object) # Emit self when clicked
     
     def __init__(self, board_id, log_callback, get_expected_cb, cache_values_cb, parent=None):
         super().__init__(f"RP2040 Board {board_id}", parent)
@@ -74,6 +75,13 @@ class RP2040BoardWidget(QGroupBox):
         # COM Port Selection Row
         com_layout = QHBoxLayout()
         com_layout.setContentsMargins(5, 0, 5, 0)
+        
+        self.btn_start_board = QPushButton("▶ Start")
+        self.btn_start_board.setFixedWidth(70)
+        self.btn_start_board.setStyleSheet("background-color: #2E7D32; color: white; font-weight: bold;")
+        self.btn_start_board.clicked.connect(lambda: self.request_start.emit(self))
+        com_layout.addWidget(self.btn_start_board)
+        
         com_layout.addWidget(QLabel("COM Port:"))
         self.combo_port = PortComboBox()
         # Initial population of ports
@@ -522,8 +530,31 @@ class UpdaterTab(QWidget):
         for i in range(count):
             board = RP2040BoardWidget(i + 1, self._log_to_console, self._get_expected_values, self._cache_values_if_needed)
             board.board_finished.connect(self._on_board_finished_callback)
+            board.request_start.connect(self._start_single_board)
             self.boards_layout.addWidget(board)
             self.boards.append(board)
+
+    def _start_single_board(self, board_widget):
+        if board_widget.worker and board_widget.worker.isRunning():
+            self._log_to_console(f"Board {board_widget.board_id} is already running.")
+            return
+            
+        try:
+            loops = int(self.loop_count.text())
+        except ValueError:
+            loops = 1
+            
+        if self.active_workers == 0:
+            self.start_time = time.time()
+            self._cache_values_if_needed()
+            self.log_console.append(f"\n[SYS] STARTING BOARD {board_widget.board_id}...")
+        else:
+            self.log_console.append(f"[SYS] STARTING BOARD {board_widget.board_id} (Parallel)...")
+            
+        if board_widget.start_worker(loops):
+            self.active_workers += 1
+            self.btn_start.setEnabled(False)
+            self.btn_stop.setEnabled(True)
 
     def _safe_update_sn_ui(self, sn_str):
         self.input_exp_sn.setText(sn_str)
