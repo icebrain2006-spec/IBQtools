@@ -1,6 +1,7 @@
 import time
 import struct
 import serial
+import winsound
 from PySide6.QtCore import QThread, Signal
 
 PROTOCOL_STX = 0x02
@@ -457,9 +458,13 @@ class SerialCheckWorker(UpdaterWorker):
                 
                 self.log_msg.emit(f"[CH {ch}] READ -> M: {date_str}, SN: {sn_str} ({sn_hex})")
                 self.status_updated.emit(ch, f"Read: {sn_str} ({sn_hex})")
+                try: winsound.MessageBeep(winsound.MB_OK)
+                except: pass
             else:
                 self.log_msg.emit(f"[CH {ch}] READ -> Failed to read from chip.")
                 self.status_updated.emit(ch, "Read Failed")
+                try: winsound.MessageBeep(winsound.MB_ICONHAND)
+                except: pass
                 
         if self.ser:
             self.ser.close()
