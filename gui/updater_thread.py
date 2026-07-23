@@ -357,8 +357,14 @@ class UpdaterWorker(QThread):
                             if self.get_expected_cb:
                                 exp_date, exp_sn_int, fmt, should_write = self.get_expected_cb(ch)
                                 if should_write:
-                                    self.log_msg.emit(f"[CH {ch}] Writing Serial Number: {exp_sn_int} (0x{exp_sn_int:04X})")
-                                    ok = self._write_smbus_word(ch, 0x0B, 0x1C, exp_sn_int)
+                                    write_val = exp_sn_int
+                                    if fmt == "DEC":
+                                        try:
+                                            write_val = int(str(exp_sn_int), 16)
+                                        except ValueError:
+                                            pass
+                                    self.log_msg.emit(f"[CH {ch}] Writing Serial Number: {exp_sn_int} (0x{write_val:04X})")
+                                    ok = self._write_smbus_word(ch, 0x0B, 0x1C, write_val)
                                     if not ok:
                                         self.log_msg.emit(f"[CH {ch}] Write Serial Number FAILED!")
                                     time.sleep(0.1) # allow time for DF save
@@ -367,7 +373,13 @@ class UpdaterWorker(QThread):
                             self.verify_updated.emit(ch, date_str or "", sn_val if sn_val is not None else -1)
                             
                             if date_str and sn_val is not None:
-                                sn_str = f"0x{sn_val:04X}" if fmt == "HEX" else str(sn_val)
+                                if fmt == "HEX":
+                                    sn_str = f"0x{sn_val:04X}"
+                                else:
+                                    try:
+                                        sn_str = str(int(f"{sn_val:X}", 10))
+                                    except ValueError:
+                                        sn_str = f"INVALID_BCD_0x{sn_val:04X}"
                                 self.log_msg.emit(f"[CH {ch}] M: {date_str}, SN: {sn_str}")
                             else:
                                 self.log_msg.emit(f"[CH {ch}] Verify Failed")

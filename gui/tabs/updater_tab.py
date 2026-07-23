@@ -275,11 +275,17 @@ class RP2040BoardWidget(QGroupBox):
                 if sn_fmt == "HEX":
                     sn_str = f"0x{sn_int:04X}"
                     exp_sn_str = f"0x{exp_sn_int:04X}"
+                    actual_sn_int = sn_int
                 else:
-                    sn_str = str(sn_int)
+                    try:
+                        actual_sn_int = int(f"{sn_int:X}", 10)
+                        sn_str = str(actual_sn_int)
+                    except ValueError:
+                        actual_sn_int = sn_int
+                        sn_str = f"INVALID_BCD_0x{sn_int:04X}"
                     exp_sn_str = str(exp_sn_int)
                     
-                if date_str == exp_date and sn_int == exp_sn_int:
+                if date_str == exp_date and actual_sn_int == exp_sn_int:
                     self.ch_status[ch_idx - 1].setText(f"PASS (M:{date_str} SN:{sn_str})")
                     self.ch_status[ch_idx - 1].setStyleSheet("color: #00FF00; font-weight: bold;")
                     result_str = "PASS"
