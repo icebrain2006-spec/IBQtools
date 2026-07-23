@@ -298,18 +298,10 @@ class RP2040BoardWidget(QGroupBox):
                     self.ch_status[ch_idx - 1].setText(f"PASS (M:{date_str} SN:{sn_str})")
                     self.ch_status[ch_idx - 1].setStyleSheet("color: #00FF00; font-weight: bold;")
                     result_str = "PASS"
-                    try:
-                        winsound.MessageBeep(winsound.MB_OK)
-                    except:
-                        pass
                 else:
                     self.ch_status[ch_idx - 1].setText(f"FAIL (M:{date_str} SN:{sn_str})")
                     self.ch_status[ch_idx - 1].setStyleSheet("color: #FF4444; font-weight: bold;")
                     result_str = "FAIL"
-                    try:
-                        winsound.MessageBeep(winsound.MB_ICONHAND)
-                    except:
-                        pass
                     
             try:
                 work_log = config.get_work_log_path()
@@ -529,6 +521,24 @@ class UpdaterTab(QWidget):
         self.active_workers -= 1
         if self.active_workers <= 0:
             self.active_workers = 0
+            
+            has_error = False
+            for board in self.boards:
+                for stat in board.ch_status:
+                    text = stat.text().lower()
+                    if "fail" in text or "error" in text or "오류" in text:
+                        has_error = True
+                        break
+                if has_error:
+                    break
+                    
+            try:
+                if has_error:
+                    winsound.MessageBeep(winsound.MB_ICONHAND)
+                else:
+                    winsound.MessageBeep(winsound.MB_OK)
+            except:
+                pass
             
             if hasattr(self, 'start_time'):
                 elapsed = time.time() - self.start_time
