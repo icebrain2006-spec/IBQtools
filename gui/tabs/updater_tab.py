@@ -3,6 +3,7 @@ import csv
 import datetime
 import threading
 import logging
+import time
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
                                QGridLayout, QLabel, QComboBox, QLineEdit, 
                                QPushButton, QTextBrowser, QCheckBox, QSpinBox, 
@@ -519,6 +520,11 @@ class UpdaterTab(QWidget):
         self.active_workers -= 1
         if self.active_workers <= 0:
             self.active_workers = 0
+            
+            if hasattr(self, 'start_time'):
+                elapsed = time.time() - self.start_time
+                self.log_console.append(f"\n[SYS] ALL BOARDS FINISHED. Total Time: {elapsed:.2f} seconds")
+                
             self._reset_master_ui()
 
     def _log_to_console(self, msg):
@@ -559,6 +565,7 @@ class UpdaterTab(QWidget):
         self.log_console.append(f"\n[SYS] STARTING ALL {len(self.boards)} BOARDS...")
         
         self.active_workers = 0
+        self.start_time = time.time()
         for board in self.boards:
             if board.start_worker(loops):
                 self.active_workers += 1
