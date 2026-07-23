@@ -729,7 +729,6 @@ class UpdaterTab(QWidget):
             
             self._reset_master_ui()
             
-            import os, winsound, time
             try:
                 wav_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "assets", "wav", "testFail.wav")
                 if os.path.exists(wav_path):
@@ -742,15 +741,20 @@ class UpdaterTab(QWidget):
             
             return
             
-        self.active_workers = 0
-        self.start_time = time.time()
-        for board in self.boards:
-            if board.start_worker(self.loops, skip_preflight=True):
-                self.active_workers += 1
-                
-        if self.active_workers == 0:
-            self.log_console.append("[SYS] Failed to launch workers.")
-            self._reset_master_ui()
+        try:
+            self.active_workers = 0
+            self.start_time = time.time()
+            for board in self.boards:
+                if board.start_worker(self.loops, skip_preflight=True):
+                    self.active_workers += 1
+                    
+            if self.active_workers == 0:
+                self.log_console.append("[SYS] Failed to launch workers.")
+                self._reset_master_ui()
+        except Exception as e:
+            import traceback
+            err_str = traceback.format_exc()
+            self.log_console.append(f'<span style="color: #FF4444;">[EXCEPTION] {err_str}</span>')
 
     def _stop_all(self):
         self.log_console.append("\n[SYS] STOP ALL REQUESTED...")
