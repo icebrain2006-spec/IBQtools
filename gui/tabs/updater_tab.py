@@ -4,6 +4,7 @@ import datetime
 import threading
 import logging
 import time
+import winsound
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
                                QGridLayout, QLabel, QComboBox, QLineEdit, 
                                QPushButton, QTextBrowser, QCheckBox, QSpinBox, 
@@ -297,10 +298,18 @@ class RP2040BoardWidget(QGroupBox):
                     self.ch_status[ch_idx - 1].setText(f"PASS (M:{date_str} SN:{sn_str})")
                     self.ch_status[ch_idx - 1].setStyleSheet("color: #00FF00; font-weight: bold;")
                     result_str = "PASS"
+                    try:
+                        winsound.MessageBeep(winsound.MB_OK)
+                    except:
+                        pass
                 else:
                     self.ch_status[ch_idx - 1].setText(f"FAIL (M:{date_str} SN:{sn_str})")
                     self.ch_status[ch_idx - 1].setStyleSheet("color: #FF4444; font-weight: bold;")
                     result_str = "FAIL"
+                    try:
+                        winsound.MessageBeep(winsound.MB_ICONHAND)
+                    except:
+                        pass
                     
             try:
                 work_log = config.get_work_log_path()
