@@ -177,7 +177,7 @@ class RP2040BoardWidget(QGroupBox):
         else:
             self.lbl_fw_ver.setText("FW: -")
 
-    def start_worker(self, loop_count):
+    def start_worker(self, loop_count, skip_preflight=False):
         self.refresh_info()
         if "Unknown" in self.lbl_slfs_info.text() or "Error" in self.lbl_slfs_info.text():
             QMessageBox.warning(self, "SLFS Check", f"Board {self.board_id}: SLFS file not found! Please check the connection or upload the SLFS file first.")
@@ -211,7 +211,7 @@ class RP2040BoardWidget(QGroupBox):
         self.expected_sn_map.clear()
         self.expected_date_map.clear()
         
-        self.worker = UpdaterWorker(port, active_channels, loop_count=loop_count, get_expected_cb=self._get_sn_for_worker)
+        self.worker = UpdaterWorker(port, active_channels, loop_count=loop_count, get_expected_cb=self._get_sn_for_worker, skip_preflight=skip_preflight)
         self.worker.log_msg.connect(lambda msg: self.log_callback(f"[Board {self.board_id}] {msg}"))
         self.worker.progress_updated.connect(self._on_progress_update)
         self.worker.status_updated.connect(self._on_status_update)
@@ -246,7 +246,7 @@ class RP2040BoardWidget(QGroupBox):
         self.expected_sn_map.clear()
         self.expected_date_map.clear()
         
-        self.worker = UpdaterWorker(port, [ch_idx], loop_count=1, get_expected_cb=self._get_sn_for_worker)
+        self.worker = UpdaterWorker(port, [ch_idx], loop_count=1, get_expected_cb=self._get_sn_for_worker, skip_preflight=False)
         self.worker.log_msg.connect(lambda msg: self.log_callback(f"[Board {self.board_id}] {msg}"))
         self.worker.progress_updated.connect(self._on_progress_update)
         self.worker.status_updated.connect(self._on_status_update)
@@ -669,9 +669,9 @@ class UpdaterTab(QWidget):
 
     def _start_all(self):
         try:
-            loops = int(self.loop_count.text())
+            self.loops = int(self.loop_count.text())
         except ValueError:
-            loops = 1
+            self.loops = 1
             
         self.btn_start.setEnabled(False)
         self.btn_stop.setEnabled(True)
@@ -679,14 +679,72 @@ class UpdaterTab(QWidget):
         
         self.log_console.append(f"\n[SYS] STARTING ALL {len(self.boards)} BOARDS...")
         
+        board_configs = []
+        for board in self.boards:
+            port = board.combo_port.currentText().strip()
+            channels = [i + 1 for i, chk in enumerate(board.ch_checkboxes) if chk.isChecked()]
+            if channels:
+                board_configs.append({
+                    'board_id': board.board_id,
+                    'port': port,
+                    'channels': channels
+                })
+                
+        if not board_configs:
+            self.log_console.append("[SYS] No channels were enabled across any boards.")
+            self._reset_master_ui()
+            return
+            
+        from updater_thread import GlobalPreflightWorker
+        self.preflight_worker = GlobalPreflightWorker(board_configs)
+        self.preflight_worker.log_msg.connect(self._log_to_console)
+        self.preflight_worker.finished_check.connect(self._on_global_preflight_finished)
+        self.preflight_worker.start()
+
+    def _on_global_preflight_finished(self, success, error_board_id, error_channels):
+        if not success:
+            self.log_console.append(f'<span style="color: #FF4444;">[SYS] START ALL Aborted due to pre-flight failure on Board {error_board_id}.</span>')
+            
+            # Update UI for failing board
+            for board in self.boards:
+                if board.board_id == error_board_id:
+                    for ch in error_channels:
+                        board.ch_status[ch - 1].setText("SMBus Error")
+                        board.ch_status[ch - 1].setStyleSheet("color: #FF4444; font-weight: bold;")
+                    for i, stat in enumerate(board.ch_status):
+                        if (i + 1) not in error_channels and board.ch_checkboxes[i].isChecked():
+                            stat.setText("Aborted")
+                            stat.setStyleSheet("color: #FF4444;")
+                else:
+                    # Mark healthy boards as aborted since START ALL failed entirely
+                    for i, stat in enumerate(board.ch_status):
+                        if board.ch_checkboxes[i].isChecked():
+                            stat.setText("Aborted")
+                            stat.setStyleSheet("color: #FF4444;")
+            
+            self._reset_master_ui()
+            
+            import os, winsound, time
+            try:
+                wav_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "assets", "wav", "testFail.wav")
+                if os.path.exists(wav_path):
+                    winsound.PlaySound(wav_path, winsound.SND_FILENAME)
+                else:
+                    winsound.Beep(350, 80)
+                    time.sleep(0.03)
+                    winsound.Beep(350, 80)
+            except: pass
+            
+            return
+            
         self.active_workers = 0
         self.start_time = time.time()
         for board in self.boards:
-            if board.start_worker(loops):
+            if board.start_worker(self.loops, skip_preflight=True):
                 self.active_workers += 1
                 
         if self.active_workers == 0:
-            self.log_console.append("[SYS] No channels were enabled across any boards.")
+            self.log_console.append("[SYS] Failed to launch workers.")
             self._reset_master_ui()
 
     def _stop_all(self):

@@ -106,6 +106,94 @@ def get_fw_version(port):
         pass
     return None
 
+class GlobalPreflightWorker(QThread):
+    finished_check = Signal(bool, int, list) # (success, board_id, list of error channels)
+    log_msg = Signal(str)
+    
+    def __init__(self, board_configs, parent=None):
+        super().__init__(parent)
+        self.board_configs = board_configs # list of dicts: {'board_id': id, 'port': port, 'channels': [1,2,3]}
+        self.is_running = True
+        
+    def _read_smbus_word(self, ser, ch, addr, reg):
+        payload = bytes([ch, addr, reg, 1, 2, 0, 0])
+        packet = make_packet(CMD_SMBUS_CMD, payload)
+        ser.reset_input_buffer()
+        ser.write(packet)
+        
+        start_time = time.time()
+        buf = b""
+        old_timeout = ser.timeout
+        ser.timeout = 0.05
+        
+        try:
+            while time.time() - start_time < 0.5:
+                rx = ser.read(128)
+                if rx: 
+                    buf += rx
+                
+                stx_idx = buf.find(PROTOCOL_STX)
+                if stx_idx != -1 and len(buf) >= stx_idx + 7:
+                    length = struct.unpack(">H", buf[stx_idx+1:stx_idx+3])[0]
+                    expected_total = length + 6
+                    if len(buf) >= stx_idx + expected_total:
+                        pkt_chunk = buf[stx_idx:stx_idx+expected_total]
+                        cmd, resp = parse_response(pkt_chunk)
+                        
+                        if cmd == CMD_SMBUS_CMD:
+                            return resp and resp[0] == RESP_OK
+                        buf = buf[stx_idx+expected_total:]
+                        continue
+        finally:
+            ser.timeout = old_timeout
+        return False
+
+    def _read_sbd_info(self, ser, ch):
+        date_ok = self._read_smbus_word(ser, ch, 0x0B, 0x1B)
+        serial_ok = self._read_smbus_word(ser, ch, 0x0B, 0x1C)
+        return date_ok and serial_ok
+
+    def run(self):
+        self.log_msg.emit("[INFO] Starting Global Pre-flight SMBus Check...")
+        for cfg in self.board_configs:
+            if not self.is_running:
+                break
+                
+            b_id = cfg['board_id']
+            port = cfg['port']
+            channels = cfg['channels']
+            
+            if not channels:
+                continue
+                
+            try:
+                ser = serial.Serial(port, 115200, timeout=1.5)
+            except Exception as e:
+                self.log_msg.emit(f"[ERROR] Global Check Failed: Cannot open {port} for Board {b_id}")
+                self.finished_check.emit(False, b_id, channels)
+                return
+                
+            ch_errors = []
+            for ch in channels:
+                if not self.is_running:
+                    ser.close()
+                    return
+                    
+                if not self._read_sbd_info(ser, ch):
+                    ch_errors.append(ch)
+                    
+            ser.close()
+            
+            if ch_errors:
+                self.log_msg.emit(f"[ERROR] Global Pre-flight Check failed on Board {b_id}, CH: {ch_errors}")
+                self.finished_check.emit(False, b_id, ch_errors)
+                return
+                
+        if self.is_running:
+            self.log_msg.emit("[SUCCESS] All boards passed Global Pre-flight Check.")
+            self.finished_check.emit(True, -1, [])
+
+
 class UpdaterWorker(QThread):
     log_msg = Signal(str)
     progress_updated = Signal(int, int) # (ch_idx, pct)
@@ -113,12 +201,13 @@ class UpdaterWorker(QThread):
     verify_updated = Signal(int, str, int)   # (ch_idx, date_str, sn_int)
     finished = Signal(bool)
     
-    def __init__(self, port, channels, loop_count=1, get_expected_cb=None, parent=None):
+    def __init__(self, port, channels, loop_count=1, get_expected_cb=None, skip_preflight=False, parent=None):
         super().__init__(parent)
         self.port = port
         self.channels = channels
         self.loop_count = loop_count
         self.get_expected_cb = get_expected_cb
+        self.skip_preflight = skip_preflight
         self.is_running = True
         self.ser = None
 
@@ -298,30 +387,31 @@ class UpdaterWorker(QThread):
             self.log_msg.emit(f"\n[INFO] Starting Loop {loop + 1}/{self.loop_count}")
             
             # --- Pre-flight SMBus Check ---
-            self.log_msg.emit("[INFO] Pre-flight SMBus check...")
-            ch_errors = []
-            for ch in self.channels:
+            if not self.skip_preflight:
+                self.log_msg.emit("[INFO] Pre-flight SMBus check...")
+                ch_errors = []
+                for ch in self.channels:
+                    if not self.is_running:
+                        break
+                    self.status_updated.emit(ch, "Checking SMBus...")
+                    date_str, sn_val = self._read_sbd_info(ch)
+                    if date_str is None or sn_val is None:
+                        ch_errors.append(ch)
+                        self.status_updated.emit(ch, "SMBus Error")
+                    else:
+                        self.status_updated.emit(ch, "SMBus OK")
+                        
                 if not self.is_running:
                     break
-                self.status_updated.emit(ch, "Checking SMBus...")
-                date_str, sn_val = self._read_sbd_info(ch)
-                if date_str is None or sn_val is None:
-                    ch_errors.append(ch)
-                    self.status_updated.emit(ch, "SMBus Error")
-                else:
-                    self.status_updated.emit(ch, "SMBus OK")
                     
-            if not self.is_running:
-                break
-                
-            if ch_errors:
-                self.log_msg.emit(f"[ERROR] Pre-flight check failed on CH: {ch_errors}. Aborting board.")
-                # Mark healthy channels as Aborted so they don't stay on "SMBus OK"
-                for ch in self.channels:
-                    if ch not in ch_errors:
-                        self.status_updated.emit(ch, "Aborted")
-                overall_success = False
-                break
+                if ch_errors:
+                    self.log_msg.emit(f"[ERROR] Pre-flight check failed on CH: {ch_errors}. Aborting board.")
+                    # Mark healthy channels as Aborted so they don't stay on "SMBus OK"
+                    for ch in self.channels:
+                        if ch not in ch_errors:
+                            self.status_updated.emit(ch, "Aborted")
+                    overall_success = False
+                    break
             # ------------------------------
             
             ok, msg = self._start_updater_multi()
