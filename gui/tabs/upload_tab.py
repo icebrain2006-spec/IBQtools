@@ -86,9 +86,16 @@ class UploadTab(QWidget):
         self.target_ports = []
         self.progress_bar.setValue(0)
         self.progress_bar.setFormat("Scanning...")
-        
-        ports = [p.device for p in serial.tools.list_ports.comports()]
-        
+        ports = []
+        for p in serial.tools.list_ports.comports():
+            hwid = str(p.hwid).upper()
+            desc = str(p.description).upper()
+            # Skip Bluetooth or virtual ports that might cause serial.Serial to hang
+            if "BTHENUM" in hwid or "BLUETOOTH" in desc or "USB" not in hwid:
+                self.log_msg(f"Skipping non-USB/BT port: {p.device} ({p.description})")
+                continue
+            ports.append(p.device)
+            
         self.scan_worker = ScanWorker(ports)
         self.scan_worker.log_msg.connect(self.log_msg)
         self.scan_worker.progress_updated.connect(self.progress_bar.setValue)
