@@ -247,7 +247,11 @@ class RP2040BoardWidget(QGroupBox):
             
     def _on_status_update(self, ch_idx, status_text):
         if 1 <= ch_idx <= 6:
-            self.ch_status[ch_idx - 1].setText(f"Status: {status_text}")
+            lower_text = status_text.lower()
+            if "error" in lower_text or "fail" in lower_text or "오류" in lower_text:
+                self.ch_status[ch_idx - 1].setText(f'Status: <span style="color: #FF4444;">{status_text}</span>')
+            else:
+                self.ch_status[ch_idx - 1].setText(f"Status: {status_text}")
             self.ch_status[ch_idx - 1].setStyleSheet("") # Reset style
             
     def _on_verify_update(self, ch_idx, date_str, sn_int):
@@ -503,7 +507,12 @@ class UpdaterTab(QWidget):
             self._reset_master_ui()
 
     def _log_to_console(self, msg):
-        self.log_console.append(msg)
+        lower_msg = msg.lower()
+        if "error" in lower_msg or "fail" in lower_msg or "오류" in lower_msg:
+            # Wrap with red span for errors
+            self.log_console.append(f'<span style="color: #FF4444;">{msg}</span>')
+        else:
+            self.log_console.append(msg)
 
     def _check_all(self):
         if self.active_workers > 0:
