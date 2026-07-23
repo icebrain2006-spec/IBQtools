@@ -466,6 +466,40 @@ class SerialCheckWorker(UpdaterWorker):
             
         self.finished.emit(True)
 
+class ScanWorker(QThread):
+    finished = Signal(list)
+    progress_updated = Signal(int)
+    log_msg = Signal(str)
+
+    def __init__(self, ports, parent=None):
+        super().__init__(parent)
+        self.ports = ports
+        self.is_running = True
+
+    def run(self):
+        valid_ports = []
+        total = len(self.ports)
+        if total == 0:
+            self.finished.emit([])
+            return
+
+        for i, port in enumerate(self.ports):
+            if not self.is_running:
+                break
+            self.log_msg.emit(f"Scanning {port}...")
+            version = get_fw_version(port)
+            if version:
+                self.log_msg.emit(f"  -> Found RP2040 ({version}) on {port}")
+                valid_ports.append(port)
+            else:
+                self.log_msg.emit(f"  -> No RP2040 response on {port}")
+            self.progress_updated.emit(int((i + 1) / total * 100))
+            
+        self.finished.emit(valid_ports)
+        
+    def stop(self):
+        self.is_running = False
+
 class UploadWorker(QThread):
     finished = Signal(bool)
     progress_updated = Signal(int)
