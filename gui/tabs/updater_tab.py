@@ -94,6 +94,9 @@ class RP2040BoardWidget(QGroupBox):
             self.ch_progress.append(prog)
             
             stat = QLabel("Status: Waiting")
+            stat.setWordWrap(True)
+            stat.setMinimumHeight(35)
+            stat.setAlignment(Qt.AlignTop | Qt.AlignLeft)
             self.ch_status.append(stat)
             
             box_layout.addWidget(chk)
