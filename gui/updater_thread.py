@@ -191,6 +191,7 @@ class GlobalPreflightWorker(QThread):
                 
         if self.is_running:
             self.log_msg.emit("[SUCCESS] All boards passed Global Pre-flight Check.")
+            time.sleep(0.5) # Wait for Windows COM port handles to fully release
             self.finished_check.emit(True, -1, [])
 
 
