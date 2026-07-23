@@ -1,6 +1,23 @@
 import json
 import os
+import logging
 from PySide6.QtCore import QSettings
+
+def setup_error_logging(filepath):
+    logger = logging.getLogger('IBQtools')
+    logger.setLevel(logging.ERROR)
+    
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+        
+    try:
+        fh = logging.FileHandler(filepath, encoding='utf-8')
+        fh.setLevel(logging.ERROR)
+        formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] %(message)s')
+        fh.setFormatter(formatter)
+        logger.addHandler(fh)
+    except Exception as e:
+        print(f"Failed to setup error logging: {e}")
 
 class AppConfig:
     def __init__(self):
