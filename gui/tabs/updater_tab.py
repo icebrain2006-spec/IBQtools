@@ -227,7 +227,8 @@ class RP2040BoardWidget(QGroupBox):
             else:
                 self.ch_status[i].setText("Status: Disabled")
                 
-        self.worker = SerialCheckWorker(port, active_channels)
+        fmt = self.combo_sn_fmt.currentText()
+        self.worker = SerialCheckWorker(port, active_channels, fmt=fmt)
         self.worker.log_msg.connect(lambda msg: self.log_callback(f"[Board {self.board_id}] {msg}"))
         self.worker.status_updated.connect(self._on_status_update)
         self.worker.finished.connect(self._on_worker_finished)

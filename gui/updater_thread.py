@@ -420,8 +420,9 @@ class UpdaterWorker(QThread):
         self.log_msg.emit("[INFO] Stop requested...")
 
 class SerialCheckWorker(UpdaterWorker):
-    def __init__(self, port, channels, parent=None):
+    def __init__(self, port, channels, fmt="DEC", parent=None):
         super().__init__(port, channels, loop_count=1, get_expected_cb=None, parent=parent)
+        self.fmt = fmt
         
     def run(self):
         self.log_msg.emit(f"[INFO] Connecting to {self.port} for Serial Check...")
@@ -443,9 +444,16 @@ class SerialCheckWorker(UpdaterWorker):
             
             if date_str and sn_val is not None:
                 sn_hex = f"0x{sn_val:04X}"
-                sn_dec = str(sn_val)
-                self.log_msg.emit(f"[CH {ch}] READ -> M: {date_str}, SN: {sn_dec} ({sn_hex})")
-                self.status_updated.emit(ch, f"Read: {sn_dec} ({sn_hex})")
+                if self.fmt == "HEX":
+                    sn_str = sn_hex
+                else:
+                    try:
+                        sn_str = str(int(f"{sn_val:X}", 10))
+                    except ValueError:
+                        sn_str = f"INVALID_BCD_{sn_hex}"
+                
+                self.log_msg.emit(f"[CH {ch}] READ -> M: {date_str}, SN: {sn_str} ({sn_hex})")
+                self.status_updated.emit(ch, f"Read: {sn_str} ({sn_hex})")
             else:
                 self.log_msg.emit(f"[CH {ch}] READ -> Failed to read from chip.")
                 self.status_updated.emit(ch, "Read Failed")
