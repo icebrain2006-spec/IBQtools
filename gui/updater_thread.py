@@ -166,12 +166,23 @@ class GlobalPreflightWorker(QThread):
             if not channels:
                 continue
                 
-            try:
-                ser = serial.Serial(port, 115200, timeout=1.5)
-            except Exception as e:
-                self.log_msg.emit(f"[ERROR] Global Check Failed: Cannot open {port} for Board {b_id}")
-                self.finished_check.emit(False, b_id, channels)
-                return
+            ser = None
+            for _ in range(5):
+                try:
+                    ser = serial.Serial(port, 115200, timeout=1.5)
+                    break
+                except Exception:
+                    import time
+                    time.sleep(0.1)
+                    
+            if ser is None:
+                try:
+                    # One final attempt to capture the actual exception
+                    ser = serial.Serial(port, 115200, timeout=1.5)
+                except Exception as e:
+                    self.log_msg.emit(f"[ERROR] Global Check Failed: Cannot open {port} for Board {b_id}: {e}")
+                    self.finished_check.emit(False, b_id, channels)
+                    return
                 
             ch_errors = []
             for ch in channels:
@@ -372,12 +383,22 @@ class UpdaterWorker(QThread):
 
     def run(self):
         self.log_msg.emit(f"[INFO] Connecting to RP2040 on {self.port}...")
-        try:
-            self.ser = serial.Serial(self.port, 115200, timeout=1.5)
-        except Exception as e:
-            self.log_msg.emit(f"[ERROR] Failed to open {self.port}: {e}")
-            self.finished.emit(False)
-            return
+        self.ser = None
+        for _ in range(5):
+            try:
+                self.ser = serial.Serial(self.port, 115200, timeout=1.5)
+                break
+            except Exception:
+                import time
+                time.sleep(0.1)
+                
+        if self.ser is None:
+            try:
+                self.ser = serial.Serial(self.port, 115200, timeout=1.5)
+            except Exception as e:
+                self.log_msg.emit(f"[ERROR] Failed to open {self.port}: {e}")
+                self.finished.emit(False)
+                return
 
         overall_success = True
         
@@ -549,12 +570,22 @@ class SerialCheckWorker(UpdaterWorker):
         
     def run(self):
         self.log_msg.emit(f"[INFO] Connecting to {self.port} for Serial Check...")
-        try:
-            self.ser = serial.Serial(self.port, 115200, timeout=1.5)
-        except Exception as e:
-            self.log_msg.emit(f"[ERROR] Failed to open {self.port}: {e}")
-            self.finished.emit(False)
-            return
+        self.ser = None
+        for _ in range(5):
+            try:
+                self.ser = serial.Serial(self.port, 115200, timeout=1.5)
+                break
+            except Exception:
+                import time
+                time.sleep(0.1)
+                
+        if self.ser is None:
+            try:
+                self.ser = serial.Serial(self.port, 115200, timeout=1.5)
+            except Exception as e:
+                self.log_msg.emit(f"[ERROR] Failed to open {self.port}: {e}")
+                self.finished.emit(False)
+                return
 
         self.ser.reset_input_buffer()
         
