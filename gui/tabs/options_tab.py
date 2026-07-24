@@ -3,8 +3,9 @@ import shutil
 import tempfile
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
                                QLineEdit, QPushButton, QFormLayout, QMessageBox,
-                               QFileDialog, QLabel, QProgressBar)
+                               QFileDialog, QLabel, QProgressBar, QDialog, QTableWidget, QTableWidgetItem, QHeaderView)
 from PySide6.QtCore import QThread, Signal, Qt
+import csv
 from config import config, setup_error_logging
 from fw_updater import get_latest_github_release, download_file, find_rp2040_drive
 from updater_thread import get_fw_version
@@ -94,6 +95,58 @@ class DownloadUpdateWorker(QThread):
             self.finished.emit(False, f"Error copying file: {e}")
 
 
+class CsvViewerDialog(QDialog):
+    def __init__(self, file_path, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"CSV Viewer - {os.path.basename(file_path)}")
+        self.resize(800, 600)
+        layout = QVBoxLayout(self)
+        
+        self.table = QTableWidget()
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setStyleSheet("""
+            QTableWidget {
+                background-color: #1A1A1A;
+                color: #E0E0E0;
+                gridline-color: #444444;
+            }
+            QHeaderView::section {
+                background-color: #2D2D2D;
+                color: #FFFFFF;
+                padding: 4px;
+                border: 1px solid #444444;
+            }
+        """)
+        layout.addWidget(self.table)
+        
+        self.btn_close = QPushButton("Close")
+        self.btn_close.clicked.connect(self.accept)
+        layout.addWidget(self.btn_close)
+        
+        self._load_csv(file_path)
+        
+    def _load_csv(self, file_path):
+        try:
+            with open(file_path, "r", newline="", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                data = list(reader)
+                
+            if not data:
+                return
+                
+            self.table.setRowCount(len(data))
+            self.table.setColumnCount(max(len(row) for row in data))
+            
+            for row_idx, row_data in enumerate(data):
+                for col_idx, col_data in enumerate(row_data):
+                    item = QTableWidgetItem(col_data)
+                    self.table.setItem(row_idx, col_idx, item)
+            
+            self.table.resizeColumnsToContents()
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to load CSV: {e}")
+
 class OptionsTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -109,9 +162,11 @@ class OptionsTab(QWidget):
         
         self.input_work_log = QLineEdit()
         self.btn_browse_work = QPushButton("Browse...")
+        self.btn_view_work = QPushButton("Viewer")
         work_layout = QHBoxLayout()
         work_layout.addWidget(self.input_work_log)
         work_layout.addWidget(self.btn_browse_work)
+        work_layout.addWidget(self.btn_view_work)
         
         self.input_error_log = QLineEdit()
         self.btn_browse_error = QPushButton("Browse...")
@@ -168,6 +223,7 @@ class OptionsTab(QWidget):
         self.input_error_log.setText(config.get_error_log_path())
         self.btn_browse_work.clicked.connect(self._browse_work_log)
         self.btn_browse_error.clicked.connect(self._browse_error_log)
+        self.btn_view_work.clicked.connect(self._view_work_log)
         self.btn_save_options.clicked.connect(self._save_options)
         
         self.btn_check_update.clicked.connect(self._on_check_update)
@@ -178,6 +234,15 @@ class OptionsTab(QWidget):
         path, _ = QFileDialog.getSaveFileName(self, "Select Work Log File", self.input_work_log.text(), "CSV Files (*.csv);;All Files (*)")
         if path:
             self.input_work_log.setText(path)
+            
+    def _view_work_log(self):
+        path = self.input_work_log.text()
+        if not os.path.exists(path):
+            QMessageBox.warning(self, "Not Found", "The specified CSV file does not exist yet.")
+            return
+            
+        dialog = CsvViewerDialog(path, self)
+        dialog.exec()
             
     def _browse_error_log(self):
         path, _ = QFileDialog.getSaveFileName(self, "Select Error Log File", self.input_error_log.text(), "Text Files (*.txt *.log);;All Files (*)")
