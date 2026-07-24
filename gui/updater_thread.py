@@ -33,7 +33,7 @@ def set_led_state(port, color_hex, mode, duration_sec):
     
     # Retry loop for COM port open to handle Windows handle delay
     ser = None
-    for _ in range(3):
+    for _ in range(10):  # Increased to 10 retries
         try:
             ser = serial.Serial(port, 115200, timeout=0.2)
             break
@@ -41,15 +41,19 @@ def set_led_state(port, color_hex, mode, duration_sec):
             time.sleep(0.1)
             
     if ser is None:
+        print(f"[LED] Failed to open {port}")
         return False
         
     try:
         ser.write(packet)
-        # We don't necessarily need to wait for response, it's just LED
-    except Exception:
-        pass
+        ser.timeout = 0.2
+        rx = ser.read(10)
+        print(f"[LED] {port} color={color_hex:X} mode={mode} resp={rx.hex()}")
+    except Exception as e:
+        print(f"[LED] Exception: {e}")
     finally:
-        ser.close()
+        if ser:
+            ser.close()
     return True
 
 

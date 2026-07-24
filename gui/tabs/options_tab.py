@@ -52,20 +52,25 @@ class DownloadUpdateWorker(QThread):
     progress = Signal(str)
     finished = Signal(bool, str) # success, message
     
-    def __init__(self, url):
+    def __init__(self, url=None, local_file=None):
         super().__init__()
         self.url = url
+        self.local_file = local_file
         
     def run(self):
-        self.progress.emit("Downloading .uf2 file...")
-        temp_dir = tempfile.gettempdir()
-        dest_path = os.path.join(temp_dir, "rp2040_update.uf2")
-        
-        success = download_file(self.url, dest_path)
-        if not success:
-            self.finished.emit(False, "Failed to download the file.")
-            return
+        if self.local_file:
+            self.progress.emit("Using local .uf2 file...")
+            dest_path = self.local_file
+        else:
+            self.progress.emit("Downloading .uf2 file...")
+            temp_dir = tempfile.gettempdir()
+            dest_path = os.path.join(temp_dir, "rp2040_update.uf2")
             
+            success = download_file(self.url, dest_path)
+            if not success:
+                self.finished.emit(False, "Failed to download the file.")
+                return
+                
         self.progress.emit("Waiting for RP2040 BOOTSEL Drive...")
         import time
         drive = None
@@ -143,8 +148,12 @@ class OptionsTab(QWidget):
         self.btn_download_update.setEnabled(False)
         self.btn_download_update.setObjectName("startBtn") # Use green style
         
+        self.btn_flash_local = QPushButton("Flash Local .uf2")
+        self.btn_flash_local.setObjectName("startBtn")
+        
         btn_layout.addWidget(self.btn_check_update)
         btn_layout.addWidget(self.btn_download_update)
+        btn_layout.addWidget(self.btn_flash_local)
         layout_fw.addLayout(btn_layout)
         
         self.lbl_update_status = QLabel("Ready.")
@@ -163,6 +172,7 @@ class OptionsTab(QWidget):
         
         self.btn_check_update.clicked.connect(self._on_check_update)
         self.btn_download_update.clicked.connect(self._on_download_update)
+        self.btn_flash_local.clicked.connect(self._on_flash_local)
         
     def _browse_work_log(self):
         path, _ = QFileDialog.getSaveFileName(self, "Select Work Log File", self.input_work_log.text(), "CSV Files (*.csv);;All Files (*)")
@@ -228,26 +238,42 @@ class OptionsTab(QWidget):
             QMessageBox.Ok | QMessageBox.Cancel
         )
         
-        if reply != QMessageBox.Ok:
+        if reply == QMessageBox.Ok:
+            QMessageBox.information(self, "Update", "Starting update. The device will reboot automatically.")
+            self.btn_download_update.setEnabled(False)
+            self.btn_check_update.setEnabled(False)
+            self.btn_flash_local.setEnabled(False)
+            
+            self.dl_worker = DownloadUpdateWorker(url=self.latest_uf2_url)
+            self.dl_worker.progress.connect(self._on_dl_progress)
+            self.dl_worker.finished.connect(self._on_dl_finished)
+            self.dl_worker.start()
+        
+    def _on_flash_local(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Select Local Firmware", "", "UF2 Files (*.uf2);;All Files (*)")
+        if not path:
             return
             
+        QMessageBox.information(self, "Update", "Make sure the board is in BOOTSEL mode. The device will reboot automatically.")
         self.btn_download_update.setEnabled(False)
         self.btn_check_update.setEnabled(False)
+        self.btn_flash_local.setEnabled(False)
         
-        self.dl_worker = DownloadUpdateWorker(self.latest_uf2_url)
-        self.dl_worker.progress.connect(self.lbl_update_status.setText)
-        self.dl_worker.finished.connect(self._on_download_finished)
+        self.dl_worker = DownloadUpdateWorker(local_file=path)
+        self.dl_worker.progress.connect(self._on_dl_progress)
+        self.dl_worker.finished.connect(self._on_dl_finished)
         self.dl_worker.start()
         
-    def _on_download_finished(self, success, msg):
-        self.btn_download_update.setEnabled(True)
-        self.btn_check_update.setEnabled(True)
+    def _on_dl_progress(self, msg):
+        self.lbl_update_status.setText(msg)
         
+    def _on_dl_finished(self, success, msg):
+        self.btn_check_update.setEnabled(True)
+        self.btn_flash_local.setEnabled(True)
         if success:
-            QMessageBox.information(self, "Update Success", msg + "\n\nPress OK to verify the new version.")
-            self.lbl_update_status.setText("Verifying new version...")
-            from PySide6.QtCore import QTimer
-            QTimer.singleShot(1000, self._on_check_update)
+            self.lbl_update_status.setText(f"Done: {msg}")
+            self.btn_download_update.setEnabled(False)
+            QMessageBox.information(self, "Update Complete", msg)
         else:
-            QMessageBox.warning(self, "Update Failed", msg)
-            self.lbl_update_status.setText("Update failed.")
+            self.lbl_update_status.setText(f"Error: {msg}")
+            QMessageBox.critical(self, "Update Error", msg)

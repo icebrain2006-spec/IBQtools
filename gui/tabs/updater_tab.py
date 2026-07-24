@@ -72,8 +72,8 @@ class RP2040BoardWidget(QGroupBox):
         layout.setContentsMargins(10, 15, 10, 10)
         layout.setSpacing(5)
         
-        # Board LED Colors (Cyan for 1, Magenta for 2, Yellow for 3, Green for 4)
-        colors = [0x0000FFFF, 0x00FF00FF, 0x00FFFF00, 0x0000FF00]
+        # Board LED Colors: Red(1), Green(2), Blue(3), Yellow(4)
+        colors = [0x00FF0000, 0x0000FF00, 0x000000FF, 0x00FFFF00]
         self.led_color = colors[(self.board_id - 1) % 4]
         
         # COM Port Selection Row

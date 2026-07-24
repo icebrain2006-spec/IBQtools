@@ -48,7 +48,7 @@ static inline void ws2812_program_init(PIO pio, uint sm, uint offset, uint pin, 
     sm_config_set_out_shift(&c, false, true, is_rgbw ? 32 : 24);
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
 
-    int cycles_per_bit = ws2812_wrap_target + ws2812_wrap + 1; // 10 cycles
+    int cycles_per_bit = 10; // The PIO program always takes 10 cycles per bit
     float div = clock_get_hz(clk_sys) / (freq * cycles_per_bit);
     sm_config_set_clkdiv(&c, div);
 
