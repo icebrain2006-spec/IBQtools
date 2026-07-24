@@ -41,16 +41,17 @@ def set_led_state(port, color_hex, mode, duration_sec):
             time.sleep(0.1)
             
     if ser is None:
-        print(f"[LED] Failed to open {port}")
+        # print(f"[LED] Failed to open {port}")
         return False
         
     try:
         ser.write(packet)
         ser.timeout = 0.2
         rx = ser.read(10)
-        print(f"[LED] {port} color={color_hex:X} mode={mode} resp={rx.hex()}")
+        # print(f"[LED] {port} color={color_hex:X} mode={mode} resp={rx.hex()}")
     except Exception as e:
-        print(f"[LED] Exception: {e}")
+        # print(f"[LED] Exception: {e}")
+        pass
     finally:
         if ser:
             ser.close()

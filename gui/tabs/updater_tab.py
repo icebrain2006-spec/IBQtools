@@ -58,7 +58,7 @@ class RP2040BoardWidget(QGroupBox):
     request_start = Signal(object) # Emit self when clicked
     
     def __init__(self, board_id, log_callback, get_expected_cb, cache_values_cb, parent=None):
-        super().__init__(f"RP2040 Board {board_id}", parent)
+        super().__init__("", parent)
         self.board_id = board_id
         self.log_callback = log_callback # Function to send logs to central console
         self.get_expected_cb = get_expected_cb
@@ -69,8 +69,12 @@ class RP2040BoardWidget(QGroupBox):
         self.expected_fmt = "DEC"
         
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 15, 10, 10)
-        layout.setSpacing(5)
+        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(2)
+        
+        lbl_title = QLabel(f"RP2040 Board {board_id}")
+        lbl_title.setStyleSheet("background: transparent; color: white; font-weight: bold; font-size: 13px; margin-left: 2px; margin-bottom: 2px;")
+        layout.addWidget(lbl_title)
         
         # Board LED Colors: Cyan(1), Green(2), Magenta(3), Yellow(4)
         colors = [0x0000FFFF, 0x0000FF00, 0x00FF00FF, 0x00FFFF00]
@@ -91,7 +95,14 @@ class RP2040BoardWidget(QGroupBox):
         self.border_color = border_colors[(self.board_id - 1) % 4]
         
         self.setObjectName(f"board_group_{self.board_id}")
-        self.default_style = f"QGroupBox#board_group_{self.board_id} {{ background-color: {self.bg_color}; border: 1px solid {self.border_color}; border-radius: 5px; margin-top: 1ex; }}"
+        self.default_style = f"""
+            QGroupBox#board_group_{self.board_id} {{ 
+                background-color: {self.bg_color}; 
+                border: 1px solid {self.border_color}; 
+                border-radius: 5px; 
+                margin-top: 2px; 
+            }}
+        """
         self.setStyleSheet(self.default_style)
         
         # Blink Timer for UI
@@ -105,8 +116,23 @@ class RP2040BoardWidget(QGroupBox):
         com_layout.setContentsMargins(5, 0, 5, 0)
         
         self.btn_start_board = QPushButton("▶ Start")
-        self.btn_start_board.setFixedWidth(90)
-        self.btn_start_board.setStyleSheet("background-color: #2E7D32; color: white; font-weight: bold;")
+        btn_style = f"""
+            QPushButton {{
+                background-color: rgba(0, 0, 0, 0.4);
+                border: 1px solid {self.border_color};
+                border-radius: 4px;
+                color: white;
+                font-weight: bold;
+                padding: 4px 15px;
+            }}
+            QPushButton:hover {{
+                background-color: {self.border_color};
+            }}
+            QPushButton:pressed {{
+                background-color: rgba(0, 0, 0, 0.8);
+            }}
+        """
+        self.btn_start_board.setStyleSheet(btn_style)
         self.btn_start_board.clicked.connect(lambda: self.request_start.emit(self))
         com_layout.addWidget(self.btn_start_board)
         
@@ -115,20 +141,6 @@ class RP2040BoardWidget(QGroupBox):
         com_layout.addWidget(lbl_port)
         
         self.combo_port = PortComboBox()
-        self.combo_port.setStyleSheet("""
-            QComboBox {
-                border: 1px solid #666;
-                border-radius: 4px;
-                padding: 2px 10px;
-                background-color: #333;
-                color: white;
-            }
-            QComboBox::drop-down {
-                border-left: 1px solid #666;
-                width: 20px;
-            }
-        """)
-        
         # Initial population of ports
         import serial.tools.list_ports
         active_ports = ["None"]
@@ -151,7 +163,19 @@ class RP2040BoardWidget(QGroupBox):
         com_layout.addWidget(self.combo_port)
         
         self.btn_refresh = QPushButton("Refresh")
-        self.btn_refresh.setStyleSheet("border-radius: 4px; padding: 4px 10px; background-color: #444; color: white;")
+        refresh_style = """
+            QPushButton {
+                background-color: rgba(0, 0, 0, 0.4);
+                border: 1px solid #777;
+                border-radius: 4px;
+                color: white;
+                padding: 4px 10px;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.1);
+            }
+        """
+        self.btn_refresh.setStyleSheet(refresh_style)
         self.btn_refresh.clicked.connect(self.refresh_info)
         com_layout.addWidget(self.btn_refresh)
         
@@ -178,12 +202,18 @@ class RP2040BoardWidget(QGroupBox):
         
         for i in range(6):
             ch_idx = i + 1
-            box = QGroupBox(f"CH {ch_idx}")
+            box = QGroupBox("")
+            box.setStyleSheet("QGroupBox { border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; background-color: rgba(0, 0, 0, 0.2); }")
             box_layout = QVBoxLayout(box)
-            box_layout.setContentsMargins(8, 12, 8, 8)
-            box_layout.setSpacing(4)
+            box_layout.setContentsMargins(5, 5, 5, 5)
+            box_layout.setSpacing(2)
+            
+            lbl_ch = QLabel(f"CH {ch_idx}")
+            lbl_ch.setStyleSheet("background: transparent; color: #AAAAAA; font-weight: bold; font-size: 11px;")
+            box_layout.addWidget(lbl_ch)
             
             chk = QCheckBox("Enable")
+            chk.setStyleSheet("background: transparent;")
             chk.setChecked(True)
             self.ch_checkboxes.append(chk)
             
@@ -193,6 +223,7 @@ class RP2040BoardWidget(QGroupBox):
             self.ch_progress.append(prog)
             
             stat = QLabel("Status: Waiting")
+            stat.setStyleSheet("background: transparent;")
             stat.setWordWrap(True)
             stat.setMinimumHeight(35)
             stat.setAlignment(Qt.AlignTop | Qt.AlignLeft)
