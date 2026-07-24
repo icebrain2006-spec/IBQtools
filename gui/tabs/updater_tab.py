@@ -271,7 +271,7 @@ class RP2040BoardWidget(QGroupBox):
         self.is_blink_on = not self.is_blink_on
         
         if self.is_blink_on:
-            self.setStyleSheet(f"QGroupBox#board_group_{self.board_id} {{ background-color: transparent; border: 1px solid #444; border-radius: 5px; margin-top: 1ex; }}")
+            self.setStyleSheet(f"QGroupBox#board_group_{self.board_id} {{ background-color: transparent; border: 1px solid #444; border-radius: 5px; margin-top: 2px; }}")
         else:
             self.setStyleSheet(self.default_style)
 
