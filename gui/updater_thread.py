@@ -16,6 +16,7 @@ CMD_I2C_RAW          = 0x21
 CMD_FW_GET_FILE_INFO = 0x35
 CMD_SMBUS_CMD        = 0x20
 CMD_GET_VERSION      = 0x01
+CMD_SET_LED_STATE    = 0x50
 RESP_OK = 0x00
 
 UPDATER_STATE_IDLE = 0
@@ -23,6 +24,34 @@ UPDATER_STATE_RUNNING = 1
 UPDATER_STATE_DELAYING = 2
 UPDATER_STATE_ERROR = 3
 UPDATER_STATE_DONE = 4
+
+def set_led_state(port, color_hex, mode, duration_sec):
+    # color_hex: e.g. 0x0000FFFF (Cyan)
+    # mode: 0 (Solid), 1 (Blink)
+    payload = struct.pack(">I B B", color_hex, mode, duration_sec)
+    packet = make_packet(CMD_SET_LED_STATE, payload)
+    
+    # Retry loop for COM port open to handle Windows handle delay
+    ser = None
+    for _ in range(3):
+        try:
+            ser = serial.Serial(port, 115200, timeout=0.2)
+            break
+        except Exception:
+            time.sleep(0.1)
+            
+    if ser is None:
+        return False
+        
+    try:
+        ser.write(packet)
+        # We don't necessarily need to wait for response, it's just LED
+    except Exception:
+        pass
+    finally:
+        ser.close()
+    return True
+
 
 def crc16_calculate(data):
     crc = 0xFFFF

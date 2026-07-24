@@ -5,6 +5,7 @@
 #include "protocol.h"
 #include "relay.h"
 #include "smbus.h"
+#include "ws2812_control.h"
 #include <string.h>
 
 static inline uint32_t read_u32_be(const uint8_t *buf) {
@@ -46,6 +47,23 @@ static void handle_packet(const rx_packet_t *pkt) {
     protocol_send_packet(CMD_REBOOT_BOOTSEL, resp_payload, 1);
     sleep_ms(100);        // Allow UART/USB transmit to finish
     reset_usb_boot(0, 0); // Reboot into BOOTSEL mode
+    break;
+  }
+
+  case CMD_SET_LED_STATE: {
+    if (pkt->length < 7) { // 1 cmd + 4 color + 1 mode + 1 duration
+      resp_payload[0] = RESP_ERR_PARAM;
+      protocol_send_packet(CMD_SET_LED_STATE, resp_payload, 1);
+      break;
+    }
+    uint32_t color = read_u32_be(pkt->payload);
+    led_mode_t mode = (led_mode_t)pkt->payload[4];
+    uint32_t duration_ms = pkt->payload[5] * 1000; // Received in seconds
+    
+    led_set_state(color, mode, duration_ms);
+    
+    resp_payload[0] = RESP_OK;
+    protocol_send_packet(CMD_SET_LED_STATE, resp_payload, 1);
     break;
   }
 
@@ -312,6 +330,7 @@ int main() {
   smbus_init_all();
   relay_init();
   flash_store_init();
+  led_init(); // Initialize WS2812 LED
 
   // Initialize multicore firmware updater
   bq_updater_init();
@@ -319,6 +338,9 @@ int main() {
   rx_packet_t rx_pkt;
 
   while (true) {
+    // Process async tasks
+    led_task();
+    
     // Read character from USB CDC with 1ms timeout to prevent 100% CPU spinning
     // (reduces heat/power draw)
     int c = getchar_timeout_us(1000);

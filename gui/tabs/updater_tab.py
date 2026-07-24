@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
 from PySide6.QtCore import Qt, Signal, QRegularExpression
 from PySide6.QtGui import QRegularExpressionValidator
 
-from updater_thread import UpdaterWorker, SerialCheckWorker, get_file_info, get_fw_version
+from updater_thread import UpdaterWorker, SerialCheckWorker, get_file_info, get_fw_version, set_led_state
 from config import config
 
 class ClickableProgressBar(QProgressBar):
@@ -71,6 +71,10 @@ class RP2040BoardWidget(QGroupBox):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 15, 10, 10)
         layout.setSpacing(5)
+        
+        # Board LED Colors (Cyan for 1, Magenta for 2, Yellow for 3, Green for 4)
+        colors = [0x0000FFFF, 0x00FF00FF, 0x00FFFF00, 0x0000FF00]
+        self.led_color = colors[(self.board_id - 1) % 4]
         
         # COM Port Selection Row
         com_layout = QHBoxLayout()
@@ -176,6 +180,10 @@ class RP2040BoardWidget(QGroupBox):
             self.lbl_fw_ver.setText(f"FW: {fw_ver}")
         else:
             self.lbl_fw_ver.setText("FW: -")
+            
+        if fname and fw_ver:
+            # Set LED to normal state (Solid)
+            set_led_state(port, self.led_color, 0, 0)
 
     def start_worker(self, loop_count, skip_preflight=False):
         if not skip_preflight:
@@ -386,6 +394,12 @@ class RP2040BoardWidget(QGroupBox):
     def _on_worker_finished(self, success):
         for chk in self.ch_checkboxes:
             chk.setEnabled(True)
+            
+        port = self.combo_port.currentText().strip()
+        if success:
+            set_led_state(port, self.led_color, 0, 0) # Normal Solid
+        else:
+            set_led_state(port, self.led_color, 1, 10) # Error Blink for 10s
         self.log_callback(f"[Board {self.board_id}] Thread finished.")
         self.board_finished.emit()
 
@@ -720,12 +734,18 @@ class UpdaterTab(QWidget):
                         if (i + 1) not in error_channels and board.ch_checkboxes[i].isChecked():
                             stat.setText("Aborted")
                             stat.setStyleSheet("color: #FF4444;")
+                            
+                    port = board.combo_port.currentText().strip()
+                    set_led_state(port, board.led_color, 1, 10) # Error Blink for 10s
                 else:
                     # Mark healthy boards as aborted since START ALL failed entirely
                     for i, stat in enumerate(board.ch_status):
                         if board.ch_checkboxes[i].isChecked():
                             stat.setText("Aborted")
                             stat.setStyleSheet("color: #FF4444;")
+                            
+                    port = board.combo_port.currentText().strip()
+                    set_led_state(port, board.led_color, 0, 0) # Back to normal solid
             
             self._reset_master_ui()
             

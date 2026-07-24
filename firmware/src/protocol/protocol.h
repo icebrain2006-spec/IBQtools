@@ -24,6 +24,7 @@
 #define CMD_FW_UPDATE_RUN    0x40
 #define CMD_FW_UPDATE_STATUS 0x41
 #define CMD_FW_UPDATE_STOP   0x42
+#define CMD_SET_LED_STATE    0x50
 
 // Command execution status response codes
 #define RESP_OK              0x00

@@ -20,6 +20,7 @@ add_executable(firmware
     src/flash/flash_store.c
     src/protocol/protocol.c
     src/bq_updater/bq_updater.c
+    src/led/ws2812_control.c
 )
 
 # Pull in PIO header generation (Bypassed: using precompiled smbus.pio.h)
@@ -33,6 +34,7 @@ target_include_directories(firmware PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/flash
     ${CMAKE_CURRENT_SOURCE_DIR}/src/protocol
     ${CMAKE_CURRENT_SOURCE_DIR}/src/bq_updater
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/led
 )
 
 # Link hardware libraries

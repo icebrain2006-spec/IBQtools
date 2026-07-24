@@ -78,3 +78,45 @@ Traceback (most recent call last):
     fmt = self.combo_sn_fmt.currentText()
           ^^^^^^^^^^^^^^^^^
 AttributeError: 'RP2040BoardWidget' object has no attribute 'combo_sn_fmt'
+[2026-07-24 08:48:24,774] [ERROR] Uncaught exception
+Traceback (most recent call last):
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 741, in _on_global_preflight_finished
+    self.start_time = time.time()
+                      ^^^^
+UnboundLocalError: cannot access local variable 'time' where it is not associated with a value
+[2026-07-24 08:48:42,831] [ERROR] Uncaught exception
+Traceback (most recent call last):
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 741, in _on_global_preflight_finished
+    self.start_time = time.time()
+                      ^^^^
+UnboundLocalError: cannot access local variable 'time' where it is not associated with a value
+[2026-07-24 08:54:49,560] [ERROR] Uncaught exception
+Traceback (most recent call last):
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 741, in _on_global_preflight_finished
+    self.start_time = time.time()
+                      ^^^^
+UnboundLocalError: cannot access local variable 'time' where it is not associated with a value
+[2026-07-24 08:55:19,461] [ERROR] Uncaught exception
+Traceback (most recent call last):
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 741, in _on_global_preflight_finished
+    self.start_time = time.time()
+                      ^^^^
+UnboundLocalError: cannot access local variable 'time' where it is not associated with a value
+[2026-07-24 08:57:01,082] [ERROR] Uncaught exception
+Traceback (most recent call last):
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 746, in _on_global_preflight_finished
+    self.start_time = time.time()
+                      ^^^^
+UnboundLocalError: cannot access local variable 'time' where it is not associated with a value
+[2026-07-24 09:34:47,951] [ERROR] Uncaught exception
+Traceback (most recent call last):
+  File "D:\WinApp\python\IBQtools\gui\updater_thread.py", line 205, in run
+    time.sleep(0.5) # Wait for Windows COM port handles to fully release
+    ^^^^
+UnboundLocalError: cannot access local variable 'time' where it is not associated with a value
+[2026-07-24 09:35:14,864] [ERROR] Uncaught exception
+Traceback (most recent call last):
+  File "D:\WinApp\python\IBQtools\gui\updater_thread.py", line 205, in run
+    time.sleep(0.5) # Wait for Windows COM port handles to fully release
+    ^^^^
+UnboundLocalError: cannot access local variable 'time' where it is not associated with a value
