@@ -72,9 +72,26 @@ class RP2040BoardWidget(QGroupBox):
         layout.setContentsMargins(10, 15, 10, 10)
         layout.setSpacing(5)
         
-        # Board LED Colors: Red(1), Green(2), Blue(3), Yellow(4)
-        colors = [0x00FF0000, 0x0000FF00, 0x000000FF, 0x00FFFF00]
+        # Board LED Colors: Cyan(1), Green(2), Magenta(3), Yellow(4)
+        colors = [0x0000FFFF, 0x0000FF00, 0x00FF00FF, 0x00FFFF00]
+        bg_colors = [
+            "rgba(0, 255, 255, 0.1)",
+            "rgba(0, 255, 0, 0.1)",
+            "rgba(255, 0, 255, 0.1)",
+            "rgba(255, 255, 0, 0.1)"
+        ]
         self.led_color = colors[(self.board_id - 1) % 4]
+        self.bg_color = bg_colors[(self.board_id - 1) % 4]
+        
+        self.setObjectName(f"board_group_{self.board_id}")
+        self.default_style = f"QGroupBox#board_group_{self.board_id} {{ background-color: {self.bg_color}; border: 1px solid #444; border-radius: 5px; margin-top: 1ex; }}"
+        self.setStyleSheet(self.default_style)
+        
+        # Blink Timer for UI
+        self.blink_timer = QTimer(self)
+        self.blink_timer.timeout.connect(self._toggle_blink)
+        self.is_blink_on = False
+        self.blink_duration_left = 0
         
         # COM Port Selection Row
         com_layout = QHBoxLayout()
@@ -184,6 +201,25 @@ class RP2040BoardWidget(QGroupBox):
         if fname and fw_ver:
             # Set LED to normal state (Solid)
             set_led_state(port, self.led_color, 0, 0)
+
+    def start_blink(self, duration_sec):
+        self.blink_duration_left = duration_sec * 2 # 500ms intervals
+        self.is_blink_on = False
+        self.blink_timer.start(500)
+        
+    def _toggle_blink(self):
+        if self.blink_duration_left <= 0:
+            self.blink_timer.stop()
+            self.setStyleSheet(self.default_style)
+            return
+            
+        self.blink_duration_left -= 1
+        self.is_blink_on = not self.is_blink_on
+        
+        if self.is_blink_on:
+            self.setStyleSheet(f"QGroupBox#board_group_{self.board_id} {{ background-color: transparent; border: 1px solid #444; border-radius: 5px; margin-top: 1ex; }}")
+        else:
+            self.setStyleSheet(self.default_style)
 
     def start_worker(self, loop_count, skip_preflight=False):
         if not skip_preflight:
@@ -400,6 +436,8 @@ class RP2040BoardWidget(QGroupBox):
             set_led_state(port, self.led_color, 0, 0) # Normal Solid
         else:
             set_led_state(port, self.led_color, 1, 10) # Error Blink for 10s
+            self.start_blink(10) # Blink GUI background as well
+            
         self.log_callback(f"[Board {self.board_id}] Thread finished.")
         self.board_finished.emit()
 
