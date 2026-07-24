@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
                                QGridLayout, QLabel, QComboBox, QLineEdit, 
                                QPushButton, QTextBrowser, QCheckBox, QSpinBox, 
                                QProgressBar, QFormLayout, QMessageBox, QScrollArea)
-from PySide6.QtCore import Qt, Signal, QRegularExpression
+from PySide6.QtCore import Qt, Signal, QRegularExpression, QTimer
 from PySide6.QtGui import QRegularExpressionValidator
 
 from updater_thread import UpdaterWorker, SerialCheckWorker, get_file_info, get_fw_version, set_led_state
@@ -75,16 +75,23 @@ class RP2040BoardWidget(QGroupBox):
         # Board LED Colors: Cyan(1), Green(2), Magenta(3), Yellow(4)
         colors = [0x0000FFFF, 0x0000FF00, 0x00FF00FF, 0x00FFFF00]
         bg_colors = [
-            "rgba(0, 255, 255, 0.1)",
-            "rgba(0, 255, 0, 0.1)",
-            "rgba(255, 0, 255, 0.1)",
-            "rgba(255, 255, 0, 0.1)"
+            "rgba(0, 255, 255, 0.25)",
+            "rgba(0, 255, 0, 0.25)",
+            "rgba(255, 0, 255, 0.25)",
+            "rgba(255, 255, 0, 0.25)"
+        ]
+        border_colors = [
+            "rgba(0, 255, 255, 0.6)",
+            "rgba(0, 255, 0, 0.6)",
+            "rgba(255, 0, 255, 0.6)",
+            "rgba(255, 255, 0, 0.6)"
         ]
         self.led_color = colors[(self.board_id - 1) % 4]
         self.bg_color = bg_colors[(self.board_id - 1) % 4]
+        self.border_color = border_colors[(self.board_id - 1) % 4]
         
         self.setObjectName(f"board_group_{self.board_id}")
-        self.default_style = f"QGroupBox#board_group_{self.board_id} {{ background-color: {self.bg_color}; border: 1px solid #444; border-radius: 5px; margin-top: 1ex; }}"
+        self.default_style = f"QGroupBox#board_group_{self.board_id} {{ background-color: {self.bg_color}; border: 1px solid {self.border_color}; border-radius: 5px; margin-top: 1ex; }}"
         self.setStyleSheet(self.default_style)
         
         # Blink Timer for UI
@@ -103,11 +110,28 @@ class RP2040BoardWidget(QGroupBox):
         self.btn_start_board.clicked.connect(lambda: self.request_start.emit(self))
         com_layout.addWidget(self.btn_start_board)
         
-        com_layout.addWidget(QLabel("COM Port:"))
+        lbl_port = QLabel("COM Port:")
+        lbl_port.setStyleSheet("background: transparent; color: white; font-weight: bold;")
+        com_layout.addWidget(lbl_port)
+        
         self.combo_port = PortComboBox()
+        self.combo_port.setStyleSheet("""
+            QComboBox {
+                border: 1px solid #666;
+                border-radius: 4px;
+                padding: 2px 10px;
+                background-color: #333;
+                color: white;
+            }
+            QComboBox::drop-down {
+                border-left: 1px solid #666;
+                width: 20px;
+            }
+        """)
+        
         # Initial population of ports
         import serial.tools.list_ports
-        active_ports = []
+        active_ports = ["None"]
         for p in serial.tools.list_ports.comports():
             hwid = str(p.hwid).upper()
             desc = str(p.description).upper()
@@ -115,29 +139,28 @@ class RP2040BoardWidget(QGroupBox):
             if "USB" not in hwid and "USB" not in desc: continue
             active_ports.append(p.device)
             
-        if active_ports:
-            self.combo_port.addItems(active_ports)
+        self.combo_port.addItems(active_ports)
             
         # Try to select the default based on board_id if it exists, otherwise just pick the first one
         default_port = f"COM{5 + board_id}"
         if default_port in active_ports:
             self.combo_port.setCurrentText(default_port)
-        elif not active_ports:
-            self.combo_port.addItems([default_port])
-            self.combo_port.setCurrentText(default_port)
+        else:
+            self.combo_port.setCurrentText("None")
             
         com_layout.addWidget(self.combo_port)
         
         self.btn_refresh = QPushButton("Refresh")
+        self.btn_refresh.setStyleSheet("border-radius: 4px; padding: 4px 10px; background-color: #444; color: white;")
         self.btn_refresh.clicked.connect(self.refresh_info)
         com_layout.addWidget(self.btn_refresh)
         
         self.lbl_fw_ver = QLabel("FW: -")
-        self.lbl_fw_ver.setStyleSheet("color: #00FFFF; font-weight: bold; margin-left: 10px;")
+        self.lbl_fw_ver.setStyleSheet("background: transparent; color: #EEEEEE; font-weight: bold; margin-left: 10px;")
         com_layout.addWidget(self.lbl_fw_ver)
         
         self.lbl_slfs_info = QLabel("SLFS: Unknown")
-        self.lbl_slfs_info.setStyleSheet("color: #00E5FF; font-weight: bold; margin-left: 15px;")
+        self.lbl_slfs_info.setStyleSheet("background: transparent; color: #EEEEEE; font-weight: bold; margin-left: 15px;")
         com_layout.addWidget(self.lbl_slfs_info)
         
         com_layout.addStretch()
@@ -588,8 +611,22 @@ class UpdaterTab(QWidget):
             board = RP2040BoardWidget(i + 1, self._log_to_console, self._get_expected_values, self._cache_values_if_needed)
             board.board_finished.connect(self._on_board_finished_callback)
             board.request_start.connect(self._start_single_board)
+            board.combo_port.currentTextChanged.connect(self._on_port_changed)
             self.boards_layout.addWidget(board)
             self.boards.append(board)
+
+    def _on_port_changed(self, text):
+        if text == "None":
+            return
+            
+        sender_combo = self.sender()
+        if not sender_combo: return
+        
+        for board in self.boards:
+            if board.combo_port != sender_combo and board.combo_port.currentText() == text:
+                board.combo_port.blockSignals(True)
+                board.combo_port.setCurrentText("None")
+                board.combo_port.blockSignals(False)
 
     def _start_single_board(self, board_widget):
         if board_widget.worker and board_widget.worker.isRunning():
@@ -758,32 +795,35 @@ class UpdaterTab(QWidget):
         self.preflight_worker.finished_check.connect(self._on_global_preflight_finished)
         self.preflight_worker.start()
 
-    def _on_global_preflight_finished(self, success, error_board_id, error_channels):
+    def _on_global_preflight_finished(self, success, all_errors):
         if not success:
-            self.log_console.append(f'<span style="color: #FF4444;">[SYS] START ALL Aborted due to pre-flight failure on Board {error_board_id}.</span>')
+            self.log_console.append(f'<span style="color: #FF4444;">[SYS] START ALL Aborted due to pre-flight failure.</span>')
             
-            # Update UI for failing board
+            # Update UI for all boards
             for board in self.boards:
-                if board.board_id == error_board_id:
-                    for ch in error_channels:
-                        board.ch_status[ch - 1].setText("SMBus Error")
-                        board.ch_status[ch - 1].setStyleSheet("color: #FF4444; font-weight: bold;")
-                    for i, stat in enumerate(board.ch_status):
-                        if (i + 1) not in error_channels and board.ch_checkboxes[i].isChecked():
-                            stat.setText("Aborted")
-                            stat.setStyleSheet("color: #FF4444;")
-                            
-                    port = board.combo_port.currentText().strip()
+                b_id = board.board_id
+                error_channels = all_errors.get(b_id, [])
+                
+                has_error = False
+                for i, stat in enumerate(board.ch_status):
+                    if not board.ch_checkboxes[i].isChecked():
+                        continue
+                        
+                    ch_idx = i + 1
+                    if ch_idx in error_channels:
+                        stat.setText("SMBus Error")
+                        stat.setStyleSheet("color: #FF4444; font-weight: bold;")
+                        has_error = True
+                    else:
+                        stat.setText("Preflight OK (Aborted)")
+                        stat.setStyleSheet("color: #00E5FF; font-weight: bold;")
+                        
+                port = board.combo_port.currentText().strip()
+                if has_error:
                     set_led_state(port, board.led_color, 1, 10) # Error Blink for 10s
+                    board.start_blink(10)
                 else:
-                    # Mark healthy boards as aborted since START ALL failed entirely
-                    for i, stat in enumerate(board.ch_status):
-                        if board.ch_checkboxes[i].isChecked():
-                            stat.setText("Aborted")
-                            stat.setStyleSheet("color: #FF4444;")
-                            
-                    port = board.combo_port.currentText().strip()
-                    set_led_state(port, board.led_color, 0, 0) # Back to normal solid
+                    set_led_state(port, board.led_color, 0, 0) # Normal Solid
             
             self._reset_master_ui()
             
@@ -856,10 +896,16 @@ class UpdaterTab(QWidget):
             self.chk_write_sn.setChecked(write_sn_str == "true")
             self.chk_auto_inc.setChecked(auto_inc_str == "true")
             
+            used_ports = set()
             for board in self.boards:
                 bid = board.board_id
                 port = str(settings.value(f"ui_board_{bid}_port", f"COM{5 + bid}"))
+                if port != "None" and port in used_ports:
+                    port = "None"
+                
                 board.combo_port.setCurrentText(port)
+                if port != "None":
+                    used_ports.add(port)
                 
                 for i, chk in enumerate(board.ch_checkboxes):
                     ch_str = str(settings.value(f"ui_board_{bid}_ch_{i+1}", "True")).lower()

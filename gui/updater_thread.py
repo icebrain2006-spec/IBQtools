@@ -140,7 +140,7 @@ def get_fw_version(port):
     return None
 
 class GlobalPreflightWorker(QThread):
-    finished_check = Signal(bool, int, list) # (success, board_id, list of error channels)
+    finished_check = Signal(bool, object) # (success, dict_of_errors {board_id: [channels]})
     log_msg = Signal(str)
     
     def __init__(self, board_configs, parent=None):
@@ -188,6 +188,8 @@ class GlobalPreflightWorker(QThread):
 
     def run(self):
         self.log_msg.emit("[INFO] Starting Global Pre-flight SMBus Check...")
+        all_errors = {}
+        
         for cfg in self.board_configs:
             if not self.is_running:
                 break
@@ -213,8 +215,8 @@ class GlobalPreflightWorker(QThread):
                     ser = serial.Serial(port, 115200, timeout=1.5)
                 except Exception as e:
                     self.log_msg.emit(f"[ERROR] Global Check Failed: Cannot open {port} for Board {b_id}: {e}")
-                    self.finished_check.emit(False, b_id, channels)
-                    return
+                    all_errors[b_id] = channels
+                    continue
                 
             ch_errors = []
             for ch in channels:
@@ -229,13 +231,15 @@ class GlobalPreflightWorker(QThread):
             
             if ch_errors:
                 self.log_msg.emit(f"[ERROR] Global Pre-flight Check failed on Board {b_id}, CH: {ch_errors}")
-                self.finished_check.emit(False, b_id, ch_errors)
-                return
+                all_errors[b_id] = ch_errors
                 
         if self.is_running:
-            self.log_msg.emit("[SUCCESS] All boards passed Global Pre-flight Check.")
-            time.sleep(0.5) # Wait for Windows COM port handles to fully release
-            self.finished_check.emit(True, -1, [])
+            if all_errors:
+                self.finished_check.emit(False, all_errors)
+            else:
+                self.log_msg.emit("[SUCCESS] All boards passed Global Pre-flight Check.")
+                time.sleep(0.5) # Wait for Windows COM port handles to fully release
+                self.finished_check.emit(True, {})
 
 
 class UpdaterWorker(QThread):
