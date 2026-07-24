@@ -172,7 +172,6 @@ class GlobalPreflightWorker(QThread):
                     ser = serial.Serial(port, 115200, timeout=1.5)
                     break
                 except Exception:
-                    import time
                     time.sleep(0.1)
                     
             if ser is None:
@@ -389,7 +388,6 @@ class UpdaterWorker(QThread):
                 self.ser = serial.Serial(self.port, 115200, timeout=1.5)
                 break
             except Exception:
-                import time
                 time.sleep(0.1)
                 
         if self.ser is None:
@@ -576,7 +574,6 @@ class SerialCheckWorker(UpdaterWorker):
                 self.ser = serial.Serial(self.port, 115200, timeout=1.5)
                 break
             except Exception:
-                import time
                 time.sleep(0.1)
                 
         if self.ser is None:
