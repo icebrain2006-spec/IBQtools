@@ -2,9 +2,12 @@ import serial
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
                                QGridLayout, QLabel, QComboBox, QLineEdit, 
                                QPushButton, QTextBrowser, QMessageBox)
+from PySide6.QtGui import QRegularExpressionValidator
+from PySide6.QtCore import QRegularExpression
 from updater_thread import make_packet, parse_response, CMD_I2C_RAW, RESP_OK
 from tabs.updater_tab import PortComboBox
 import serial.tools.list_ports
+import re
 
 class ManualTab(QWidget):
     def __init__(self, parent=None):
@@ -43,6 +46,8 @@ class ManualTab(QWidget):
         
         ctrl_layout.addWidget(QLabel("I2C Address (Hex):"), 1, 0)
         self.man_addr = QLineEdit("0B")
+        addr_validator = QRegularExpressionValidator(QRegularExpression("^[0-9a-fA-F]{1,2}$"))
+        self.man_addr.setValidator(addr_validator)
         ctrl_layout.addWidget(self.man_addr, 1, 1)
         
         ctrl_layout.addWidget(QLabel("Command Mode:"), 1, 2)
@@ -52,6 +57,7 @@ class ManualTab(QWidget):
         
         ctrl_layout.addWidget(QLabel("TX Data (Hex space separated):"), 2, 0)
         self.man_tx = QLineEdit("08")
+        self.man_tx.textEdited.connect(self._format_tx_data)
         ctrl_layout.addWidget(self.man_tx, 2, 1, 1, 3)
         
         ctrl_layout.addWidget(QLabel("Expected RX Bytes:"), 3, 0)
@@ -68,6 +74,14 @@ class ManualTab(QWidget):
         self.man_console = QTextBrowser()
         self.man_console.append("Ready for manual I2C commands.")
         layout.addWidget(self.man_console, stretch=1)
+
+    def _format_tx_data(self, text):
+        clean = re.sub(r'[^0-9a-fA-F]', '', text)
+        spaced = ' '.join(clean[i:i+2] for i in range(0, len(clean), 2)).upper()
+        
+        self.man_tx.blockSignals(True)
+        self.man_tx.setText(spaced)
+        self.man_tx.blockSignals(False)
 
     def _send_manual_command(self):
         port = self.man_port.currentText()
