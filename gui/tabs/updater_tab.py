@@ -452,7 +452,7 @@ class RP2040BoardWidget(QGroupBox):
                     
                 if date_str == exp_date and actual_sn_int == exp_sn_int:
                     self.ch_status[ch_idx - 1].setText(f"PASS (M:{date_str} SN:{sn_str})")
-                    self.ch_status[ch_idx - 1].setStyleSheet("color: #00FF00; font-weight: bold;")
+                    self.ch_status[ch_idx - 1].setStyleSheet("color: #69F0AE; font-weight: bold;")
                     result_str = "PASS"
                 else:
                     self.ch_status[ch_idx - 1].setText(f"FAIL (M:{date_str} SN:{sn_str})")
@@ -611,7 +611,7 @@ class UpdaterTab(QWidget):
         
         # Log Console
         self.log_console = QTextBrowser()
-        self.log_console.setStyleSheet("background-color: #1E1E1E; color: #00FF00; font-family: Consolas;")
+        self.log_console.setStyleSheet("background-color: #1A1A1A; color: #69F0AE; font-family: Consolas;")
         self.log_console.append("Welcome to Multi-Board BQ40Z50 Updater GUI.")
         left_layout.addWidget(self.log_console, stretch=1)
         
@@ -847,7 +847,7 @@ class UpdaterTab(QWidget):
                         has_error = True
                     else:
                         stat.setText("Preflight OK (Aborted)")
-                        stat.setStyleSheet("color: #00E5FF; font-weight: bold;")
+                        stat.setStyleSheet("color: #18FFFF; font-weight: bold;")
                         
                 port = board.combo_port.currentText().strip()
                 if has_error:
