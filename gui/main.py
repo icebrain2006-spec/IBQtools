@@ -23,7 +23,13 @@ sys.excepthook = handle_exception
 class BqUpdaterMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Multi-Board BQ40Z50 Firmware Updater")
+        self.setWindowTitle("IBQtools v0.8 (Multi BQ Firmware Programmer)")
+        
+        # Set app icon
+        icon_path = os.path.join(os.path.dirname(__file__), "app_icon.png")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+            
         self.resize(1500, 800)
         
         # Apply QSS
