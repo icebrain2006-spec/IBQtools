@@ -5,6 +5,7 @@ from PySide6.QtGui import QIcon
 
 from config import config, setup_error_logging
 from tabs.updater_tab import UpdaterTab
+from tabs.calibration_tab import CalibrationTab
 from tabs.manual_tab import ManualTab
 from tabs.upload_tab import UploadTab
 from tabs.csv_tab import CsvTab
@@ -51,12 +52,14 @@ class BqUpdaterMainWindow(QMainWindow):
         
         # Instantiate Tabs
         self.updater_tab = UpdaterTab()
+        self.calibration_tab = CalibrationTab()
         self.manual_tab = ManualTab()
         self.upload_tab = UploadTab()
         self.csv_tab = CsvTab()
         self.options_tab = OptionsTab()
         
         self.tabs.addTab(self.updater_tab, "Firmware Update (Main)")
+        self.tabs.addTab(self.calibration_tab, "Calibration")
         self.tabs.addTab(self.manual_tab, "Manual I2C Debug")
         self.tabs.addTab(self.upload_tab, "SLFS Upload")
         self.tabs.addTab(self.csv_tab, "CSV to SLFS")
