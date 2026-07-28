@@ -282,23 +282,23 @@ class CalibrationThread(QThread):
                                 self._log(f"    Average ADC ({valid_count} samples) -> Cell1: {cell1_avg:.2f}, Pack: {pack_avg:.2f}, Batt: {batt_avg:.2f}")
                                 # Calculate Gains
                                 if cell1_avg > 0:
-                                    g = int((self.targets.get('cell1', 3200) / cell1_avg) * 65536)
+                                    g = int((self.targets.get('cell1mv', 3200) / cell1_avg) * 65536)
                                     g = max(0, min(65535, g))
                                     new_gains.append(g)
                                     self._log(f"    New Cell 1 Gain = {g}")
-                                    self.row_signal.emit("Cell 1 Voltage", f"{cell1_avg:.1f}", str(self.targets.get('cell1')), "PASS")
+                                    self.row_signal.emit("Cell 1 Voltage", f"{cell1_avg:.1f}", str(self.targets.get('cell1mv')), "PASS")
                                 if pack_avg > 0:
-                                    g = int((self.targets.get('pack', 12780) / pack_avg) * 65536)
+                                    g = int((self.targets.get('packmv', 12780) / pack_avg) * 65536)
                                     g = max(0, min(65535, g))
                                     new_gains.append(g)
                                     self._log(f"    New Pack Gain = {g}")
-                                    self.row_signal.emit("Pack Voltage", f"{pack_avg:.1f}", str(self.targets.get('pack')), "PASS")
+                                    self.row_signal.emit("Pack Voltage", f"{pack_avg:.1f}", str(self.targets.get('packmv')), "PASS")
                                 if batt_avg > 0:
-                                    g = int((self.targets.get('batt', 12780) / batt_avg) * 65536)
+                                    g = int((self.targets.get('batmv', 12780) / batt_avg) * 65536)
                                     g = max(0, min(65535, g))
                                     new_gains.append(g)
                                     self._log(f"    New Batt Gain = {g}")
-                                    self.row_signal.emit("Bat Voltage", f"{batt_avg:.1f}", str(self.targets.get('batt')), "PASS")
+                                    self.row_signal.emit("Bat Voltage", f"{batt_avg:.1f}", str(self.targets.get('batmv')), "PASS")
                     else:
                         self._log("  => FAIL")
                         self.finished_signal.emit(False)
