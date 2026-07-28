@@ -52,10 +52,28 @@ class CalibrationThread(QThread):
         cmd, resp = parse_response(rx)
         return resp and resp[0] == RESP_OK
         
+    def _read_packet(self):
+        """Reads exactly one packet to eliminate timeout delays."""
+        rx = bytearray()
+        while True:
+            b = self.ser.read(1)
+            if not b: return rx # Timeout
+            if b[0] == 0x02:
+                rx.extend(b)
+                break
+                
+        len_bytes = self.ser.read(2)
+        rx.extend(len_bytes)
+        if len(len_bytes) < 2: return rx
+        
+        length = struct.unpack(">H", len_bytes)[0]
+        rx.extend(self.ser.read(length + 3))
+        return rx
+
     def smbus_read_word(self, cmd_reg):
-        payload = struct.pack('<BBBBBB', self.ch, self.addr, cmd_reg, 1, 2, 1) # use_pec=1
+        payload = struct.pack('<BBBB', self.ch, self.addr, cmd_reg, 2)
         self.ser.write(make_packet(CMD_SMBUS_CMD, payload))
-        rx = self.ser.read(128)
+        rx = self._read_packet()
         cmd, resp = parse_response(rx)
         if resp and resp[0] == RESP_OK:
             return resp[1:3]
@@ -66,7 +84,7 @@ class CalibrationThread(QThread):
             if not self._running: return None
             payload = struct.pack('<BBBBBB', self.ch, self.addr, cmd_reg, 1, 32, 1) # use_pec=1
             self.ser.write(make_packet(CMD_SMBUS_CMD, payload))
-            rx = self.ser.read(128)
+            rx = self._read_packet()
             cmd, resp = parse_response(rx)
             if cmd is None:
                 time.sleep(0.05)
@@ -85,7 +103,7 @@ class CalibrationThread(QThread):
     def smbus_poll_block(self, cmd_reg, interval_ms, count):
         payload = struct.pack('<BBBBB', self.ch, self.addr, cmd_reg, interval_ms, count)
         self.ser.write(make_packet(CMD_SMBUS_POLL_BLOCK, payload))
-        rx = self.ser.read(4096)
+        rx = self._read_packet()
         cmd, resp = parse_response(rx)
         if not resp or resp[0] != RESP_OK:
             return resp, []
@@ -110,7 +128,7 @@ class CalibrationThread(QThread):
             
         payload = struct.pack('<BBBB', self.ch, self.addr, len(tx_data), 0) + tx_data
         self.ser.write(make_packet(CMD_I2C_RAW, payload))
-        rx = self.ser.read(128)
+        rx = self._read_packet()
         cmd, resp = parse_response(rx)
         return resp and resp[0] == RESP_OK
 
