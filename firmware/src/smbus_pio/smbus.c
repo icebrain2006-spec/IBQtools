@@ -428,8 +428,9 @@ int smbus_read_block(uint8_t ch, uint8_t addr, uint8_t cmd, uint8_t *data, uint8
     if ((err = i2c_tx_byte(sda, scl, addr_r)) != SMBUS_OK) goto error;
 
     if ((err = i2c_rx_byte(sda, scl, &rx_len, false)) != SMBUS_OK) goto error; // ACK
-    if (rx_len > 32 || rx_len == 0) {
-        err = SMBUS_ERR_INVALID;
+    if (rx_len > 36 || rx_len == 0) {
+        err = -rx_len; // Return -rx_len to debug what BQ40Z50 is actually sending!
+        if (err == 0) err = SMBUS_ERR_INVALID; // if 0, return -4
         goto error;
     }
 
@@ -443,7 +444,7 @@ int smbus_read_block(uint8_t ch, uint8_t addr, uint8_t cmd, uint8_t *data, uint8
         uint8_t pec_rx;
         if ((err = i2c_rx_byte(sda, scl, &pec_rx, true)) != SMBUS_OK) goto error; // NACK
         
-        uint8_t pec_buf[36];
+        uint8_t pec_buf[64];
         pec_buf[0] = addr_w;
         pec_buf[1] = cmd;
         pec_buf[2] = addr_r;

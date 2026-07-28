@@ -17,6 +17,7 @@
 #define CMD_RELAY_GET        0x11
 #define CMD_SMBUS_CMD        0x20
 #define CMD_I2C_RAW          0x21
+#define CMD_SMBUS_POLL_BLOCK 0x23
 #define CMD_FW_UPLOAD_START  0x30
 #define CMD_FW_UPLOAD_DATA   0x31
 #define CMD_FW_UPLOAD_END    0x32

@@ -2,6 +2,7 @@
 #include "flash_store.h"
 #include "pico/bootrom.h"
 #include "pico/stdlib.h"
+#include "pico/stdio_usb.h"
 #include "protocol.h"
 #include "relay.h"
 #include "smbus.h"
@@ -35,7 +36,7 @@ static void handle_packet(const rx_packet_t *pkt) {
 
   switch (pkt->cmd) {
   case CMD_GET_VERSION: {
-    const char *version = "v1.0.24";
+    const char *version = "v1.0.27";
     resp_payload[0] = RESP_OK;
     strcpy((char *)(resp_payload + 1), version);
     protocol_send_packet(CMD_GET_VERSION, resp_payload, 1 + strlen(version));
@@ -188,6 +189,45 @@ static void handle_packet(const rx_packet_t *pkt) {
     protocol_send_packet(CMD_I2C_RAW, resp_payload, resp_len);
     break;
   }
+  case CMD_SMBUS_POLL_BLOCK: {
+    if (pkt->length < 5) {
+      resp_payload[0] = RESP_ERR_PARAM;
+      protocol_send_packet(CMD_SMBUS_POLL_BLOCK, resp_payload, 1);
+      break;
+    }
+    uint8_t ch = pkt->payload[0];
+    uint8_t addr = pkt->payload[1];
+    uint8_t cmd_reg = pkt->payload[2];
+    uint8_t interval_ms = pkt->payload[3];
+    uint8_t count = pkt->payload[4];
+
+    int err = SMBUS_OK;
+    resp_payload[0] = RESP_OK;
+    resp_len = 1;
+
+    for (uint8_t i = 0; i < count; i++) {
+      if (interval_ms > 0 && i > 0) {
+        sleep_ms(interval_ms);
+      }
+      uint8_t rx_len = 0;
+      // max space check to prevent overflow
+      if (resp_len + 33 > PROTOCOL_MAX_PAYLOAD) {
+        break; // Stop collecting if buffer is full
+      }
+      err = smbus_read_block(ch, addr, cmd_reg, resp_payload + resp_len + 1, &rx_len, false);
+      if (err == SMBUS_OK) {
+        resp_payload[resp_len] = rx_len;
+        resp_len += (1 + rx_len);
+      } else {
+        resp_payload[0] = RESP_ERR_HW;
+        resp_payload[1] = (uint8_t)(-err);
+        resp_len = 2;
+        break;
+      }
+    }
+    protocol_send_packet(CMD_SMBUS_POLL_BLOCK, resp_payload, resp_len);
+    break;
+  }
 
   case CMD_FW_UPLOAD_START: {
     if (pkt->length < 5) {
@@ -325,6 +365,7 @@ static void handle_packet(const rx_packet_t *pkt) {
 int main() {
   // Enable system and USB Serial IO
   stdio_init_all();
+  stdio_set_translate_crlf(&stdio_usb, false); // Fix binary packet corruption
 
   // Initialize custom hardware modules
   smbus_init_all();

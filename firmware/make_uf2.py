@@ -121,14 +121,14 @@ def main():
         send_bootsel_reboot(args.port)
         
     # 2. Run ninja in build directory
-    print("Executing ninja compile...")
+    print("Executing cmake build...")
     try:
-        result = subprocess.run(["ninja"], cwd=build_dir, shell=True)
+        result = subprocess.run(["cmake", "--build", "."], cwd=build_dir, shell=True)
         if result.returncode != 0:
-            print("Ninja compilation failed. Aborting UF2 creation.")
+            print("Make compilation failed. Aborting UF2 creation.")
             return
     except Exception as e:
-        print(f"Failed to start ninja: {e}")
+        print(f"Failed to start make: {e}")
         return
         
     elf_path = os.path.join(build_dir, "firmware.elf")
