@@ -186,10 +186,10 @@ class CalibrationTab(QWidget):
             self.log("Error: Invalid numeric value in target fields.")
             return
             
-        # Hardcode script path based on IC for now
-        script_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "scratch", "bq40z50_voltage.calib")
+        # Construct path to the calib script
+        script_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "calibrators", "scripts", "bq40z50_voltage.calib")
         if not os.path.exists(script_path):
-            script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "scratch", "bq40z50_voltage.calib")
+            script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "calibrators", "scripts", "bq40z50_voltage.calib")
             
         self.btn_cal_vt.setEnabled(False)
         self.log(f"Starting calibration on {port}, {ch_text}...")
