@@ -48,7 +48,7 @@ class CalibrationThread(QThread):
     def smbus_write_word(self, reg, val):
         payload = struct.pack('<BBBBBBH', self.ch, self.addr, reg, 0, 2, 0, val)
         self.ser.write(make_packet(CMD_SMBUS_CMD, payload))
-        rx = self.ser.read(128)
+        rx = self._read_packet()
         cmd, resp = parse_response(rx)
         return resp and resp[0] == RESP_OK
         
@@ -71,7 +71,7 @@ class CalibrationThread(QThread):
         return rx
 
     def smbus_read_word(self, cmd_reg):
-        payload = struct.pack('<BBBB', self.ch, self.addr, cmd_reg, 2)
+        payload = struct.pack('<BBBBBB', self.ch, self.addr, cmd_reg, 1, 2, 1) # use_pec=1
         self.ser.write(make_packet(CMD_SMBUS_CMD, payload))
         rx = self._read_packet()
         cmd, resp = parse_response(rx)
