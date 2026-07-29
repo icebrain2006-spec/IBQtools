@@ -70,7 +70,10 @@ class BqUpdaterMainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self.updater_tab.save_ui_states()
-        super().closeEvent(event)
+        if hasattr(self.calibration_tab, 'cal_thread') and self.calibration_tab.cal_thread and self.calibration_tab.cal_thread.isRunning():
+            self.calibration_tab.cal_thread.stop()
+            self.calibration_tab.cal_thread.wait(1000)
+        event.accept()
 
 def main():
     app = QApplication(sys.argv)
