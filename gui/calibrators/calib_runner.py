@@ -48,6 +48,7 @@ class CalibrationThread(QThread):
         
         self.limits_update_signal.connect(self.on_limits_updated)
         
+        self.cal_log_buffer = {}
         self.active_cells = 4 # Default
         self.history = {} # Store history of statuses for sliding window
         
@@ -90,6 +91,21 @@ class CalibrationThread(QThread):
             
             # For validation rows, show the measured voltage/temp/current
             self.row_signal.emit(param_name, self.ch, f"{val}{suffix}", final_status)
+            
+        if self.ch not in self.cal_log_buffer:
+            self.cal_log_buffer[self.ch] = {}
+        
+        # min_val and max_val might not exist if param_key not in self.limits, so use defaults
+        min_v, max_v = self.limits.get(param_key, (None, None))
+        range_str = f"{min_v}{suffix} - {max_v}{suffix}" if min_v is not None and max_v is not None else "0 - 65535"
+        if is_gain: range_str = "0 - 65535"
+        
+        # The stored value should be raw_adc (if it's a gain row) or val (if it's a measurement)
+        stored_val = raw_adc if is_gain else val
+        self.cal_log_buffer[self.ch][param_key] = {
+            'value': f"{stored_val}{suffix}",
+            'range': range_str
+        }
             
     def stop(self):
         self._running = False
@@ -178,6 +194,27 @@ class CalibrationThread(QThread):
         if resp:
             self._log(f"    -> Read Error: 0x{resp[0]:02x}, Detail: {resp[1] if len(resp)>1 else 'None'}")
         return None
+
+    def _read_mfg_info(self):
+        import struct
+        serial_num = "Unknown"
+        mfg_date = "Unknown"
+        try:
+            s_data = self.smbus_read_word(0x1C)
+            if s_data and len(s_data) >= 2:
+                val = struct.unpack('<H', bytes(s_data))[0]
+                serial_num = f"{val:04X}"
+                
+            m_data = self.smbus_read_word(0x1B)
+            if m_data and len(m_data) >= 2:
+                val = struct.unpack('<H', bytes(m_data))[0]
+                day = val & 0x1F
+                month = (val >> 5) & 0x0F
+                year = (val >> 9) + 1980
+                mfg_date = f"{year}-{month:02d}-{day:02d}"
+        except Exception as e:
+            self._log(f"Error reading Mfg Info: {e}")
+        return serial_num, mfg_date
 
     def detect_firmware_and_config(self):
         # 1. Read MAC 0x0002
@@ -704,7 +741,15 @@ class CalibrationThread(QThread):
                     if not self.execute_script(script_path, m):
                         success = False
                         break
+                        
+                if success:
+                    # Capture final measurements into the buffer before writing log
+                    self.post_verify()
             
+                # Write to Cal Log CSV after each channel is processed
+                serial_num, mfg_date = self._read_mfg_info()
+                self._write_cal_log(self.ch, serial_num, mfg_date, success)
+                
             # 3. Verification & Continuous Monitoring
             if success:
                 self._log("--- Entering Continuous Monitoring Mode ---")
@@ -734,7 +779,8 @@ class CalibrationThread(QThread):
             
                 self._log("--- Calibration Sequence Completed ---")
                 self.finished_signal.emit(success)
-            
+
+
         except Exception as e:
             self._log(f"CRASH in CalibrationThread: {e}")
             self.finished_signal.emit(False)
@@ -748,3 +794,48 @@ class CalibrationThread(QThread):
                     pass # Ignore if port is already closed
             if hasattr(self, 'ser') and self.ser.is_open:
                 self.ser.close()
+
+    def _write_cal_log(self, ch, serial_num, mfg_date, overall_success):
+        from config import config
+        import os, csv
+        from datetime import datetime
+        
+        path = config.get_cal_log_path()
+        if not path: return
+        
+        ch_data = self.cal_log_buffer.get(ch, {})
+        if not ch_data: return
+        
+        params = list(ch_data.keys())
+        header_row1 = ["Timestamp", "Serial Number", "Manufacture Date"] + params + ["Overall Result"]
+        header_row2 = ["", "", ""] + [ch_data[p]['range'] for p in params] + [""]
+        data_row = [datetime.now().strftime("%Y-%m-%d %H:%M:%S"), serial_num, mfg_date] + [ch_data[p]['value'] for p in params] + ["PASS" if overall_success else "FAIL"]
+        
+        write_header = False
+        if not os.path.exists(path):
+            write_header = True
+        else:
+            try:
+                with open(path, "r", encoding="utf-8", newline="") as f:
+                    reader = list(csv.reader(f))
+                    last_ranges = None
+                    for row in reversed(reader):
+                        if len(row) > 3 and row[0] == "" and row[1] == "":
+                            last_ranges = row
+                            break
+                    if last_ranges != header_row2:
+                        write_header = True
+            except Exception:
+                write_header = True
+                
+        try:
+            with open(path, "a", encoding="utf-8", newline="") as f:
+                writer = csv.writer(f)
+                if write_header:
+                    if os.path.exists(path) and os.path.getsize(path) > 0:
+                        writer.writerow([])
+                    writer.writerow(header_row1)
+                    writer.writerow(header_row2)
+                writer.writerow(data_row)
+        except Exception as e:
+            self._log(f"Failed to write Cal Log: {e}")

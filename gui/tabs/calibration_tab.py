@@ -576,20 +576,9 @@ class CalibrationTab(QWidget):
             self.table_data.insertRow(overall_row)
             item_param = QTableWidgetItem("Overall Result")
             item_param.setTextAlignment(Qt.AlignCenter)
-            from PySide6.QtGui import QFont
-            font = QFont()
-            font.setBold(True)
-            font.setPointSize(14)
-            item_param.setFont(font)
             self.table_data.setItem(overall_row, 0, item_param)
             
-        self.table_data.setRowHeight(overall_row, 40)
-            
         # For each channel, evaluate overall status
-        from PySide6.QtGui import QFont
-        font = QFont()
-        font.setBold(True)
-        font.setPointSize(14)
         
         for active_ch in range(1, 7):
             ch_status = "PASS"
@@ -606,7 +595,6 @@ class CalibrationTab(QWidget):
                 if not item_overall:
                     item_overall = QTableWidgetItem()
                     item_overall.setTextAlignment(Qt.AlignCenter)
-                    item_overall.setFont(font)
                     self.table_data.setItem(overall_row, active_ch, item_overall)
                     
                 item_overall.setText(ch_status)

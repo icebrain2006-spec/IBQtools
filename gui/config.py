@@ -35,4 +35,10 @@ class AppConfig:
     def set_error_log_path(self, path):
         self.settings.setValue("error_log_path", path)
         
+    def get_cal_log_path(self):
+        return self.settings.value("cal_log_path", "cal_log.csv", type=str)
+        
+    def set_cal_log_path(self, path):
+        self.settings.setValue("cal_log_path", path)
+        
 config = AppConfig()

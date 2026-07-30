@@ -140,10 +140,19 @@ class CsvViewerDialog(QDialog):
             
             for row_idx, row_data in enumerate(data):
                 for col_idx, col_data in enumerate(row_data):
+                    # Replace " - " with a newline to force wrapping in range cells
+                    if " - " in col_data:
+                        col_data = col_data.replace(" - ", "\n~\n")
+                        
                     item = QTableWidgetItem(col_data)
+                    item.setTextAlignment(Qt.AlignCenter)
                     self.table.setItem(row_idx, col_idx, item)
             
             self.table.resizeColumnsToContents()
+            for col in range(self.table.columnCount()):
+                if self.table.columnWidth(col) > 150:
+                    self.table.setColumnWidth(col, 150)
+            self.table.resizeRowsToContents()
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to load CSV: {e}")
 
@@ -168,6 +177,14 @@ class OptionsTab(QWidget):
         work_layout.addWidget(self.btn_browse_work)
         work_layout.addWidget(self.btn_view_work)
         
+        self.input_cal_log = QLineEdit()
+        self.btn_browse_cal = QPushButton("Browse...")
+        self.btn_view_cal = QPushButton("Viewer")
+        cal_layout = QHBoxLayout()
+        cal_layout.addWidget(self.input_cal_log)
+        cal_layout.addWidget(self.btn_browse_cal)
+        cal_layout.addWidget(self.btn_view_cal)
+        
         self.input_error_log = QLineEdit()
         self.btn_browse_error = QPushButton("Browse...")
         error_layout = QHBoxLayout()
@@ -175,6 +192,7 @@ class OptionsTab(QWidget):
         error_layout.addWidget(self.btn_browse_error)
         
         layout_log.addRow("Work Log (CSV):", work_layout)
+        layout_log.addRow("Cal Log (CSV):", cal_layout)
         layout_log.addRow("Error Log (TXT):", error_layout)
         
         self.btn_save_options = QPushButton("Save Settings")
@@ -220,10 +238,16 @@ class OptionsTab(QWidget):
         
         # Connections
         self.input_work_log.setText(config.get_work_log_path())
+        self.input_cal_log.setText(config.get_cal_log_path())
         self.input_error_log.setText(config.get_error_log_path())
+        
         self.btn_browse_work.clicked.connect(self._browse_work_log)
+        self.btn_browse_cal.clicked.connect(self._browse_cal_log)
         self.btn_browse_error.clicked.connect(self._browse_error_log)
+        
         self.btn_view_work.clicked.connect(self._view_work_log)
+        self.btn_view_cal.clicked.connect(self._view_cal_log)
+        
         self.btn_save_options.clicked.connect(self._save_options)
         
         self.btn_check_update.clicked.connect(self._on_check_update)
@@ -243,6 +267,20 @@ class OptionsTab(QWidget):
             
         dialog = CsvViewerDialog(path, self)
         dialog.exec()
+        
+    def _browse_cal_log(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Select Cal Log File", self.input_cal_log.text(), "CSV Files (*.csv);;All Files (*)")
+        if path:
+            self.input_cal_log.setText(path)
+            
+    def _view_cal_log(self):
+        path = self.input_cal_log.text()
+        if not os.path.exists(path):
+            QMessageBox.warning(self, "Not Found", "The specified CSV file does not exist yet.")
+            return
+            
+        dialog = CsvViewerDialog(path, self)
+        dialog.exec()
             
     def _browse_error_log(self):
         path, _ = QFileDialog.getSaveFileName(self, "Select Error Log File", self.input_error_log.text(), "Text Files (*.txt *.log);;All Files (*)")
@@ -251,6 +289,7 @@ class OptionsTab(QWidget):
             
     def _save_options(self):
         config.set_work_log_path(self.input_work_log.text())
+        config.set_cal_log_path(self.input_cal_log.text())
         config.set_error_log_path(self.input_error_log.text())
         config.settings.setValue("github_repo", self.input_github_repo.text().strip())
         
