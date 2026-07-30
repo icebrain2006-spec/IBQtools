@@ -11,7 +11,7 @@ from fw_updater import get_latest_github_release, download_file, find_rp2040_dri
 from updater_thread import get_fw_version
 
 class CheckUpdateWorker(QThread):
-    finished = Signal(str, str, str) # tag_name, url, current_version
+    finished = Signal(str, str, list, list) # tag_name, url, versions, active_ports
     error = Signal(str)
     
     def __init__(self, repo):
@@ -36,18 +36,63 @@ class CheckUpdateWorker(QThread):
                     continue
                 active_ports.append(p.device)
                 
+            versions = []
+            valid_ports = []
             for port in active_ports:
                 ver = get_fw_version(port)
                 if ver:
-                    current_ver = ver
-                    break
+                    versions.append(ver)
+                    valid_ports.append(port)
                     
             if tag and url:
-                self.finished.emit(tag, url, current_ver)
+                self.finished.emit(tag, url, versions, valid_ports)
             else:
                 self.error.emit("Could not find a valid .uf2 release.")
         except Exception as e:
             self.error.emit(str(e))
+
+def send_software_bootsel_reboot(target_port=None, progress_signal=None):
+    import serial.tools.list_ports
+    import struct
+    import time
+    
+    def crc16_calculate(data):
+        crc = 0xFFFF
+        for byte in data:
+            crc ^= byte
+            for _ in range(8):
+                if crc & 1:
+                    crc = (crc >> 1) ^ 0xA001
+                else:
+                    crc >>= 1
+        return crc
+        
+    found = False
+    for p in serial.tools.list_ports.comports():
+        if target_port and p.device != target_port:
+            continue
+        if "USB" in str(p.hwid).upper() or "USB" in str(p.description).upper():
+            try:
+                ser = serial.Serial(p.device, 115200, timeout=1.0)
+                cmd = 0x02 # CMD_REBOOT_BOOTSEL
+                payload = b""
+                total_len = 1 + len(payload)
+                header = struct.pack(">B H B", 0x02, total_len, cmd)
+                crc_data = bytes([cmd]) + payload
+                crc = crc16_calculate(crc_data)
+                footer = struct.pack(">H B", crc, 0x03)
+                packet = header + payload + footer
+                ser.write(packet)
+                ser.close()
+                if progress_signal:
+                    progress_signal.emit(f"Sent BOOTSEL reset to {p.device}")
+                found = True
+            except Exception as e:
+                if progress_signal:
+                    progress_signal.emit(f"Failed to reset {p.device}: {e}")
+    if found:
+        time.sleep(2.0) # Wait for it to remount as a drive
+    return found
 
 class DownloadUpdateWorker(QThread):
     progress = Signal(str)
@@ -322,14 +367,23 @@ class OptionsTab(QWidget):
         self.check_worker.error.connect(self._on_check_error)
         self.check_worker.start()
         
-    def _on_check_finished(self, tag, url, current_ver):
+    def _on_check_finished(self, tag, url, versions, active_ports):
         self.btn_check_update.setEnabled(True)
         
-        # Color current version red if mismatch, else green
-        cur_color = "#00FF00" if current_ver == tag else "#FF4444"
-        self.lbl_latest_ver.setText(f'Board: <span style="color: {cur_color};">{current_ver}</span> | Latest: <span style="color: #00FF00;">{tag}</span>')
+        if not versions:
+            self.lbl_latest_ver.setText(f'Board: Unknown | Latest: <span style="color: #00FF00;">{tag}</span>')
+            self.lbl_update_status.setText("No boards found.")
+            return
+            
+        ver_strs = []
+        for p, v in zip(active_ports, versions):
+            color = "#00FF00" if v == tag else "#FF4444"
+            ver_strs.append(f'{p}(<span style="color: {color};">{v}</span>)')
+            
+        self.lbl_latest_ver.setText(f'Boards: {", ".join(ver_strs)} | Latest: <span style="color: #00FF00;">{tag}</span>')
         self.lbl_update_status.setText("Update available.")
         self.latest_uf2_url = url
+        self.boards_to_update = list(active_ports)
         self.btn_download_update.setEnabled(True)
         
     def _on_check_error(self, err_msg):
@@ -340,55 +394,94 @@ class OptionsTab(QWidget):
     def _on_download_update(self):
         if not self.latest_uf2_url:
             return
+        if not hasattr(self, 'boards_to_update') or not self.boards_to_update:
+            QMessageBox.information(self, "No boards", "No connected boards to update.")
+            return
             
-        reply = QMessageBox.information(
-            self, 
-            "Firmware Update", 
-            "Please follow these steps:\n\n"
-            "1. Unplug the RP2040 board from the USB port.\n"
-            "2. Hold down the BOOTSEL button on the RP2040.\n"
-            "3. While holding the button, plug the USB back into the PC.\n"
-            "4. Release the button.\n\n"
-            "Click OK once you have plugged it in (or click OK first and plug it in within 30 seconds).",
+        self.update_queue = list(self.boards_to_update)
+        self._process_next_board(is_local=False)
+        
+    def _process_next_board(self, is_local=False, local_path=None):
+        if not self.update_queue:
+            QMessageBox.information(self, "Finished", "All connected boards have been updated successfully.")
+            self.btn_download_update.setEnabled(True)
+            self.btn_check_update.setEnabled(True)
+            self.btn_flash_local.setEnabled(True)
+            self.lbl_update_status.setText("Batch update complete.")
+            return
+            
+        port = self.update_queue.pop(0)
+        self.current_update_port = port
+        self.is_local_update = is_local
+        self.local_update_path = local_path
+        
+        self.lbl_update_status.setText(f"Sending software reset to {port}...")
+        send_software_bootsel_reboot(target_port=port)
+        
+        upload_reply = QMessageBox.information(
+            self,
+            f"Ready to Upload - {port}",
+            f"Board at {port} has been reset.\n"
+            "Please wait for the USB drive (RPI-RP2) to be recognized.\n\n"
+            "Click OK when the drive is ready.",
             QMessageBox.Ok | QMessageBox.Cancel
         )
         
-        if reply == QMessageBox.Ok:
-            QMessageBox.information(self, "Update", "Starting update. The device will reboot automatically.")
+        if upload_reply == QMessageBox.Ok:
             self.btn_download_update.setEnabled(False)
             self.btn_check_update.setEnabled(False)
             self.btn_flash_local.setEnabled(False)
             
-            self.dl_worker = DownloadUpdateWorker(url=self.latest_uf2_url)
+            if is_local:
+                self.dl_worker = DownloadUpdateWorker(local_file=local_path)
+            else:
+                self.dl_worker = DownloadUpdateWorker(url=self.latest_uf2_url)
+                
             self.dl_worker.progress.connect(self._on_dl_progress)
             self.dl_worker.finished.connect(self._on_dl_finished)
             self.dl_worker.start()
+        else:
+            self.lbl_update_status.setText("Update cancelled.")
+            self.btn_download_update.setEnabled(True)
+            self.btn_check_update.setEnabled(True)
+            self.btn_flash_local.setEnabled(True)
         
     def _on_flash_local(self):
         path, _ = QFileDialog.getOpenFileName(self, "Select Local Firmware", "", "UF2 Files (*.uf2);;All Files (*)")
         if not path:
             return
+        if not hasattr(self, 'boards_to_update') or not self.boards_to_update:
+            QMessageBox.information(self, "No boards", "Please click 'Check Update' first to scan connected boards.")
+            return
             
-        QMessageBox.information(self, "Update", "Make sure the board is in BOOTSEL mode. The device will reboot automatically.")
-        self.btn_download_update.setEnabled(False)
-        self.btn_check_update.setEnabled(False)
-        self.btn_flash_local.setEnabled(False)
-        
-        self.dl_worker = DownloadUpdateWorker(local_file=path)
-        self.dl_worker.progress.connect(self._on_dl_progress)
-        self.dl_worker.finished.connect(self._on_dl_finished)
-        self.dl_worker.start()
+        self.update_queue = list(self.boards_to_update)
+        self._process_next_board(is_local=True, local_path=path)
         
     def _on_dl_progress(self, msg):
         self.lbl_update_status.setText(msg)
         
     def _on_dl_finished(self, success, msg):
-        self.btn_check_update.setEnabled(True)
-        self.btn_flash_local.setEnabled(True)
         if success:
             self.lbl_update_status.setText(f"Done: {msg}")
-            self.btn_download_update.setEnabled(False)
-            QMessageBox.information(self, "Update Complete", msg)
+            if hasattr(self, 'update_queue') and self.update_queue:
+                reply = QMessageBox.question(
+                    self, 
+                    "Next Board", 
+                    f"Update for {self.current_update_port} successful!\n\nDo you want to proceed with the next board ({self.update_queue[0]})?",
+                    QMessageBox.Yes | QMessageBox.No
+                )
+                if reply == QMessageBox.Yes:
+                    self._process_next_board(is_local=self.is_local_update, local_path=self.local_update_path)
+                    return
+                else:
+                    self.update_queue = []
+                    self.lbl_update_status.setText("Batch update stopped.")
+            else:
+                QMessageBox.information(self, "Update Complete", "All selected boards updated successfully.")
         else:
             self.lbl_update_status.setText(f"Error: {msg}")
             QMessageBox.critical(self, "Update Error", msg)
+            
+        self.btn_check_update.setEnabled(True)
+        self.btn_flash_local.setEnabled(True)
+        self.btn_download_update.setEnabled(True)
