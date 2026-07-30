@@ -65,8 +65,18 @@ class BqUpdaterMainWindow(QMainWindow):
         self.tabs.addTab(self.csv_tab, "CSV to SLFS")
         self.tabs.addTab(self.options_tab, "Options")
         
+        self.tabs.currentChanged.connect(self.on_tab_changed)
+        
         # Load UI states in the updater tab
         self.updater_tab.load_ui_states()
+
+    def on_tab_changed(self, index):
+        if self.tabs.widget(index) != self.calibration_tab:
+            if hasattr(self.calibration_tab, 'cal_thread') and self.calibration_tab.cal_thread and self.calibration_tab.cal_thread.isRunning():
+                self.calibration_tab.cal_thread.stop()
+                self.calibration_tab.cal_thread.wait(500)
+                self.calibration_tab.log("Calibration stopped (Tab changed).")
+                self.calibration_tab.table_data.setRowCount(0)
 
     def closeEvent(self, event):
         self.updater_tab.save_ui_states()

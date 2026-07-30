@@ -1,1 +1,37 @@
-; Placeholder for Temp Calibration
+; BQ40Z50 Temperature Calibration Sequence (Based on EV2300 Log)
+
+; 1. Request DAStatus2
+B 0x44 0x72 0x00
+X 10
+
+; 2. Read DAStatus2
+A 0x44 10 1
+
+; 3. Request Current (0x0A) - As per log
+RW 0x0A
+X 10
+
+; 4. Request DAStatus2 (2nd time)
+B 0x44 0x72 0x00
+X 10
+
+; 5. Read DAStatus2 (2nd time)
+A 0x44 10 1
+
+; 6. Request Current (0x0A) - As per log
+RW 0x0A
+X 10
+
+; 7. Save Calibration Data (updates 0x4000 block)
+; The S command automatically reads 0x4000, updates it, and writes it back.
+S 0x4000
+X 250
+
+; 8. Disable RAW ADC
+W 0x00 0xF080
+X 55
+
+; 9. Check ManufacturingStatus (CAL_EN 0 check)
+B 0x44 0x57 0x00
+X 10
+R 0x44

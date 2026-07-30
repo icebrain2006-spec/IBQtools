@@ -19,11 +19,10 @@ class LimitsDialog(QDialog):
         
         self.limit_keys = [
             "Cell 1 Gain", "Pack Gain", "Bat Gain",
-            "Temp Gain", "Current Gain",
             "V_Cell 1", "V_Cell 2", "V_Cell 3", "V_Cell 4",
             "V_Bat", "V_Pack",
             "Int Temp", "TS1 Temp", "TS2 Temp", "TS3 Temp", "TS4 Temp",
-            "CC Current"
+            "Shunt Resistor"
         ]
         
         self.inputs = {}
@@ -40,8 +39,8 @@ class LimitsDialog(QDialog):
         
         # Headers
         grid.addWidget(QLabel("<b>Parameter</b>"), 0, 0)
-        grid.addWidget(QLabel("<b>Min Value</b>"), 0, 1)
-        grid.addWidget(QLabel("<b>Max Value</b>"), 0, 2)
+        grid.addWidget(QLabel("<b>Min (or -Offset)</b>"), 0, 1)
+        grid.addWidget(QLabel("<b>Max (or +Offset)</b>"), 0, 2)
         
         for i, key in enumerate(self.limit_keys):
             row = i + 1
@@ -53,22 +52,21 @@ class LimitsDialog(QDialog):
             default_min = ""
             default_max = ""
             
-            if "Gain" in key:
+            if key in ["Cell 1 Gain", "Pack Gain", "Bat Gain"]:
                 default_min = "0"
                 default_max = "65535"
             else:
-                # Voltage/Temp/Current default limits
+                # Voltage/Temp default offset limits
                 target_key = key.lower().replace(" ", "").replace("_", "")
-                if "vcell" in target_key or "vpack" in target_key or "vbat" in target_key:
-                    if "cell" in target_key:
-                        default_min = str(self.default_targets.get("cell1mv", 3200))
-                        default_max = default_min
-                    elif "pack" in target_key:
-                        default_min = str(self.default_targets.get("packmv", 12780))
-                        default_max = default_min
-                    elif "bat" in target_key:
-                        default_min = str(self.default_targets.get("batmv", 12780))
-                        default_max = default_min
+                if "shunt" in target_key:
+                    default_min = "-0.05"
+                    default_max = "0.05"
+                elif "vcell" in target_key or "vpack" in target_key or "vbat" in target_key:
+                    default_min = "-20"
+                    default_max = "20"
+                elif "temp" in target_key:
+                    default_min = "-1.0"
+                    default_max = "1.0"
                 
             saved_min = self.settings.value(f"limit_{self.ic_name}_{key}_min", default_min)
             saved_max = self.settings.value(f"limit_{self.ic_name}_{key}_max", default_max)
@@ -117,7 +115,38 @@ class LimitsDialog(QDialog):
                 # Update background thread dynamically if running
                 if new_lim is not None:
                     try:
-                        new_lim[key] = (float(vmin_txt), float(vmax_txt))
+                        v_min = float(vmin_txt)
+                        v_max = float(vmax_txt)
+                        
+                        base_target = 0
+                        is_offset = False
+                        if key not in ["Cell 1 Gain", "Pack Gain", "Bat Gain"]:
+                            is_offset = True
+                            target_key = key.lower().replace(" ", "").replace("_", "")
+                            if "shunt" in target_key:
+                                base_target = float(self.default_targets.get("shuntresistormohm", 1.0))
+                            elif "vcell" in target_key:
+                                base_target = float(self.default_targets.get("cell1mv", 3200))
+                            elif "vpack" in target_key:
+                                base_target = float(self.default_targets.get("packmv", 12780))
+                            elif "vbat" in target_key:
+                                base_target = float(self.default_targets.get("batmv", 12780))
+                            elif "temp" in target_key:
+                                if "int" in target_key:
+                                    base_target = float(self.default_targets.get("inttempc", 25.0))
+                                elif "ts1" in target_key:
+                                    base_target = float(self.default_targets.get("ts1tempc", 25.0))
+                                elif "ts2" in target_key:
+                                    base_target = float(self.default_targets.get("ts2tempc", 25.0))
+                                elif "ts3" in target_key:
+                                    base_target = float(self.default_targets.get("ts3tempc", 25.0))
+                                elif "ts4" in target_key:
+                                    base_target = float(self.default_targets.get("ts4tempc", 25.0))
+                                    
+                        if is_offset:
+                            new_lim[key] = (base_target + v_min, base_target + v_max)
+                        else:
+                            new_lim[key] = (v_min, v_max)
                     except ValueError:
                         pass
                         

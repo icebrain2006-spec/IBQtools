@@ -1,1 +1,35 @@
-; Placeholder for Current Calibration
+; BQ40Z50 Current Calibration Sequence
+
+; 1. Enter CAL mode
+W 0x00 0x002D
+X 170
+
+; 2. Check CAL_EN 1
+CHK_CAL 1
+
+; 3. Raw ADC MODE start
+W 0x00 0xF081
+X 230
+
+; 4. Read Raw ADC 6 times (200ms apart)
+A 0x44 200 6
+X 10
+
+; 5. Raw ADC MODE stop
+W 0x00 0xF080
+X 160
+
+; 6. Save Current Calibration Data (updates 0x4000 block)
+S 0x4000
+X 250
+
+; 7. Raw ADC MODE stop (again)
+W 0x00 0xF080
+X 60
+
+; 8. Disable CAL mode
+W 0x00 0x002D
+X 60
+
+; 9. Check CAL_EN 0
+CHK_CAL 0

@@ -6,7 +6,7 @@ from PySide6.QtCore import QThread, Signal, Slot
 
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from updater_thread import make_packet, parse_response, RESP_OK, CMD_I2C_RAW, CMD_SMBUS_CMD, CMD_SMBUS_POLL_BLOCK
+from updater_thread import make_packet, parse_response, RESP_OK, CMD_I2C_RAW, CMD_SMBUS_CMD, CMD_SMBUS_POLL_BLOCK, CMD_RELAY_SET
 from calibrators.utils import detect_dataflash_offset
 
 def crc8_smbus_byte(crc, data):
@@ -49,6 +49,8 @@ class CalibrationThread(QThread):
         self.limits_update_signal.connect(self.on_limits_updated)
         
         self.active_cells = 4 # Default
+        self.history = {} # Store history of statuses for sliding window
+        
         with open("scratch/limits_debug.txt", "w") as f:
             f.write(f"INIT LIMITS: {self.limits}\n")
             
@@ -58,7 +60,7 @@ class CalibrationThread(QThread):
         self._log(f"DEBUG THREAD: Received new limits via signal: V_Cell 2={self.limits.get('V_Cell 2')}")
         
     def emit_result(self, param_key, param_name, raw_adc, val, is_gain=False, suffix=""):
-        status = "INFO"
+        status = "PASS" if is_gain else "INFO"
         if param_key in self.limits:
             min_val, max_val = self.limits[param_key]
             if min_val <= val <= max_val:
@@ -72,11 +74,36 @@ class CalibrationThread(QThread):
             # For gain rows, show the calculated gain value
             self.row_signal.emit(param_name, self.ch, str(raw_adc), status)
         else:
+            # Apply 5-history sliding window for Voltage/Temp monitoring
+            if param_name not in self.history:
+                self.history[param_name] = {}
+            if self.ch not in self.history[param_name]:
+                self.history[param_name][self.ch] = []
+                
+            ch_hist = self.history[param_name][self.ch]
+            ch_hist.append(status)
+            if len(ch_hist) > 5:
+                ch_hist.pop(0)
+                
+            # Final status is FAIL if ANY of the last 5 measurements failed
+            final_status = "FAIL" if "FAIL" in ch_hist else status
+            
             # For validation rows, show the measured voltage/temp/current
-            self.row_signal.emit(param_name, self.ch, f"{val}{suffix}", status)
+            self.row_signal.emit(param_name, self.ch, f"{val}{suffix}", final_status)
             
     def stop(self):
         self._running = False
+        
+    def _set_relay(self, on: bool):
+        mask = (1 << (self.ch - 1)) if on else 0
+        payload = bytes([mask])
+        packet = make_packet(CMD_RELAY_SET, payload)
+        self.ser.reset_input_buffer()
+        self.ser.write(packet)
+        # MUST read response to avoid UART buffer desync for subsequent commands!
+        rx = self._read_packet() 
+        self._log(f"    [Relay] {'ON' if on else 'OFF'} for CH{self.ch} (mask: 0x{mask:02X})")
+        time.sleep(0.1) # Command process delay
         
     def _log(self, msg):
         self.log_signal.emit(f"[CH{self.ch}] {msg}")
@@ -251,11 +278,26 @@ class CalibrationThread(QThread):
             
         self._log(f"--- Running {mode_name.upper()} Script: {os.path.basename(script_path)} ---")
         
+        if mode_name == "current":
+            self._set_relay(True)
+            self._log("    [Wait] 1.0s for current stabilization...")
+            time.sleep(1.0)
+        
+        # Cache 0x4000 Calibration Block BEFORE entering CAL_EN 1 (which blocks reading)
+        self.smbus_write_block_raw(0x44, [0x00, 0x40])
+        time.sleep(0.05)
+        self.cached_4000 = self.smbus_read_block(0x44)
+        if not self.cached_4000 or len(self.cached_4000) < 34:
+            self._log("Warning: Failed to cache 0x4000 block at start. It may be read as zeros later.")
+        else:
+            self._log("0x4000 Calibration Block cached successfully.")
+        
         new_gains = []
         
         for i, line in enumerate(lines):
             if not self._running:
                 self._log("Calibration aborted.")
+                if mode_name == "current": self._set_relay(False)
                 return False
                 
             line = line.split('#')[0].split(';')[0].strip()
@@ -273,6 +315,7 @@ class CalibrationThread(QThread):
                     self._log("  => OK")
                 else:
                     self._log("  => FAIL")
+                    if mode_name == "current": self._set_relay(False)
                     return False
                     
             elif cmd == 'B':
@@ -282,6 +325,7 @@ class CalibrationThread(QThread):
                     self._log("  => OK")
                 else:
                     self._log("  => FAIL")
+                    if mode_name == "current": self._set_relay(False)
                     return False
                     
             elif cmd == 'X':
@@ -296,6 +340,7 @@ class CalibrationThread(QThread):
                     self._log("  => OK: " + data.hex(' '))
                 else:
                     self._log("  => FAIL")
+                    if mode_name == "current": self._set_relay(False)
                     return False
 
             elif cmd == 'R':
@@ -316,8 +361,14 @@ class CalibrationThread(QThread):
                     time.sleep(0.02)
                     data = self.smbus_read_block(0x44)
                     time.sleep(0.057)
+                    if data:
+                        self._log(f"    [DEBUG] CHK_CAL data: {data.hex(' ')}")
+                    else:
+                        self._log(f"    [DEBUG] CHK_CAL read failed (returned None)")
+                        
                     if data and len(data) >= 4:
                         cal_en = (data[3] & 0x80) != 0
+                        self._log(f"    [DEBUG] CHK_CAL cal_en={cal_en}, expected={expected}")
                         if (cal_en and expected == 1) or (not cal_en and expected == 0):
                             success = True
                             break
@@ -325,6 +376,7 @@ class CalibrationThread(QThread):
                     self._log(f"  => OK (CAL_EN == {expected})")
                 else:
                     self._log(f"  => FAIL (CAL_EN did not become {expected})")
+                    if mode_name == "current": self._set_relay(False)
                     return False
                     
             elif cmd == 'A':
@@ -381,44 +433,70 @@ class CalibrationThread(QThread):
                                     self.emit_result("Bat Gain", "Bat Gain", str(g), g, is_gain=True)
                         
                         elif mode_name == "temp":
-                            # TODO: Parse F082 temp format based on TRM
-                            pass
+                            int_sum = ts1_sum = ts2_sum = ts3_sum = ts4_sum = 0
+                            valid_count = 0
+                            for blk in blocks:
+                                if len(blk) >= 12:
+                                    int_sum += struct.unpack_from('<H', blk, 2)[0]
+                                    ts1_sum += struct.unpack_from('<H', blk, 4)[0]
+                                    ts2_sum += struct.unpack_from('<H', blk, 6)[0]
+                                    ts3_sum += struct.unpack_from('<H', blk, 8)[0]
+                                    ts4_sum += struct.unpack_from('<H', blk, 10)[0]
+                                    valid_count += 1
+                            if valid_count > 0:
+                                int_avg = (int_sum / float(valid_count)) - 2732
+                                ts1_avg = (ts1_sum / float(valid_count)) - 2732
+                                ts2_avg = (ts2_sum / float(valid_count)) - 2732
+                                ts3_avg = (ts3_sum / float(valid_count)) - 2732
+                                ts4_avg = (ts4_sum / float(valid_count)) - 2732
+                                
+                                self._log(f"    Avg DAStatus2 -> Int:{int_avg/10:.1f}C, TS1:{ts1_avg/10:.1f}C, TS2:{ts2_avg/10:.1f}C, TS3:{ts3_avg/10:.1f}C, TS4:{ts4_avg/10:.1f}C")
+                                self.temp_measured = {
+                                    "int": int_avg, "ts1": ts1_avg, "ts2": ts2_avg, "ts3": ts3_avg, "ts4": ts4_avg
+                                }
                             
                         elif mode_name == "current":
                             # Parse F081 for CC
                             cc_sum = 0
                             valid_count = 0
                             for blk in blocks:
-                                if len(blk) >= 6:
-                                    cc_sum += struct.unpack_from('<i', blk, 2)[0]
+                                if len(blk) >= 7:
+                                    # Raw CC is a 16-bit signed integer at offset 4 (after 1A 81 F0 BE 01)
+                                    cc_sum += struct.unpack_from('<h', blk, 4)[0]
                                     valid_count += 1
                                     
                             if valid_count > 0:
                                 cc_avg = cc_sum / float(valid_count)
                                 self._log(f"    Avg CC ADC -> {cc_avg:.2f}")
-                                # Current Gain logic
+                                self.cc_measured = cc_avg
                 else:
                     self._log("  => FAIL")
+                    if mode_name == "current": self._set_relay(False)
                     return False
                     
             elif cmd == 'S':
                 # Custom Save command for BQ40Z50
-                if mode_name == "voltage":
-                    if not new_gains or len(new_gains) < 3:
-                        self._log("  => FAIL: Not enough gain data calculated!")
-                        return False
-                        
-                    reg = self.parse_val(parts[1])
-                    df_addr_bytes = [reg & 0xFF, (reg >> 8) & 0xFF]
+                reg = self.parse_val(parts[1])
+                df_addr_bytes = [reg & 0xFF, (reg >> 8) & 0xFF]
 
+                # Use cached block if available (to prevent reading zeros during CAL_EN 1)
+                if hasattr(self, 'cached_4000') and self.cached_4000 and len(self.cached_4000) >= 34:
+                    old_data = self.cached_4000
+                else:
                     self.smbus_write_block_raw(0x44, df_addr_bytes)
                     time.sleep(0.05)
                     old_data = self.smbus_read_block(0x44)
-                    
-                    if old_data and len(old_data) >= 34:
-                        df_bytes = bytearray(old_data[2:34])
-                    else:
-                        self._log("  => FAIL: Could not read old calibration block")
+
+                if old_data and len(old_data) >= 34:
+                    df_bytes = bytearray(old_data[2:34])
+                else:
+                    self._log("  => FAIL: Could not read old calibration block")
+                    if mode_name == "current": self._set_relay(False)
+                    return False
+
+                if mode_name == "voltage":
+                    if not new_gains or len(new_gains) < 3:
+                        self._log("  => FAIL: Not enough gain data calculated!")
                         return False
                         
                     cell1_g = new_gains[0]
@@ -428,17 +506,112 @@ class CalibrationThread(QThread):
                     struct.pack_into('<HHH', df_bytes, 0, cell1_g, pack_g, bat_g)
                     
                     full_payload = df_addr_bytes + list(df_bytes)
-                    
                     if self.smbus_write_block_raw(0x44, full_payload):
                         self._log("  => OK (Wrote Voltage Calibration Block)")
                     else:
                         self._log("  => FAIL writing block")
                         return False
 
+                elif mode_name == "temp":
+                    if not hasattr(self, 'temp_measured'):
+                        self._log("  => FAIL: No temperature data measured!")
+                        return False
+                        
+                    def get_old(idx):
+                        val = df_bytes[idx]
+                        if val > 127: val -= 256
+                        return val
+                        
+                    def clamp(val):
+                        return max(-128, min(127, int(val)))
+                        
+                    t_int = self.targets.get('inttempc', 25.0) * 10
+                    t_ts1 = self.targets.get('ts1tempc', 25.0) * 10
+                    t_ts2 = self.targets.get('ts2tempc', 25.0) * 10
+                    t_ts3 = self.targets.get('ts3tempc', 25.0) * 10
+                    t_ts4 = self.targets.get('ts4tempc', 25.0) * 10
+                    
+                    if self.targets.get('inttempc_en', True):
+                        new_off = clamp(get_old(20) + (t_int - self.temp_measured["int"]))
+                        df_bytes[20] = new_off & 0xFF
+                        self._log(f"    New Int Offset = {new_off}")
+                        self.emit_result("Int Temp Gain", "Int Temp Gain", f"{new_off * 0.1:.1f} °C", new_off, is_gain=True)
+                        
+                    if self.targets.get('ts1tempc_en', True) and self.temp_measured["ts1"] > -500:
+                        new_off = clamp(get_old(21) + (t_ts1 - self.temp_measured["ts1"]))
+                        df_bytes[21] = new_off & 0xFF
+                        self._log(f"    New TS1 Offset = {new_off}")
+                        self.emit_result("TS1 Temp Gain", "TS1 Temp Gain", f"{new_off * 0.1:.1f} °C", new_off, is_gain=True)
+                        
+                    if self.targets.get('ts2tempc_en', True) and self.temp_measured["ts2"] > -500:
+                        new_off = clamp(get_old(22) + (t_ts2 - self.temp_measured["ts2"]))
+                        df_bytes[22] = new_off & 0xFF
+                        self._log(f"    New TS2 Offset = {new_off}")
+                        self.emit_result("TS2 Temp Gain", "TS2 Temp Gain", f"{new_off * 0.1:.1f} °C", new_off, is_gain=True)
+                        
+                    if self.targets.get('ts3tempc_en', True) and self.temp_measured["ts3"] > -500:
+                        new_off = clamp(get_old(23) + (t_ts3 - self.temp_measured["ts3"]))
+                        df_bytes[23] = new_off & 0xFF
+                        self._log(f"    New TS3 Offset = {new_off}")
+                        self.emit_result("TS3 Temp Gain", "TS3 Temp Gain", f"{new_off * 0.1:.1f} °C", new_off, is_gain=True)
+                        
+                    if self.targets.get('ts4tempc_en', True) and self.temp_measured["ts4"] > -500:
+                        new_off = clamp(get_old(24) + (t_ts4 - self.temp_measured["ts4"]))
+                        df_bytes[24] = new_off & 0xFF
+                        self._log(f"    New TS4 Offset = {new_off}")
+                        self.emit_result("TS4 Temp Gain", "TS4 Temp Gain", f"{new_off * 0.1:.1f} °C", new_off, is_gain=True)
+                        
+                    full_payload = df_addr_bytes + list(df_bytes)
+                    if self.smbus_write_block_raw(0x44, full_payload):
+                        self._log("  => OK (Wrote Temperature Calibration Block)")
+                    else:
+                        self._log("  => FAIL writing block")
+                        return False
+
+                elif mode_name == "current":
+                    if not hasattr(self, 'cc_measured') or abs(self.cc_measured) < 0.1:
+                        self._log("  => FAIL: No valid CC data measured!")
+                        return False
+                        
+                    target_ma = self.targets.get('currentma', -1000)
+                    if target_ma == 0:
+                        self._log("  => FAIL: Target current cannot be 0")
+                        return False
+                        
+                    # TRM 2.4.3: CC Gain = I_cc / (ADC_cc - offsets)
+                    # We assume offsets are negligible or 0 for this basic calibration
+                    new_cc_gain = float(target_ma) / self.cc_measured
+                    
+                    # TRM 2.4.3 Formula 4: Capacity Gain = CC Gain * 298261.6178
+                    new_cap_gain = new_cc_gain * 298261.6178
+                    
+                    struct.pack_into('<ff', df_bytes, 6, new_cc_gain, new_cap_gain)
+                    
+                    self._log(f"    New CC Gain = {new_cc_gain:.6f}")
+                    self._log(f"    New Capacity Gain = {new_cap_gain:.1f}")
+                    
+                    # TRM DF-to-Studio Conversion: 3.714528 / DF
+                    mohm = 3.714528 / new_cc_gain if new_cc_gain != 0 else 0
+                    self.emit_result("CC Gain", "CC Gain (mOhm)", f"{mohm:.3f}", mohm, is_gain=True)
+                    self.emit_result("Capacity Gain", "Capacity Gain (mOhm)", f"{mohm:.3f}", mohm, is_gain=True)
+                    
+                    full_payload = df_addr_bytes + list(df_bytes)
+                    if self.smbus_write_block_raw(0x44, full_payload):
+                        self._log("  => OK (Wrote Current Calibration Block)")
+                    else:
+                        self._log("  => FAIL writing block")
+                        if mode_name == "current": self._set_relay(False)
+                        return False
+
+        if mode_name == "current": self._set_relay(False)
         return True
 
     def post_verify(self):
         try:
+            run_mode = self.targets.get("run_mode", "voltage")
+            show_voltage = run_mode in ("voltage", "all")
+            show_temp = run_mode in ("temp", "temperature", "all")
+
             # Read DAStatus1 (0x0071)
             self.smbus_write_block_raw(0x44, [0x71, 0x00])
             time.sleep(0.05)
@@ -453,35 +626,38 @@ class CalibrationThread(QThread):
                 pack = struct.unpack_from('<H', data, 12)[0]
                 
                 cells = [cell1, cell2, cell3, cell4]
-                for i in range(self.active_cells):
-                    self.emit_result(f"V_Cell {i+1}", f"V_Cell {i+1} (0x0071)", "-", cells[i], suffix=" mV")
-                    
-                self.emit_result("V_Bat", "V_Bat (0x0071)", "-", bat, suffix=" mV")
-                self.emit_result("V_Pack", "V_Pack (0x0071)", "-", pack, suffix=" mV")
+                if show_voltage:
+                    for i in range(self.active_cells):
+                        self.emit_result(f"V_Cell {i+1}", f"V_Cell {i+1} (0x0071)", "-", cells[i], suffix=" mV")
+                        
+                    self.emit_result("V_Bat", "V_Bat (0x0071)", "-", bat, suffix=" mV")
+                    self.emit_result("V_Pack", "V_Pack (0x0071)", "-", pack, suffix=" mV")
             
             self.smbus_write_block_raw(0x44, [0x72, 0x00])
             time.sleep(0.05)
-            data = self.smbus_read_block(0x44)
-            if data and len(data) >= 16:
-                int_temp = struct.unpack_from('<H', data, 2)[0] * 0.1 - 273.15
-                ts1 = struct.unpack_from('<H', data, 4)[0] * 0.1 - 273.15
-                ts2 = struct.unpack_from('<H', data, 6)[0] * 0.1 - 273.15
-                ts3 = struct.unpack_from('<H', data, 8)[0] * 0.1 - 273.15
-                ts4 = struct.unpack_from('<H', data, 10)[0] * 0.1 - 273.15
+            data2 = self.smbus_read_block(0x44)
+            if data2 and len(data2) >= 16:
+                int_temp = round(struct.unpack_from('<H', data2, 2)[0] * 0.1 - 273.15, 1)
+                ts1 = round(struct.unpack_from('<H', data2, 4)[0] * 0.1 - 273.15, 1)
+                ts2 = round(struct.unpack_from('<H', data2, 6)[0] * 0.1 - 273.15, 1)
+                ts3 = round(struct.unpack_from('<H', data2, 8)[0] * 0.1 - 273.15, 1)
+                ts4 = round(struct.unpack_from('<H', data2, 10)[0] * 0.1 - 273.15, 1)
                 
-                if self.targets.get("inttempcen", False):
-                    self.emit_result("Int Temp", "Int Temp (0x0072)", "-", int_temp, suffix=" °C")
-                if self.targets.get("ts1tempcen", False):
-                    self.emit_result("TS1 Temp", "TS1 Temp (0x0072)", "-", ts1, suffix=" °C")
-                if self.targets.get("ts2tempcen", False):
-                    self.emit_result("TS2 Temp", "TS2 Temp (0x0072)", "-", ts2, suffix=" °C")
-                if self.targets.get("ts3tempcen", False):
-                    self.emit_result("TS3 Temp", "TS3 Temp (0x0072)", "-", ts3, suffix=" °C")
-                if self.targets.get("ts4tempcen", False):
-                    self.emit_result("TS4 Temp", "TS4 Temp (0x0072)", "-", ts4, suffix=" °C")
+                if show_temp:
+                    if self.targets.get("inttempc_en", False):
+                        self.emit_result("Int Temp", "Int Temp (0x0072)", "-", int_temp, suffix=" °C")
+                    if self.targets.get("ts1tempc_en", False):
+                        self.emit_result("TS1 Temp", "TS1 Temp (0x0072)", "-", ts1, suffix=" °C")
+                    if self.targets.get("ts2tempc_en", False):
+                        self.emit_result("TS2 Temp", "TS2 Temp (0x0072)", "-", ts2, suffix=" °C")
+                    if self.targets.get("ts3tempc_en", False):
+                        self.emit_result("TS3 Temp", "TS3 Temp (0x0072)", "-", ts3, suffix=" °C")
+                    if self.targets.get("ts4tempc_en", False):
+                        self.emit_result("TS4 Temp", "TS4 Temp (0x0072)", "-", ts4, suffix=" °C")
                     
-                return True
-            return False
+            if not data and not data2:
+                return False
+            return True
         except Exception as e:
             self._log(f"CRASH in post_verify: {e}")
             return False
@@ -496,48 +672,79 @@ class CalibrationThread(QThread):
             self.finished_signal.emit(False)
             return
 
-        run_mode = self.targets.get("run_mode", "voltage")
+        try:
+            run_mode = self.targets.get("run_mode", "voltage")
         
-        # 1. Detect Firmware and Configuration & 2. Run requested modes
-        modes_to_run = []
-        if run_mode == "all":
-            modes_to_run = ["voltage", "temp", "current"]
-        else:
-            modes_to_run = [run_mode]
+            # 1. Detect Firmware and Configuration & 2. Run requested modes
+            modes_to_run = []
+            if run_mode == "all":
+                modes_to_run = ["voltage", "temp", "current"]
+            else:
+                modes_to_run = [run_mode]
             
-        success = True
+            success = True
+            
+            # Initial safety reset: Ensure all relays are OFF before starting
+            self._log("Initializing Relays to OFF state...")
+            for ch in self.channels:
+                self.ch = ch
+                self._set_relay(False)
         
-        for ch in self.channels:
-            if not self._running:
-                break
-            self.ch = ch
-            self._log(f"--- Processing Calibration for Channel {ch} ---")
-            
-            if not self.detect_firmware_and_config():
-                self._log("Warning: Could not detect configuration, proceeding with defaults.")
-                
-            for m in modes_to_run:
-                script_path = os.path.join(self.script_dir, f"{self.script_base}_{m}.calib")
-                if not self.execute_script(script_path, m):
-                    success = False
+            for ch in self.channels:
+                if not self._running:
                     break
-                    
-        # 3. Verification & Continuous Monitoring
-        if success:
-            self._log("--- Entering Continuous Monitoring Mode ---")
-            consecutive_fails = {ch: 0 for ch in self.channels}
-            while self._running:
-                for ch in self.channels:
-                    if not self._running:
-                        break
-                    self.ch = ch
-                    if not self.post_verify():
-                        consecutive_fails[ch] += 1
-                        if consecutive_fails[ch] >= 3:
-                            self._log(f"Error: Communication lost during monitoring.")
-                    else:
-                        consecutive_fails[ch] = 0
-                time.sleep(0.5)
+                self.ch = ch
+                self._log(f"--- Processing Calibration for Channel {ch} ---")
             
-        self._log("--- Calibration Sequence Completed ---")
-        self.finished_signal.emit(success)
+                if not self.detect_firmware_and_config():
+                    self._log("Warning: Could not detect configuration, proceeding with defaults.")
+                
+                for m in modes_to_run:
+                    script_path = os.path.join(self.script_dir, f"{self.script_base}_{m}.calib")
+                    if not self.execute_script(script_path, m):
+                        success = False
+                        break
+            
+            # 3. Verification & Continuous Monitoring
+            if success:
+                self._log("--- Entering Continuous Monitoring Mode ---")
+                consecutive_fails = {ch: 0 for ch in self.channels}
+                while self._running:
+                    any_ch_alive = False
+                    for ch in self.channels:
+                        if not self._running:
+                            break
+                        self.ch = ch
+                        if consecutive_fails[ch] >= 3:
+                            continue # Skip checking this channel if it's already dead
+                            
+                        if not self.post_verify():
+                            consecutive_fails[ch] += 1
+                            if consecutive_fails[ch] >= 3:
+                                self._log(f"Error: Communication lost on CH{ch} during monitoring.")
+                        else:
+                            consecutive_fails[ch] = 0
+                            any_ch_alive = True
+                            
+                    if not any_ch_alive:
+                        self._log("All channels lost communication. Exiting monitoring mode.")
+                        break
+                        
+                    time.sleep(0.5)
+            
+                self._log("--- Calibration Sequence Completed ---")
+                self.finished_signal.emit(success)
+            
+        except Exception as e:
+            self._log(f"CRASH in CalibrationThread: {e}")
+            self.finished_signal.emit(False)
+        finally:
+            # SAFETY: Always ensure relays are turned off!
+            for ch in self.channels:
+                self.ch = ch
+                try:
+                    self._set_relay(False)
+                except Exception:
+                    pass # Ignore if port is already closed
+            if hasattr(self, 'ser') and self.ser.is_open:
+                self.ser.close()

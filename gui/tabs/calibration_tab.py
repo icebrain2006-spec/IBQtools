@@ -6,15 +6,17 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, 
     QComboBox, QLineEdit, QPushButton, QTableWidget, 
     QTableWidgetItem, QTextEdit, QSplitter, QGridLayout,
-    QHeaderView, QScrollArea, QCheckBox
+    QHeaderView, QScrollArea, QCheckBox, QMenu
 )
 from PySide6.QtCore import Qt, Signal, Slot, QSettings
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtGui import QColor, QFont, QPainter
 from PySide6.QtCore import Qt, QSettings, Slot
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from calibrators.calib_runner import CalibrationThread
 from dialogs.limit_dialog import LimitsDialog
+from updater_thread import make_packet, CMD_RELAY_SET
+import serial
 
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), "calib_config.json")
 
@@ -26,7 +28,8 @@ IC_CONFIGS = {
             "BAT (mV)": "12780"
         },
         "current": {
-            "Current (mA)": "-1000"
+            "Current (mA)": "-1000",
+            "Shunt Resistor (mOhm)": "1.0"
         },
         "temperature": {
             "Int Temp (°C)": {"val": "25.0", "check": True}, 
@@ -42,7 +45,8 @@ IC_CONFIGS = {
             "Cell 1 (mV)": "3200", "BAT (mV)": "12780", "PACK (mV)": "12780"
         },
         "current": {
-            "Current (mA)": "-1000"
+            "Current (mA)": "-1000",
+            "Shunt Resistor (mOhm)": "1.0"
         },
         "temperature": {
             "Internal (°C)": "25.0", "External 1 (°C)": "25.0",
@@ -96,6 +100,47 @@ IC_CONFIGS = {
     }
 }
 
+class CustomHeader(QHeaderView):
+    def __init__(self, parent=None):
+        super().__init__(Qt.Horizontal, parent)
+        self.active_cols = set()
+        self.setDefaultAlignment(Qt.AlignCenter)
+        self.setSectionsClickable(True)
+        
+    def set_active_cols(self, cols):
+        self.active_cols = cols
+        self.viewport().update()
+
+    def paintSection(self, painter, rect, logicalIndex):
+        painter.save()
+        
+        # Background
+        if logicalIndex == 0:
+            painter.fillRect(rect, QColor("#1e1e1e"))
+        elif logicalIndex in self.active_cols:
+            painter.fillRect(rect, QColor("#2d5a2d")) # Active Green
+        else:
+            painter.fillRect(rect, QColor("#222222")) # Inactive Gray
+            
+        # Border
+        painter.setPen(QColor("#3a3a3a"))
+        painter.drawRect(rect.adjusted(0, 0, -1, -1))
+        
+        # Text
+        if logicalIndex == 0 or logicalIndex in self.active_cols:
+            painter.setPen(QColor("white"))
+        else:
+            painter.setPen(QColor("#888888"))
+            
+        text = self.model().headerData(logicalIndex, Qt.Horizontal, Qt.DisplayRole)
+        if text:
+            font = painter.font()
+            font.setBold(True)
+            painter.setFont(font)
+            painter.drawText(rect, Qt.AlignCenter, str(text))
+            
+        painter.restore()
+
 class CalibrationTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -135,15 +180,12 @@ class CalibrationTab(QWidget):
         top_layout.addWidget(QLabel("Target IC:"))
         top_layout.addWidget(self.combo_ic)
         top_layout.addSpacing(20)
-        top_layout.addWidget(QLabel("Channels:"))
-        
-        self.ch_checkboxes = []
+        self.selected_channels = set()
         for i in range(1, 7):
-            cb = QCheckBox(f"CH{i}")
-            cb.setChecked(self.settings.value(f"calib_ch_{i}_en", "true") == "true")
-            cb.toggled.connect(lambda checked, idx=i: self.settings.setValue(f"calib_ch_{idx}_en", "true" if checked else "false"))
-            top_layout.addWidget(cb)
-            self.ch_checkboxes.append(cb)
+            if self.settings.value(f"calib_ch_{i}_en", "true") == "true":
+                self.selected_channels.add(i)
+                
+        # We removed the top layout checkboxes here.
             
         top_layout.addStretch()
         main_layout.addLayout(top_layout)
@@ -151,7 +193,11 @@ class CalibrationTab(QWidget):
         # --- Splitter for Left/Right Panels ---
         splitter = QSplitter(Qt.Horizontal)
         
-        # --- Left Panel: Scrollable Dynamic Controls ---
+        # --- Left Panel: Container for Scroll Controls + Logs ---
+        left_container = QWidget()
+        left_container_layout = QVBoxLayout(left_container)
+        left_container_layout.setContentsMargins(0, 0, 0, 0)
+        
         self.left_scroll = QScrollArea()
         self.left_scroll.setWidgetResizable(True)
         self.left_widget = QWidget()
@@ -159,6 +205,14 @@ class CalibrationTab(QWidget):
         self.left_layout.setContentsMargins(10, 10, 10, 10)
         
         self.left_scroll.setWidget(self.left_widget)
+        
+        # Logs
+        self.log_console = QTextEdit()
+        self.log_console.setReadOnly(True)
+        self.log_console.setStyleSheet("background-color: #1E1E1E; color: #00FF00; font-family: Consolas;")
+        
+        left_container_layout.addWidget(self.left_scroll, stretch=3)
+        left_container_layout.addWidget(self.log_console, stretch=2)
         
         # Build initial UI
         self._build_dynamic_ui(self.combo_ic.currentText())
@@ -174,6 +228,9 @@ class CalibrationTab(QWidget):
         
         # Limit Button Header
         header_layout = QHBoxLayout()
+        note_label = QLabel("Note: Click on a table header (CH1~CH6) to activate/deactivate channels.")
+        note_label.setStyleSheet("color: #AAAAAA; font-style: italic;")
+        header_layout.addWidget(note_label)
         header_layout.addStretch()
         self.btn_limits = QPushButton("Set Limits")
         self.btn_limits.setStyleSheet("background-color: #333333; color: white; padding: 5px 15px;")
@@ -183,9 +240,15 @@ class CalibrationTab(QWidget):
         
         # Table
         self.table_data = QTableWidget(0, 7)
-        self.table_data.setHorizontalHeaderLabels(["Parameter", "CH1", "CH2", "CH3", "CH4", "CH5", "CH6"])
-        self.table_data.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.custom_header = CustomHeader(self.table_data)
+        self.table_data.setHorizontalHeader(self.custom_header)
+        
+        self._update_headers() # Set initial header texts
+        self.table_data.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        for i in range(1, 7):
+            self.table_data.horizontalHeader().setSectionResizeMode(i, QHeaderView.Stretch)
         self.table_data.verticalHeader().setDefaultAlignment(Qt.AlignCenter)
+        self.table_data.verticalHeader().setDefaultSectionSize(22) # Compress row height
         self.table_data.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table_data.setAlternatingRowColors(True)
         self.table_data.setStyleSheet("""
@@ -195,27 +258,22 @@ class CalibrationTab(QWidget):
                 gridline-color: #3a3a3a;
                 border: 1px solid #3a3a3a;
             }
-            QHeaderView::section {
+            QHeaderView::section:vertical {
                 background-color: #1e1e1e;
                 color: white;
                 font-weight: bold;
-                padding: 4px;
-                border: 1px solid #3a3a3a;
             }
         """)
+        self.table_data.horizontalHeader().setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table_data.horizontalHeader().customContextMenuRequested.connect(self._on_header_context_menu)
+        self.table_data.horizontalHeader().sectionClicked.connect(self._on_header_left_clicked)
         
-        right_layout.addWidget(self.table_data, stretch=2)
-        
-        # Logs
-        self.log_console = QTextEdit()
-        self.log_console.setReadOnly(True)
-        self.log_console.setStyleSheet("background-color: #1E1E1E; color: #00FF00; font-family: Consolas;")
-        right_layout.addWidget(self.log_console, stretch=1)
+        right_layout.addWidget(self.table_data, stretch=1)
         
         # Add to splitter
-        splitter.addWidget(self.left_scroll)
+        splitter.addWidget(left_container)
         splitter.addWidget(self.right_widget)
-        splitter.setSizes([450, 550]) # Initial sizes
+        splitter.setSizes([400, 600]) # Initial sizes
         
         main_layout.addWidget(splitter)
         
@@ -343,6 +401,79 @@ class CalibrationTab(QWidget):
         self.left_layout.addLayout(btn_layout)
         self.left_layout.addStretch()
         
+    def _on_header_context_menu(self, pos):
+        logical_index = self.table_data.horizontalHeader().logicalIndexAt(pos)
+        if 1 <= logical_index <= 6:
+            ch = logical_index
+            menu = QMenu(self)
+            action_on = menu.addAction(f"Turn Relay ON for CH{ch}")
+            action_off = menu.addAction(f"Turn Relay OFF for CH{ch}")
+            
+            action_on.triggered.connect(lambda: self._toggle_manual_relay(ch, True))
+            action_off.triggered.connect(lambda: self._toggle_manual_relay(ch, False))
+            
+            menu.exec(self.table_data.horizontalHeader().mapToGlobal(pos))
+            
+    @Slot(int)
+    def _on_header_left_clicked(self, logical_index):
+        if logical_index == 0:
+            return
+        ch = logical_index
+        if ch in self.selected_channels:
+            self.selected_channels.remove(ch)
+            self.settings.setValue(f"calib_ch_{ch}_en", "false")
+        else:
+            self.selected_channels.add(ch)
+            self.settings.setValue(f"calib_ch_{ch}_en", "true")
+            
+        self._update_headers()
+        
+    def _update_headers(self):
+        labels = ["Parameter"]
+        for i in range(1, 7):
+            if i in self.selected_channels:
+                labels.append(f"✔ CH{i}")
+            else:
+                labels.append(f"✖ CH{i}")
+                
+        self.table_data.setHorizontalHeaderLabels(labels)
+        if hasattr(self, 'custom_header'):
+            self.custom_header.set_active_cols(self.selected_channels)
+        
+    def _toggle_manual_relay(self, ch, on):
+        port = self.combo_port.currentText()
+        if not port or "Select" in port:
+            self.log("Error: Please select a COM port first to toggle relay.")
+            return
+            
+        try:
+            ser = serial.Serial(port, 115200, timeout=1.0)
+            mask = (1 << (ch - 1)) if on else 0
+            packet = make_packet(CMD_RELAY_SET, bytes([mask]))
+            ser.reset_input_buffer()
+            ser.write(packet)
+            
+            # Read response to prevent buffer accumulation on device
+            rx = bytearray()
+            while True:
+                b = ser.read(1)
+                if not b: break
+                if b[0] == 0x02:
+                    rx.extend(b)
+                    break
+            if rx:
+                len_bytes = ser.read(2)
+                rx.extend(len_bytes)
+                if len(len_bytes) >= 2:
+                    import struct
+                    length = struct.unpack(">H", len_bytes)[0]
+                    rx.extend(ser.read(length + 3))
+                    
+            ser.close()
+            self.log(f"Manual Relay {'ON' if on else 'OFF'} executed for CH{ch}.")
+        except Exception as e:
+            self.log(f"Error toggling relay: {e}")
+
     def log(self, msg):
         timestamp = time.strftime("%H:%M:%S")
         self.log_console.append(f"[{timestamp}] {msg}")
@@ -355,6 +486,15 @@ class CalibrationTab(QWidget):
         if param not in self.param_statuses:
             self.param_statuses[param] = {}
         self.param_statuses[param][ch] = status
+        
+        def get_category(p_name):
+            p = p_name.lower()
+            if "temp" in p or "ts" in p: return 1
+            if "cc" in p or "capacity" in p or "current" in p or "shunt" in p: return 2
+            if "overall" in p: return 3
+            return 0
+            
+        my_cat = get_category(param)
         
         # Check if "Overall Result" row exists
         overall_row = -1
@@ -387,12 +527,17 @@ class CalibrationTab(QWidget):
             else:
                 item_val.setForeground(QColor("#E0E0E0"))
         else:
-            # Insert before Overall Result if it exists, else at bottom
-            if overall_row != -1:
-                insert_pos = overall_row
+            # Find insertion position based on category to group them
+            insert_pos = self.table_data.rowCount()
+            for r in range(self.table_data.rowCount()):
+                r_item = self.table_data.item(r, 0)
+                if r_item:
+                    if get_category(r_item.text()) > my_cat:
+                        insert_pos = r
+                        break
+                        
+            if overall_row != -1 and insert_pos <= overall_row:
                 overall_row += 1 # it shifts down
-            else:
-                insert_pos = self.table_data.rowCount()
                 
             self.table_data.insertRow(insert_pos)
             
@@ -408,6 +553,22 @@ class CalibrationTab(QWidget):
                 item_val.setForeground(QColor("#00FF00"))
                 
             self.table_data.setItem(insert_pos, ch, item_val)
+            param_row = insert_pos
+            
+        # Apply background color to entire row based on category
+        bg_colors = {
+            0: QColor("#232a35"), # Subtle blue for Voltage
+            1: QColor("#352323"), # Subtle red for Temp
+            2: QColor("#353223"), # Subtle yellow/orange for Current
+            3: QColor("#2b2b2b")  # Default dark for Overall
+        }
+        bg = bg_colors.get(my_cat, QColor("#2b2b2b"))
+        for c in range(7):
+            it = self.table_data.item(param_row, c)
+            if not it:
+                it = QTableWidgetItem("")
+                self.table_data.setItem(param_row, c, it)
+            it.setBackground(bg)
             
         # Update Overall Result
         if overall_row == -1:
@@ -418,13 +579,17 @@ class CalibrationTab(QWidget):
             from PySide6.QtGui import QFont
             font = QFont()
             font.setBold(True)
+            font.setPointSize(14)
             item_param.setFont(font)
             self.table_data.setItem(overall_row, 0, item_param)
+            
+        self.table_data.setRowHeight(overall_row, 40)
             
         # For each channel, evaluate overall status
         from PySide6.QtGui import QFont
         font = QFont()
         font.setBold(True)
+        font.setPointSize(14)
         
         for active_ch in range(1, 7):
             ch_status = "PASS"
@@ -508,10 +673,7 @@ class CalibrationTab(QWidget):
         # Modes requested
         targets["run_mode"] = mode
         
-        selected_channels = []
-        for i, cb in enumerate(self.ch_checkboxes):
-            if cb.isChecked():
-                selected_channels.append(i + 1)
+        selected_channels = sorted(list(self.selected_channels))
                 
         if not selected_channels:
             from PySide6.QtWidgets import QMessageBox
@@ -535,38 +697,65 @@ class CalibrationTab(QWidget):
         limits = {}
         limit_keys = [
             "Cell 1 Gain", "Pack Gain", "Bat Gain",
-            "Temp Gain", "Current Gain",
             "V_Cell 1", "V_Cell 2", "V_Cell 3", "V_Cell 4",
             "V_Bat", "V_Pack",
             "Int Temp", "TS1 Temp", "TS2 Temp", "TS3 Temp", "TS4 Temp",
-            "CC Current"
+            "Shunt Resistor"
         ]
         for key in limit_keys:
             default_min = ""
             default_max = ""
-            if "Gain" in key:
+            base_target = 0
+            is_offset = False
+            
+            if key in ["Cell 1 Gain", "Pack Gain", "Bat Gain"]:
                 default_min = "0"
                 default_max = "65535"
             else:
+                is_offset = True
                 target_key = key.lower().replace(" ", "").replace("_", "")
-                if "vcell" in target_key or "vpack" in target_key or "vbat" in target_key:
+                if "shunt" in target_key:
+                    base_target = float(targets.get("shuntresistormohm", 1.0))
+                    default_min = "-0.05"
+                    default_max = "0.05"
+                elif "vcell" in target_key or "vpack" in target_key or "vbat" in target_key:
+                    default_min = "-20"
+                    default_max = "20"
                     if "cell" in target_key:
-                        default_min = str(targets.get("cell1mv", 3200))
-                        default_max = default_min
+                        base_target = float(targets.get("cell1mv", 3200))
                     elif "pack" in target_key:
-                        default_min = str(targets.get("packmv", 12780))
-                        default_max = default_min
+                        base_target = float(targets.get("packmv", 12780))
                     elif "bat" in target_key:
-                        default_min = str(targets.get("batmv", 12780))
-                        default_max = default_min
+                        base_target = float(targets.get("batmv", 12780))
+                elif "temp" in target_key:
+                    default_min = "-1.0"
+                    default_max = "1.0"
+                    if "int" in target_key:
+                        base_target = float(targets.get("inttempc", 25.0))
+                    elif "ts1" in target_key:
+                        base_target = float(targets.get("ts1tempc", 25.0))
+                    elif "ts2" in target_key:
+                        base_target = float(targets.get("ts2tempc", 25.0))
+                    elif "ts3" in target_key:
+                        base_target = float(targets.get("ts3tempc", 25.0))
+                    elif "ts4" in target_key:
+                        base_target = float(targets.get("ts4tempc", 25.0))
 
             l_min = self.settings.value(f"limit_{ic}_{key}_min", default_min)
             l_max = self.settings.value(f"limit_{ic}_{key}_max", default_max)
             
-            # If default target was used before save, might be empty, we handle that in runner
             if l_min != "" and l_max != "":
                 try:
-                    limits[key] = (float(l_min), float(l_max))
+                    v_min = float(l_min)
+                    v_max = float(l_max)
+                    if is_offset:
+                        if key == "Shunt Resistor":
+                            limits["CC Gain"] = (base_target + v_min, base_target + v_max)
+                            limits["Capacity Gain"] = (base_target + v_min, base_target + v_max)
+                        else:
+                            limits[key] = (base_target + v_min, base_target + v_max)
+                    else:
+                        limits[key] = (v_min, v_max)
                 except ValueError:
                     pass
                     
