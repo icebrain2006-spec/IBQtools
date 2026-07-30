@@ -157,6 +157,7 @@ class CsvTab(QWidget):
         action_layout = QHBoxLayout()
         action_layout.addStretch()
         self.btn_convert = QPushButton("CONVERT TO SLFS")
+        self.btn_convert.setObjectName("startBtn")
         self.btn_convert.setMinimumWidth(200)
         self.btn_convert.clicked.connect(self._start_conversion)
         action_layout.addWidget(self.btn_convert)

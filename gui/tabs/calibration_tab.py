@@ -376,17 +376,33 @@ class CalibrationTab(QWidget):
             
         # Add 4 Buttons
         btn_layout = QHBoxLayout()
+        
+        def get_btn_style(bg_col, border_col):
+            return f"""
+                QPushButton {{
+                    background-color: {bg_col};
+                    color: white;
+                    border: 1px solid {border_col};
+                    border-radius: 6px;
+                    padding: 8px 16px;
+                    font-weight: bold;
+                }}
+                QPushButton:hover {{
+                    background-color: {border_col};
+                }}
+            """
+            
         self.btn_cal_v = QPushButton("Start Voltage")
-        self.btn_cal_v.setStyleSheet("font-weight: bold; background-color: #2E8B57; color: white;")
+        self.btn_cal_v.setStyleSheet(get_btn_style("#232a35", "#3a5070"))
         
         self.btn_cal_t = QPushButton("Start Temp")
-        self.btn_cal_t.setStyleSheet("font-weight: bold; background-color: #2E8B57; color: white;")
+        self.btn_cal_t.setStyleSheet(get_btn_style("#352323", "#703a3a"))
         
         self.btn_cal_c = QPushButton("Start Current")
-        self.btn_cal_c.setStyleSheet("font-weight: bold; background-color: #B22222; color: white;")
+        self.btn_cal_c.setStyleSheet(get_btn_style("#353223", "#70663a"))
         
         self.btn_cal_all = QPushButton("Start All")
-        self.btn_cal_all.setStyleSheet("font-weight: bold; background-color: #4169E1; color: white;")
+        self.btn_cal_all.setStyleSheet(get_btn_style("#2b2b2b", "#555555"))
         
         self.btn_cal_v.clicked.connect(lambda: self.on_start_calib("voltage"))
         self.btn_cal_t.clicked.connect(lambda: self.on_start_calib("temp"))
@@ -475,9 +491,42 @@ class CalibrationTab(QWidget):
             self.log(f"Error toggling relay: {e}")
 
     def log(self, msg):
-        timestamp = time.strftime("%H:%M:%S")
-        self.log_console.append(f"[{timestamp}] {msg}")
+        msg_lower = msg.lower()
+        is_important = (
+            "error" in msg_lower or 
+            "warning" in msg_lower or 
+            "crash" in msg_lower or 
+            "---" in msg or 
+            "calibration finished" in msg_lower or 
+            "calibration failed" in msg_lower
+        )
         
+        # Log to error file globally
+        if "error" in msg_lower or "crash" in msg_lower:
+            import logging
+            logging.getLogger('IBQtools').error(f"[Calibration] {msg}")
+            
+        from config import config
+        if config.settings.value("global_debug_log_en", "false") != "true":
+            if not is_important:
+                return
+
+        timestamp = time.strftime("%H:%M:%S")
+        if "error" in msg_lower or "fail" in msg_lower or "crash" in msg_lower:
+            self.log_console.append(f'<span style="color: #FF4444;">[{timestamp}] {msg}</span>')
+        elif "finished successfully" in msg_lower:
+            self.log_console.append(f'<span style="color: #00E676;">[{timestamp}] {msg}</span>')
+        else:
+            self.log_console.append(f"[{timestamp}] {msg}")
+        
+    @Slot(int)
+    def clear_table_column(self, ch):
+        for r in range(self.table_data.rowCount()):
+            item = self.table_data.item(r, ch)
+            if item:
+                item.setText("")
+                item.setForeground(QColor("#E0E0E0"))
+
     @Slot(str, int, str, str)
     def update_or_add_table_row(self, param, ch, value, status):
         if not hasattr(self, 'param_statuses'):
@@ -595,6 +644,10 @@ class CalibrationTab(QWidget):
                 if not item_overall:
                     item_overall = QTableWidgetItem()
                     item_overall.setTextAlignment(Qt.AlignCenter)
+                    font = QFont()
+                    font.setPointSize(14)
+                    font.setBold(True)
+                    item_overall.setFont(font)
                     self.table_data.setItem(overall_row, active_ch, item_overall)
                     
                 item_overall.setText(ch_status)
@@ -757,8 +810,43 @@ class CalibrationTab(QWidget):
             return
         self.cal_thread.log_signal.connect(self.log)
         self.cal_thread.row_signal.connect(self.update_or_add_table_row)
+        self.cal_thread.clear_ch_signal.connect(self.clear_table_column)
+        self.cal_thread.play_sound_signal.connect(self.play_sound)
         self.cal_thread.finished_signal.connect(self.on_calib_finished)
         self.cal_thread.start()
+
+    @Slot(bool)
+    def play_sound(self, success):
+        import winsound
+        try:
+            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            ref_dir = os.path.join(base_dir, "assets", "wav")
+            
+            if not success:
+                wav_path = os.path.join(ref_dir, "testFail.wav")
+            else:
+                wav_path = os.path.join(ref_dir, "testComplete.wav")
+                
+            if os.path.exists(wav_path):
+                winsound.PlaySound(wav_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+            else:
+                # Fallback if wav not found
+                if not success:
+                    winsound.Beep(350, 80)
+                    time.sleep(0.03)
+                    winsound.Beep(350, 80)
+                else:
+                    winsound.Beep(350, 80)
+                    time.sleep(0.03)
+                    winsound.Beep(350, 80)
+                    time.sleep(0.03)
+                    winsound.Beep(880, 80)
+                    time.sleep(0.03)
+                    winsound.Beep(1046, 80)
+                    time.sleep(0.03)
+                    winsound.Beep(1318, 150)
+        except:
+            pass
 
     @Slot(bool)
     def on_calib_finished(self, success):
@@ -767,7 +855,7 @@ class CalibrationTab(QWidget):
         self.btn_cal_c.setEnabled(True)
         self.btn_cal_all.setEnabled(True)
         if success:
-            self.log("Calibration finished successfully!")
+            self.log("Calibration Sequence Fully Completed.")
         else:
             self.log("Calibration failed or was aborted.")
 

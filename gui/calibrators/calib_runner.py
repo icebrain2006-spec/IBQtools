@@ -28,6 +28,8 @@ def smbus_pec_calculate(data_bytes):
 class CalibrationThread(QThread):
     log_signal = Signal(str)
     row_signal = Signal(str, int, str, str) # param, channel, measured/value, status
+    clear_ch_signal = Signal(int)
+    play_sound_signal = Signal(bool)
     finished_signal = Signal(bool)
     
     limits_update_signal = Signal(dict)
@@ -192,7 +194,8 @@ class CalibrationThread(QThread):
                 continue
             break
         if resp:
-            self._log(f"    -> Read Error: 0x{resp[0]:02x}, Detail: {resp[1] if len(resp)>1 else 'None'}")
+            self._log(f"    -> Comm Lost: 0x{resp[0]:02x}, Detail: {resp[1] if len(resp)>1 else 'None'}")
+            self.clear_ch_signal.emit(self.ch)
         return None
 
     def _read_mfg_info(self):
@@ -752,6 +755,7 @@ class CalibrationThread(QThread):
                 
             # 3. Verification & Continuous Monitoring
             if success:
+                self.play_sound_signal.emit(True)
                 self._log("--- Entering Continuous Monitoring Mode ---")
                 consecutive_fails = {ch: 0 for ch in self.channels}
                 while self._running:
@@ -779,10 +783,14 @@ class CalibrationThread(QThread):
             
                 self._log("--- Calibration Sequence Completed ---")
                 self.finished_signal.emit(success)
+            else:
+                self.play_sound_signal.emit(False)
+                self.finished_signal.emit(success)
 
 
         except Exception as e:
             self._log(f"CRASH in CalibrationThread: {e}")
+            self.play_sound_signal.emit(False)
             self.finished_signal.emit(False)
         finally:
             # SAFETY: Always ensure relays are turned off!

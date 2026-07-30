@@ -80,6 +80,16 @@ class BqUpdaterMainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self.updater_tab.save_ui_states()
+        
+        # Stop UpdaterTab threads
+        try:
+            self.updater_tab._stop_all()
+            for board in self.updater_tab.boards:
+                if hasattr(board, 'worker') and board.worker and board.worker.isRunning():
+                    board.worker.wait(1000)
+        except Exception:
+            pass
+
         if hasattr(self.calibration_tab, 'cal_thread') and self.calibration_tab.cal_thread and self.calibration_tab.cal_thread.isRunning():
             self.calibration_tab.cal_thread.stop()
             self.calibration_tab.cal_thread.wait(1000)

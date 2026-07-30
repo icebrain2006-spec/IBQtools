@@ -215,6 +215,7 @@ class RP2040BoardWidget(QGroupBox):
             chk = QCheckBox("Enable")
             chk.setStyleSheet("background: transparent;")
             chk.setChecked(True)
+            chk.toggled.connect(lambda checked, idx=i: self._on_ch_toggled(idx, checked))
             self.ch_checkboxes.append(chk)
             
             prog = ClickableProgressBar(ch_idx)
@@ -237,6 +238,15 @@ class RP2040BoardWidget(QGroupBox):
             channels_layout.addWidget(box, row, col)
             
         layout.addLayout(channels_layout)
+
+    def _on_ch_toggled(self, idx, checked):
+        if not checked:
+            self.ch_progress[idx].setValue(0)
+            self.ch_status[idx].setText("Status: Disabled")
+            self.ch_status[idx].setStyleSheet("color: #555555;")
+        else:
+            self.ch_status[idx].setText("Status: Waiting")
+            self.ch_status[idx].setStyleSheet("color: #AAAAAA;")
 
     def refresh_info(self):
         port = self.combo_port.currentText()
@@ -307,8 +317,10 @@ class RP2040BoardWidget(QGroupBox):
             if (i+1) in active_channels:
                 self.ch_progress[i].setValue(0)
                 self.ch_status[i].setText("Status: Starting...")
+                self.ch_status[i].setStyleSheet("color: #AAAAAA;")
             else:
                 self.ch_status[i].setText("Status: Disabled")
+                self.ch_status[i].setStyleSheet("color: #555555;")
                 
         self.log_callback(f"[Board {self.board_id}] Initializing thread on {port}...")
         self.expected_sn_map.clear()
@@ -388,8 +400,10 @@ class RP2040BoardWidget(QGroupBox):
             if (i+1) in active_channels:
                 self.ch_progress[i].setValue(0)
                 self.ch_status[i].setText("Status: Starting Read...")
+                self.ch_status[i].setStyleSheet("color: #AAAAAA;")
             else:
                 self.ch_status[i].setText("Status: Disabled")
+                self.ch_status[i].setStyleSheet("color: #555555;")
                 
         _, _, fmt, _ = self.get_expected_cb(False)
         self.worker = SerialCheckWorker(port, active_channels, fmt=fmt)
@@ -769,7 +783,15 @@ class UpdaterTab(QWidget):
 
     def _log_to_console(self, msg):
         lower_msg = msg.lower()
-        if "error" in lower_msg or "fail" in lower_msg or "오류" in lower_msg:
+        is_error = "error" in lower_msg or "fail" in lower_msg or "오류" in lower_msg
+        
+        from config import config
+        if config.settings.value("global_debug_log_en", "false") != "true":
+            # If debug log is off, only show error messages or system messages like "[SYS]"
+            if not is_error and "[sys]" not in lower_msg and "finished" not in lower_msg:
+                return
+                
+        if is_error:
             # Wrap with red span for errors
             self.log_console.append(f'<span style="color: #FF4444;">{msg}</span>')
         else:
@@ -878,7 +900,7 @@ class UpdaterTab(QWidget):
                     self.active_workers += 1
                     
             if self.active_workers == 0:
-                self.log_console.append("[SYS] Failed to launch workers.")
+                self._log_to_console("[SYS] Failed to launch workers.")
                 self._reset_master_ui()
         except Exception as e:
             import traceback

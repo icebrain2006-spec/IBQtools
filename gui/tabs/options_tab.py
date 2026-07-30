@@ -3,7 +3,7 @@ import shutil
 import tempfile
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
                                QLineEdit, QPushButton, QFormLayout, QMessageBox,
-                               QFileDialog, QLabel, QProgressBar, QDialog, QTableWidget, QTableWidgetItem, QHeaderView)
+                               QFileDialog, QLabel, QProgressBar, QDialog, QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox)
 from PySide6.QtCore import QThread, Signal, Qt
 import csv
 from config import config, setup_error_logging
@@ -165,8 +165,8 @@ class OptionsTab(QWidget):
     def _init_ui(self):
         layout_options = QVBoxLayout(self)
         
-        # --- Logging Settings ---
-        group_log_settings = QGroupBox("Logging Settings")
+        # --- Data Logging Settings ---
+        group_log_settings = QGroupBox("Data Logging Settings (CSV)")
         layout_log = QFormLayout(group_log_settings)
         
         self.input_work_log = QLineEdit()
@@ -191,13 +191,23 @@ class OptionsTab(QWidget):
         error_layout.addWidget(self.input_error_log)
         error_layout.addWidget(self.btn_browse_error)
         
-        layout_log.addRow("Work Log (CSV):", work_layout)
-        layout_log.addRow("Cal Log (CSV):", cal_layout)
-        layout_log.addRow("Error Log (TXT):", error_layout)
+        layout_log.addRow("Work Log:", work_layout)
+        layout_log.addRow("Calibration Log:", cal_layout)
+        
+        # --- Error & Debug Settings ---
+        group_error_settings = QGroupBox("Error & Debug Settings")
+        layout_error = QFormLayout(group_error_settings)
+        
+        layout_error.addRow("Error Log (TXT):", error_layout)
+        
+        self.cb_global_debug_log = QCheckBox("Show Detailed / Debug Logs in Console (All Tabs)")
+        self.cb_global_debug_log.setChecked(config.settings.value("global_debug_log_en", "false") == "true")
+        layout_error.addRow("Console Output:", self.cb_global_debug_log)
         
         self.btn_save_options = QPushButton("Save Settings")
         
         layout_options.addWidget(group_log_settings)
+        layout_options.addWidget(group_error_settings)
         layout_options.addWidget(self.btn_save_options)
         
         # --- Firmware Auto-Update Settings ---
@@ -292,6 +302,7 @@ class OptionsTab(QWidget):
         config.set_cal_log_path(self.input_cal_log.text())
         config.set_error_log_path(self.input_error_log.text())
         config.settings.setValue("github_repo", self.input_github_repo.text().strip())
+        config.settings.setValue("global_debug_log_en", "true" if self.cb_global_debug_log.isChecked() else "false")
         
         setup_error_logging(self.input_error_log.text())
         QMessageBox.information(self, "Settings Saved", "Configuration saved successfully.")
