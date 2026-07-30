@@ -370,7 +370,7 @@ class UpdaterWorker(QThread):
     def _write_smbus_word(self, ch, addr, reg, word_val):
         val_lo = word_val & 0xFF
         val_hi = (word_val >> 8) & 0xFF
-        payload = bytes([ch, addr, reg, 0, 2, 0, val_lo, val_hi])
+        payload = bytes([ch, addr, reg, 0, 2, 1, val_lo, val_hi])  # Set use_pec=1
         packet = make_packet(CMD_SMBUS_CMD, payload)
         self.ser.reset_input_buffer()
         self.ser.write(packet)
@@ -537,8 +537,21 @@ class UpdaterWorker(QThread):
                             # If callback is provided, we can fetch the SN to write
                             fmt = "DEC"
                             if self.get_expected_cb:
-                                exp_date, exp_sn_int, fmt, should_write = self.get_expected_cb(ch)
-                                if should_write:
+                                exp_date, exp_sn_int, fmt, should_write_sn, should_write_date = self.get_expected_cb(ch)
+                                
+                                if should_write_date:
+                                    try:
+                                        y, m, d = map(int, exp_date.split('-'))
+                                        date_val = d + (m * 32) + ((y - 1980) * 512)
+                                        self.log_msg.emit(f"[CH {ch}] Writing Expected Date: {exp_date} (0x{date_val:04X})")
+                                        ok = self._write_smbus_word(ch, 0x0B, 0x1B, date_val)
+                                        if not ok:
+                                            self.log_msg.emit(f"[CH {ch}] Write Date FAILED!")
+                                        time.sleep(0.1)
+                                    except Exception as e:
+                                        self.log_msg.emit(f"[CH {ch}] Failed to parse Date: {e}")
+                                        
+                                if should_write_sn:
                                     write_val = exp_sn_int
                                     if fmt == "DEC":
                                         try:

@@ -405,7 +405,7 @@ class RP2040BoardWidget(QGroupBox):
                 self.ch_status[i].setText("Status: Disabled")
                 self.ch_status[i].setStyleSheet("color: #555555;")
                 
-        _, _, fmt, _ = self.get_expected_cb(False)
+        _, _, fmt, _, _ = self.get_expected_cb(False)
         self.worker = SerialCheckWorker(port, active_channels, fmt=fmt)
         self.worker.log_msg.connect(lambda msg: self.log_callback(f"[Board {self.board_id}] {msg}"))
         self.worker.status_updated.connect(self._on_status_update)
@@ -413,12 +413,22 @@ class RP2040BoardWidget(QGroupBox):
         self.worker.start()
 
     def _get_sn_for_worker(self, ch_idx):
-        exp_date, sn_int, fmt, should_write = self.get_expected_cb(True)
-        if should_write:
+        exp_date, sn_int, fmt, should_write_sn, should_write_date = self.get_expected_cb(True)
+        if should_write_sn or should_write_date:
             self.expected_date_map[ch_idx] = exp_date
             self.expected_sn_map[ch_idx] = sn_int
             self.expected_fmt = fmt
-        return exp_date, sn_int, fmt, should_write
+            return exp_date, sn_int, fmt, should_write_sn, should_write_date
+        else:
+            if ch_idx in self.expected_sn_map:
+                exp_date = self.expected_date_map[ch_idx]
+                exp_sn_int = self.expected_sn_map[ch_idx]
+                sn_fmt = self.expected_fmt
+                _, _, _, should_write_sn, should_write_date = self.get_expected_cb(False)
+            else:
+                exp_date, exp_sn_int, sn_fmt, should_write_sn, should_write_date = self.get_expected_cb(False)
+            
+            return exp_date, exp_sn_int, sn_fmt, should_write_sn, should_write_date
 
     def _on_progress_update(self, ch_idx, percent):
         if 1 <= ch_idx <= 6:
@@ -439,9 +449,10 @@ class RP2040BoardWidget(QGroupBox):
                 exp_date = self.expected_date_map[ch_idx]
                 exp_sn_int = self.expected_sn_map[ch_idx]
                 sn_fmt = self.expected_fmt
-                _, _, _, should_write = self.get_expected_cb(False)
+                _, _, _, should_write_sn, should_write_date = self.get_expected_cb(False)
             else:
-                exp_date, exp_sn_int, sn_fmt, should_write = self.get_expected_cb(False)
+                exp_date, exp_sn_int, sn_fmt, should_write_sn, should_write_date = self.get_expected_cb(False)
+            should_write = should_write_sn or should_write_date
             
             result_str = "ERROR"
             
@@ -557,6 +568,12 @@ class UpdaterTab(QWidget):
         self.input_exp_date = QLineEdit("2024-03-05")
         self.input_exp_date.setInputMask("9999-99-99")
         
+        self.chk_write_date = QCheckBox("Write Date to Chip")
+        
+        date_layout = QHBoxLayout()
+        date_layout.addWidget(self.input_exp_date)
+        date_layout.addWidget(self.chk_write_date)
+        
         chk_layout = QHBoxLayout()
         self.chk_write_sn = QCheckBox("Write SN to Chip")
         self.chk_auto_inc = QCheckBox("Auto Increment (+1)")
@@ -597,7 +614,7 @@ class UpdaterTab(QWidget):
         sn_layout.addWidget(self.combo_sn_fmt)
         sn_layout.addWidget(self.input_exp_sn)
         
-        verify_form.addRow("Expected Date:", self.input_exp_date)
+        verify_form.addRow("Expected Date:", date_layout)
         verify_form.addRow("Start SN:", sn_layout)
         left_layout.addWidget(master_group)
         left_layout.addWidget(verify_group)
@@ -702,6 +719,7 @@ class UpdaterTab(QWidget):
         with self.sn_lock:
             if self.active_workers == 0:
                 self.cached_exp_date = self.input_exp_date.text().strip()
+                self.cached_should_write_date = self.chk_write_date.isChecked()
                 self.cached_fmt = self.combo_sn_fmt.currentText()
                 self.cached_should_write = self.chk_write_sn.isChecked()
                 self.cached_should_inc = self.chk_auto_inc.isChecked()
@@ -712,13 +730,14 @@ class UpdaterTab(QWidget):
         with self.sn_lock:
             exp_date = self.cached_exp_date
             fmt = self.cached_fmt
-            should_write = self.cached_should_write
+            should_write_sn = self.cached_should_write
+            should_write_date = getattr(self, 'cached_should_write_date', False)
             should_inc = self.cached_should_inc
             ui_sn_int = self.cached_sn_int
             
             chip_sn_int = ui_sn_int
             
-            if is_writing and should_write and should_inc:
+            if is_writing and should_write_sn and should_inc:
                 self.cached_sn_int += 1
                 if fmt == "DEC" and self.cached_sn_int > 9999:
                     self.cached_sn_int = 0
@@ -730,7 +749,7 @@ class UpdaterTab(QWidget):
                 else:
                     self.update_sn_ui_signal.emit(str(self.cached_sn_int))
                     
-            return exp_date, chip_sn_int, fmt, should_write
+            return exp_date, chip_sn_int, fmt, should_write_sn, should_write_date
 
     def _on_board_finished_callback(self):
         self.active_workers -= 1
@@ -791,11 +810,14 @@ class UpdaterTab(QWidget):
             if not is_error and "[sys]" not in lower_msg and "finished" not in lower_msg:
                 return
                 
+        # To prevent Qt from bleeding the HTML span color into subsequent plain-text lines,
+        # we explicitly set the color for normal messages as well.
+        safe_msg = msg.replace("<", "&lt;").replace(">", "&gt;")
         if is_error:
             # Wrap with red span for errors
-            self.log_console.append(f'<span style="color: #FF4444;">{msg}</span>')
+            self.log_console.append(f'<span style="color: #FF4444;">{safe_msg}</span>')
         else:
-            self.log_console.append(msg)
+            self.log_console.append(f'<span style="color: #69F0AE;">{safe_msg}</span>')
 
     def _check_all(self):
         if self.active_workers > 0:
@@ -923,6 +945,7 @@ class UpdaterTab(QWidget):
         settings.setValue("ui_boards", self.spin_boards.value())
         settings.setValue("ui_loop_count", self.loop_count.text())
         settings.setValue("ui_exp_date", self.input_exp_date.text())
+        settings.setValue("ui_write_date", self.chk_write_date.isChecked())
         settings.setValue("ui_sn_fmt", self.combo_sn_fmt.currentText())
         settings.setValue("ui_exp_sn", self.input_exp_sn.text())
         settings.setValue("ui_write_sn", self.chk_write_sn.isChecked())
@@ -941,6 +964,7 @@ class UpdaterTab(QWidget):
             self.spin_boards.setValue(boards_count)
             self.loop_count.setText(str(settings.value("ui_loop_count", "1")))
             self.input_exp_date.setText(str(settings.value("ui_exp_date", "2024-03-05")))
+            self.chk_write_date.setChecked(str(settings.value("ui_write_date", "false")).lower() == "true")
             self.combo_sn_fmt.setCurrentText(str(settings.value("ui_sn_fmt", "DEC")))
             self.input_exp_sn.setText(str(settings.value("ui_exp_sn", "1")))
             
