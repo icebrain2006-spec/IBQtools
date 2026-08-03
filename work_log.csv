@@ -1,0 +1,6 @@
+Timestamp,Board_ID,Channel,SLFS_File,Wrote_SN,Read_Date,Read_SN,Result
+2026-07-30 16:46:13,1,6,BQU_pl4sm07_temp.slfs,Yes,2024-03-05,4403,PASS
+2026-07-30 17:39:15,1,6,BQU_pl4sm07_temp.slfs,Yes,2024-03-05,4417,PASS
+2026-07-30 17:39:48,1,6,BQU_pl4sm07_temp.slfs,Yes,2024-03-06,4418,PASS
+2026-07-30 17:47:20,1,6,BQU_pl4sm07_temp.slfs,Yes,2024-03-05,4419,FAIL
+2026-07-30 17:47:50,1,6,BQU_pl4sm07_temp.slfs,Yes,2024-03-06,4420,PASS

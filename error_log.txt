@@ -1,0 +1,45 @@
+[2026-07-30 17:07:46,985] [ERROR] Uncaught exception
+Traceback (most recent call last):
+  File "D:\WinApp\python\IBQtools\gui\updater_thread.py", line 540, in run
+    exp_date, exp_sn_int, fmt, should_write_sn, should_write_date = self.get_expected_cb(ch)
+                                                                    ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 421, in _get_sn_for_worker
+    return exp_date, sn_int, fmt, should_write
+                                  ^^^^^^^^^^^^
+NameError: name 'should_write' is not defined. Did you mean: 'should_write_sn'?
+[2026-07-30 17:20:47,414] [ERROR] Uncaught exception
+Traceback (most recent call last):
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 452, in _on_verify_update
+    _, _, _, should_write = self.get_expected_cb(False)
+    ^^^^^^^^^^^^^^^^^^^^^
+ValueError: too many values to unpack (expected 4)
+[2026-07-30 17:21:18,142] [ERROR] Uncaught exception
+Traceback (most recent call last):
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 452, in _on_verify_update
+    _, _, _, should_write = self.get_expected_cb(False)
+    ^^^^^^^^^^^^^^^^^^^^^
+ValueError: too many values to unpack (expected 4)
+[2026-07-30 17:21:56,466] [ERROR] Uncaught exception
+Traceback (most recent call last):
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 452, in _on_verify_update
+    _, _, _, should_write = self.get_expected_cb(False)
+    ^^^^^^^^^^^^^^^^^^^^^
+ValueError: too many values to unpack (expected 4)
+[2026-07-30 17:22:20,337] [ERROR] Uncaught exception
+Traceback (most recent call last):
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 452, in _on_verify_update
+    _, _, _, should_write = self.get_expected_cb(False)
+    ^^^^^^^^^^^^^^^^^^^^^
+ValueError: too many values to unpack (expected 4)
+[2026-07-30 17:32:24,777] [ERROR] Uncaught exception
+Traceback (most recent call last):
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 452, in _on_verify_update
+    _, _, _, should_write = self.get_expected_cb(False)
+    ^^^^^^^^^^^^^^^^^^^^^
+ValueError: too many values to unpack (expected 4)
+[2026-07-30 17:33:25,139] [ERROR] Uncaught exception
+Traceback (most recent call last):
+  File "D:\WinApp\python\IBQtools\gui\tabs\updater_tab.py", line 452, in _on_verify_update
+    _, _, _, should_write = self.get_expected_cb(False)
+    ^^^^^^^^^^^^^^^^^^^^^
+ValueError: too many values to unpack (expected 4)
