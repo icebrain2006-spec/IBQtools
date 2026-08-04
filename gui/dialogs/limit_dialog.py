@@ -17,13 +17,28 @@ class LimitsDialog(QDialog):
         self.settings = settings if settings else QSettings("IBQ", "IBQtools")
         self.default_targets = default_targets
         
-        self.limit_keys = [
-            "Cell 1 Gain", "Pack Gain", "Bat Gain",
-            "V_Cell 1", "V_Cell 2", "V_Cell 3", "V_Cell 4",
-            "V_Bat", "V_Pack",
-            "Int Temp", "TS1 Temp", "TS2 Temp", "TS3 Temp", "TS4 Temp",
-            "Shunt Resistor"
-        ]
+        if "BQ78350" in self.ic_name.upper():
+            self.limit_keys = [
+                "Cell 1 Offset", "Cell 2 Offset", "Cell 3 Offset", "Cell 4 Offset",
+                "Cell 5 Offset", "Cell 6 Offset", "Cell 7 Offset", "Cell 8 Offset",
+                "Cell 9 Offset", "Cell 10 Offset", "Cell 11 Offset", "Cell 12 Offset",
+                "Cell 13 Offset", "Cell 14 Offset", "Cell 15 Offset",
+                "Ext Cell Divider Gain",
+                "V_Cell 1", "V_Cell 2", "V_Cell 3", "V_Cell 4", "V_Cell 5", "V_Cell 6",
+                "V_Cell 7", "V_Cell 8", "V_Cell 9", "V_Cell 10", "V_Cell 11", "V_Cell 12",
+                "V_Cell 13", "V_Cell 14", "V_Cell 15",
+                "V_Ext", "V_Aux",
+                "Int Temp", "TS1 Temp", "TS2 Temp", "TS3 Temp", "TS4 Temp",
+                "CC Offset", "Coulomb Counter Offset Samples", "Shunt Resistor"
+            ]
+        else:
+            self.limit_keys = [
+                "Cell 1 Gain", "Pack Gain", "Bat Gain",
+                "V_Cell 1", "V_Cell 2", "V_Cell 3", "V_Cell 4",
+                "V_Bat", "V_Pack",
+                "Int Temp", "TS1 Temp", "TS2 Temp", "TS3 Temp", "TS4 Temp",
+                "Shunt Resistor"
+            ]
         
         self.inputs = {}
         
@@ -52,16 +67,26 @@ class LimitsDialog(QDialog):
             default_min = ""
             default_max = ""
             
-            if key in ["Cell 1 Gain", "Pack Gain", "Bat Gain"]:
+            if "Gain" in key and not "Ext Cell" in key:
                 default_min = "0"
                 default_max = "65535"
+            elif "Gain" in key and "Ext Cell" in key:
+                default_min = "0"
+                default_max = "65535"
+            elif "Offset" in key:
+                if "Coulomb" in key:
+                    default_min = "-100"
+                    default_max = "100"
+                else:
+                    default_min = "-128"
+                    default_max = "127"
             else:
-                # Voltage/Temp default offset limits
+                # Voltage/Temp default limits (from targets)
                 target_key = key.lower().replace(" ", "").replace("_", "")
                 if "shunt" in target_key:
                     default_min = "-0.05"
                     default_max = "0.05"
-                elif "vcell" in target_key or "vpack" in target_key or "vbat" in target_key:
+                elif "vcell" in target_key or "vpack" in target_key or "vbat" in target_key or "vext" in target_key or "vaux" in target_key:
                     default_min = "-20"
                     default_max = "20"
                 elif "temp" in target_key:
@@ -120,17 +145,28 @@ class LimitsDialog(QDialog):
                         
                         base_target = 0
                         is_offset = False
-                        if key not in ["Cell 1 Gain", "Pack Gain", "Bat Gain"]:
+                        if "Gain" not in key and "Offset" not in key or "CC Offset" in key or "Coulomb" in key:
                             is_offset = True
                             target_key = key.lower().replace(" ", "").replace("_", "")
                             if "shunt" in target_key:
                                 base_target = float(self.default_targets.get("shuntresistormohm", 1.0))
                             elif "vcell" in target_key:
-                                base_target = float(self.default_targets.get("cell1mv", 3200))
+                                # extract cell index
+                                import re
+                                m = re.search(r'vcell(\d+)', target_key)
+                                if m:
+                                    cell_idx = m.group(1)
+                                    base_target = float(self.default_targets.get(f"cell{cell_idx}mv", 3200))
+                                else:
+                                    base_target = float(self.default_targets.get("cell1mv", 3200))
                             elif "vpack" in target_key:
                                 base_target = float(self.default_targets.get("packmv", 12780))
                             elif "vbat" in target_key:
                                 base_target = float(self.default_targets.get("batmv", 12780))
+                            elif "vext" in target_key:
+                                base_target = float(self.default_targets.get("extaveragecellmv", 3200))
+                            elif "vaux" in target_key:
+                                base_target = float(self.default_targets.get("vauxmv", 3200))
                             elif "temp" in target_key:
                                 if "int" in target_key:
                                     base_target = float(self.default_targets.get("inttempc", 25.0))
@@ -142,6 +178,12 @@ class LimitsDialog(QDialog):
                                     base_target = float(self.default_targets.get("ts3tempc", 25.0))
                                 elif "ts4" in target_key:
                                     base_target = float(self.default_targets.get("ts4tempc", 25.0))
+                            elif "ccoffset" in target_key or "coulomb" in target_key:
+                                is_offset = False # these are pure limits, not offsets from a target in the UI!
+                                
+                        if "Offset" in key and "Cell" in key:
+                            is_offset = False # Offsets calculated in chip are saved as pure values in limits, e.g. -2 to +2
+
                                     
                         if is_offset:
                             new_lim[key] = (base_target + v_min, base_target + v_max)

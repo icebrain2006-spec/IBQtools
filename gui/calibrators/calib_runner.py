@@ -263,11 +263,8 @@ class CalibrationThread(QThread):
             da_addr = 0x4000
         else:
             self._log(f"Loaded CSV: {csv_name}, DA Config Offset: {offset}")
-            # Add 0x4000 base address for BQ40Z50
-            if "BQ40Z50" in self.ic_name.upper() or "BQ4050" in self.ic_name.upper():
-                da_addr = 0x4000 + offset
-            else:
-                da_addr = offset # May need adjustment for other ICs
+            # All these gauges (BQ40Z50, BQ78350) use 0x4000 as the base for DataFlash access
+            da_addr = 0x4000 + offset
                 
         # 3. Read DA Configuration
         self._log(f"Reading DA Configuration at 0x{da_addr:04X}...")
@@ -290,12 +287,16 @@ class CalibrationThread(QThread):
             if idx != -1 and idx + 3 < len(da_data):
                 # Data starts right after the echo
                 da_val = struct.unpack_from('<H', da_data, idx + 2)[0]
-                cc0 = (da_val >> 0) & 1
-                cc1 = (da_val >> 1) & 1
-                
-                # Bits: cc1 cc0 -> 00=1 cell, 01=2 cells, 10=3 cells, 11=4 cells
-                self.active_cells = ((cc1 << 1) | cc0) + 1
-                self._log(f"Parsed DA_VAL: 0x{da_val:04X} -> Detected {self.active_cells} active cells (CC1={cc1}, CC0={cc0}).")
+                if "BQ78350" in self.ic_name.upper():
+                    # For BQ78350, it's AFE Cell Map (e.g., 0x003F = 6 cells). Count the '1' bits.
+                    self.active_cells = bin(da_val).count('1')
+                    self._log(f"Parsed AFE Cell Map: 0x{da_val:04X} -> Detected {self.active_cells} active cells.")
+                else:
+                    cc0 = (da_val >> 0) & 1
+                    cc1 = (da_val >> 1) & 1
+                    # Bits: cc1 cc0 -> 00=1 cell, 01=2 cells, 10=3 cells, 11=4 cells
+                    self.active_cells = ((cc1 << 1) | cc0) + 1
+                    self._log(f"Parsed DA_VAL: 0x{da_val:04X} -> Detected {self.active_cells} active cells (CC1={cc1}, CC0={cc0}).")
                 return True
             else:
                 self._log("Failed to locate address echo in DA Config read.")
@@ -318,12 +319,26 @@ class CalibrationThread(QThread):
             
         self._log(f"--- Running {mode_name.upper()} Script: {os.path.basename(script_path)} ---")
         
+        # Ensure CAL_EN is disabled before starting
+        self.smbus_write_block_raw(0x44, [0x57, 0x00])
+        time.sleep(0.05)
+        mfg_data = self.smbus_read_block(0x44)
+        if mfg_data and len(mfg_data) >= 4:
+            is_cal_en = (mfg_data[3] & 0x80) != 0
+            if is_cal_en:
+                self._log("Notice: Chip is already in CAL_EN mode. Disabling it to prevent CHK_CAL failures.")
+                if "BQ78350" in self.ic_name.upper():
+                    self.smbus_write_block_raw(0x44, [0x2D, 0x00])
+                else:
+                    self.smbus_write_word(0x00, 0x002D)
+                time.sleep(0.25)
+        
         if mode_name == "current":
             self._set_relay(True)
             self._log("    [Wait] 1.0s for current stabilization...")
             time.sleep(1.0)
         
-        # Cache 0x4000 Calibration Block BEFORE entering CAL_EN 1 (which blocks reading)
+        # Cache 0x4000 and 0x4020 Calibration Blocks BEFORE entering CAL_EN 1 (which blocks reading)
         self.smbus_write_block_raw(0x44, [0x00, 0x40])
         time.sleep(0.05)
         self.cached_4000 = self.smbus_read_block(0x44)
@@ -331,6 +346,14 @@ class CalibrationThread(QThread):
             self._log("Warning: Failed to cache 0x4000 block at start. It may be read as zeros later.")
         else:
             self._log("0x4000 Calibration Block cached successfully.")
+            
+        self.smbus_write_block_raw(0x44, [0x20, 0x40])
+        time.sleep(0.05)
+        self.cached_4020 = self.smbus_read_block(0x44)
+        if not self.cached_4020 or len(self.cached_4020) < 18:
+            self._log("Warning: Failed to cache 0x4020 block at start.")
+        else:
+            self._log("0x4020 Calibration Block cached successfully.")
         
         new_gains = []
         
@@ -377,7 +400,11 @@ class CalibrationThread(QThread):
                 reg = self.parse_val(parts[1])
                 data = self.smbus_read_word(reg)
                 if data:
-                    self._log("  => OK: " + data.hex(' '))
+                    val = struct.unpack('<H', bytes(data))[0]
+                    if not hasattr(self, 'script_vars'):
+                        self.script_vars = {}
+                    self.script_vars[reg] = val
+                    self._log(f"  => OK: {val} (0x{val:04X})")
                 else:
                     self._log("  => FAIL")
                     if mode_name == "current": self._set_relay(False)
@@ -425,52 +452,90 @@ class CalibrationThread(QThread):
                 count = self.parse_val(parts[3])
                 
                 blocks = []
-                for _ in range(count):
+                last_zz = -1
+                attempt = 0
+                while len(blocks) < count and attempt < (count * 20):
                     if not self._running: break
                     b = self.smbus_read_block(reg)
-                    if b: blocks.append(b)
+                    if b and len(b) >= 26 and "BQ78350" in self.ic_name.upper():
+                        if b[0] in (0x81, 0x82) and b[1] == 0xF0:
+                            zz = b[2]
+                            if zz != last_zz:
+                                blocks.append(b)
+                                last_zz = zz
+                        else:
+                            blocks.append(b)
+                    elif b:
+                        blocks.append(b)
                     time.sleep(interval / 1000.0)
+                    attempt += 1
                     
                 if blocks:
                     self._log(f"  => OK ({len(blocks)} blocks)")
                     if len(blocks) > 0 and self.targets:
                         # Logic changes based on mode
                         if mode_name == "voltage":
-                            cell1_sum = 0
-                            pack_sum = 0
-                            batt_sum = 0
-                            valid_count = 0
-                            for blk in blocks:
-                                if len(blk) >= 14:
-                                    cell1_sum += struct.unpack_from('<H', blk, 6)[0]
-                                    pack_sum += struct.unpack_from('<H', blk, 14)[0]
-                                    batt_sum += struct.unpack_from('<H', blk, 16)[0]
-                                    valid_count += 1
-                                    
-                            if valid_count > 0:
-                                cell1_avg = cell1_sum / float(valid_count)
-                                batt_avg = batt_sum / float(valid_count)
-                                pack_avg = pack_sum / float(valid_count)
+                            if "BQ78350" in self.ic_name.upper():
+                                if not hasattr(self, 'bq78350_v_cal'):
+                                    self.bq78350_v_cal = {}
+                                if blocks and len(blocks[0]) >= 34 and blocks[0][0] == 0x81 and blocks[0][1] == 0xF0:
+                                    cell_sums = [0]*14
+                                    valid_count = 0
+                                    for blk in blocks:
+                                        if len(blk) >= 34:
+                                            for i in range(14):
+                                                cell_sums[i] += struct.unpack_from('<H', blk, 6 + i*2)[0]
+                                            valid_count += 1
+                                    if valid_count > 0:
+                                        for i in range(14):
+                                            self.bq78350_v_cal[f"cell{i+1}"] = cell_sums[i] / valid_count
+                                        self._log(f"    Avg ADC -> Cell1: {self.bq78350_v_cal['cell1']:.2f}, Cell6: {self.bq78350_v_cal['cell6']:.2f}")
                                 
-                                self._log(f"    Avg ADC -> Cell1: {cell1_avg:.2f}, Pack: {pack_avg:.2f}, Batt: {batt_avg:.2f}")
-                                if cell1_avg > 0:
-                                    g = int((self.targets.get('cell1mv', 3200) / cell1_avg) * 65536)
-                                    g = max(0, min(65535, g))
-                                    new_gains.append(g)
-                                    self._log(f"    New Cell 1 Gain = {g}")
-                                    self.emit_result("Cell 1 Gain", "Cell 1 Gain", str(g), g, is_gain=True)
-                                if pack_avg > 0:
-                                    g = int((self.targets.get('packmv', 12780) / pack_avg) * 65536)
-                                    g = max(0, min(65535, g))
-                                    new_gains.append(g)
-                                    self._log(f"    New Pack Gain = {g}")
-                                    self.emit_result("Pack Gain", "Pack Gain", str(g), g, is_gain=True)
-                                if batt_avg > 0:
-                                    g = int((self.targets.get('batmv', 12780) / batt_avg) * 65536)
-                                    g = max(0, min(65535, g))
-                                    new_gains.append(g)
-                                    self._log(f"    New Bat Gain = {g}")
-                                    self.emit_result("Bat Gain", "Bat Gain", str(g), g, is_gain=True)
+                                elif blocks and len(blocks[0]) >= 26 and blocks[0][0] == 0x82 and blocks[0][1] == 0xF0:
+                                    cell15_sum = 0
+                                    valid_count = 0
+                                    for blk in blocks:
+                                        if len(blk) >= 26:
+                                            cell15_sum += struct.unpack_from('<H', blk, 6)[0]
+                                            valid_count += 1
+                                    if valid_count > 0:
+                                        self.bq78350_v_cal["cell15"] = cell15_sum / valid_count
+                            else:
+                                cell1_sum = 0
+                                pack_sum = 0
+                                batt_sum = 0
+                                valid_count = 0
+                                for blk in blocks:
+                                    if len(blk) >= 14:
+                                        cell1_sum += struct.unpack_from('<H', blk, 6)[0]
+                                        pack_sum += struct.unpack_from('<H', blk, 14)[0]
+                                        batt_sum += struct.unpack_from('<H', blk, 16)[0]
+                                        valid_count += 1
+                                        
+                                if valid_count > 0:
+                                    cell1_avg = cell1_sum / float(valid_count)
+                                    batt_avg = batt_sum / float(valid_count)
+                                    pack_avg = pack_sum / float(valid_count)
+                                    
+                                    self._log(f"    Avg ADC -> Cell1: {cell1_avg:.2f}, Pack: {pack_avg:.2f}, Batt: {batt_avg:.2f}")
+                                    if cell1_avg > 0:
+                                        g = int((self.targets.get('cell1mv', 3200) / cell1_avg) * 65536)
+                                        g = max(0, min(65535, g))
+                                        new_gains.append(g)
+                                        self._log(f"    New Cell 1 Gain = {g}")
+                                        self.emit_result("Cell 1 Gain", "Cell 1 Gain", str(g), g, is_gain=True)
+                                    if pack_avg > 0:
+                                        g = int((self.targets.get('packmv', 12780) / pack_avg) * 65536)
+                                        g = max(0, min(65535, g))
+                                        new_gains.append(g)
+                                        self._log(f"    New Pack Gain = {g}")
+                                        self.emit_result("Pack Gain", "Pack Gain", str(g), g, is_gain=True)
+                                    if batt_avg > 0:
+                                        g = int((self.targets.get('batmv', 12780) / batt_avg) * 65536)
+                                        g = max(0, min(65535, g))
+                                        new_gains.append(g)
+                                        self._log(f"    New Bat Gain = {g}")
+                                        self.emit_result("Bat Gain", "Bat Gain", str(g), g, is_gain=True)
                         
                         elif mode_name == "temp":
                             int_sum = ts1_sum = ts2_sum = ts3_sum = ts4_sum = 0
@@ -515,39 +580,70 @@ class CalibrationThread(QThread):
                     return False
                     
             elif cmd == 'S':
-                # Custom Save command for BQ40Z50
+                # Custom Save command for DataFlash
                 reg = self.parse_val(parts[1])
                 df_addr_bytes = [reg & 0xFF, (reg >> 8) & 0xFF]
 
                 # Use cached block if available (to prevent reading zeros during CAL_EN 1)
-                if hasattr(self, 'cached_4000') and self.cached_4000 and len(self.cached_4000) >= 34:
+                if reg == 0x4000 and hasattr(self, 'cached_4000') and self.cached_4000 and len(self.cached_4000) >= 34:
                     old_data = self.cached_4000
+                elif reg == 0x4020 and hasattr(self, 'cached_4020') and self.cached_4020 and len(self.cached_4020) >= 18:
+                    old_data = self.cached_4020
                 else:
                     self.smbus_write_block_raw(0x44, df_addr_bytes)
                     time.sleep(0.05)
                     old_data = self.smbus_read_block(0x44)
 
-                if old_data and len(old_data) >= 34:
+                if old_data and len(old_data) >= 34 and reg == 0x4000:
                     df_bytes = bytearray(old_data[2:34])
+                elif old_data and len(old_data) >= 18 and reg == 0x4020:
+                    df_bytes = bytearray(old_data[2:18])
                 else:
-                    self._log("  => FAIL: Could not read old calibration block")
+                    self._log(f"  => FAIL: Could not read old calibration block (reg=0x{reg:04X})")
                     if mode_name == "current": self._set_relay(False)
                     return False
 
                 if mode_name == "voltage":
-                    if not new_gains or len(new_gains) < 3:
-                        self._log("  => FAIL: Not enough gain data calculated!")
-                        return False
+                    if "BQ78350" in self.ic_name.upper():
+                        if reg == 0x4000:
+                            if not hasattr(self, 'bq78350_v_cal'):
+                                self._log("  => FAIL: No ADC data gathered for Cell Offsets.")
+                                return False
+                            
+                            for i in range(15):
+                                target = self.targets.get(f'cell{i+1}mv', 0)
+                                if target > 0:
+                                    adc = self.bq78350_v_cal.get(f"cell{i+1}", 0)
+                                    if adc > 0:
+                                        new_off = max(-128, min(127, int(target - adc)))
+                                        df_bytes[8 + i] = new_off & 0xFF
+                                        self._log(f"    New Cell {i+1} Offset = {new_off}")
+                                        self.emit_result(f"Cell {i+1} Offset", f"Cell {i+1} Offset", f"{new_off}", new_off, is_gain=True)
+                        elif reg == 0x4020:
+                            target_ext_avg = self.targets.get('extaveragecellmv', 0)
+                            if target_ext_avg > 0:
+                                measured_bat = getattr(self, 'script_vars', {}).get(0x09, 0)
+                                target_bat = target_ext_avg * self.active_cells
+                                if measured_bat > 0:
+                                    old_gain = struct.unpack_from('<H', df_bytes, 2)[0] # Offset 34 - 32 = 2
+                                    new_gain = max(0, min(65535, int(old_gain * (target_bat / measured_bat))))
+                                    struct.pack_into('<H', df_bytes, 2, new_gain)
+                                    self._log(f"    New Ext Cell Divider Gain = {new_gain}")
+                                    self.emit_result("Ext Cell Divider Gain", "Ext Cell Divider Gain", f"{new_gain}", new_gain, is_gain=True)
+                    else:
+                        if not new_gains or len(new_gains) < 3:
+                            self._log("  => FAIL: Not enough gain data calculated!")
+                            return False
+                            
+                        cell1_g = new_gains[0]
+                        pack_g = new_gains[1]
+                        bat_g = new_gains[2]
                         
-                    cell1_g = new_gains[0]
-                    pack_g = new_gains[1]
-                    bat_g = new_gains[2]
-                    
-                    struct.pack_into('<HHH', df_bytes, 0, cell1_g, pack_g, bat_g)
-                    
+                        struct.pack_into('<HHH', df_bytes, 0, cell1_g, pack_g, bat_g)
+                        
                     full_payload = df_addr_bytes + list(df_bytes)
                     if self.smbus_write_block_raw(0x44, full_payload):
-                        self._log("  => OK (Wrote Voltage Calibration Block)")
+                        self._log(f"  => OK (Wrote Voltage Calibration Block 0x{reg:04X})")
                     else:
                         self._log("  => FAIL writing block")
                         return False
@@ -652,52 +748,88 @@ class CalibrationThread(QThread):
             show_voltage = run_mode in ("voltage", "all")
             show_temp = run_mode in ("temp", "temperature", "all")
 
-            # Read DAStatus1 (0x0071)
-            self.smbus_write_block_raw(0x44, [0x71, 0x00])
-            time.sleep(0.05)
-            data = self.smbus_read_block(0x44)
-            if data and len(data) >= 34:
-                # 0: 0x71, 1: 0x00
-                cell1 = struct.unpack_from('<H', data, 2)[0]
-                cell2 = struct.unpack_from('<H', data, 4)[0]
-                cell3 = struct.unpack_from('<H', data, 6)[0]
-                cell4 = struct.unpack_from('<H', data, 8)[0]
-                bat = struct.unpack_from('<H', data, 10)[0]
-                pack = struct.unpack_from('<H', data, 12)[0]
-                
-                cells = [cell1, cell2, cell3, cell4]
+            if "BQ78350" in self.ic_name.upper():
                 if show_voltage:
                     for i in range(self.active_cells):
-                        self.emit_result(f"V_Cell {i+1}", f"V_Cell {i+1} (0x0071)", "-", cells[i], suffix=" mV")
+                        cmd = 0x3F - i
+                        val = self.smbus_read_word(cmd)
+                        if val:
+                            val = struct.unpack('<H', bytes(val))[0]
+                            self.emit_result(f"V_Cell {i+1}", f"V_Cell {i+1} (0x{cmd:02X})", "-", val, suffix=" mV")
+                            
+                    v_ext = self.smbus_read_word(0x4D)
+                    if v_ext:
+                        v_ext = struct.unpack('<H', bytes(v_ext))[0]
+                        self.emit_result("V_Ext", "Ext Ave Cell (0x4D)", "-", v_ext, suffix=" mV")
                         
-                    self.emit_result("V_Bat", "V_Bat (0x0071)", "-", bat, suffix=" mV")
-                    self.emit_result("V_Pack", "V_Pack (0x0071)", "-", pack, suffix=" mV")
-            
-            self.smbus_write_block_raw(0x44, [0x72, 0x00])
-            time.sleep(0.05)
-            data2 = self.smbus_read_block(0x44)
-            if data2 and len(data2) >= 16:
-                int_temp = round(struct.unpack_from('<H', data2, 2)[0] * 0.1 - 273.15, 1)
-                ts1 = round(struct.unpack_from('<H', data2, 4)[0] * 0.1 - 273.15, 1)
-                ts2 = round(struct.unpack_from('<H', data2, 6)[0] * 0.1 - 273.15, 1)
-                ts3 = round(struct.unpack_from('<H', data2, 8)[0] * 0.1 - 273.15, 1)
-                ts4 = round(struct.unpack_from('<H', data2, 10)[0] * 0.1 - 273.15, 1)
-                
+                    v_aux = self.smbus_read_word(0x2E)
+                    if v_aux:
+                        v_aux = struct.unpack('<H', bytes(v_aux))[0]
+                        self.emit_result("V_Aux", "VAux (0x2E)", "-", v_aux, suffix=" mV")
+                        
                 if show_temp:
-                    if self.targets.get("inttempc_en", False):
-                        self.emit_result("Int Temp", "Int Temp (0x0072)", "-", int_temp, suffix=" °C")
-                    if self.targets.get("ts1tempc_en", False):
-                        self.emit_result("TS1 Temp", "TS1 Temp (0x0072)", "-", ts1, suffix=" °C")
-                    if self.targets.get("ts2tempc_en", False):
-                        self.emit_result("TS2 Temp", "TS2 Temp (0x0072)", "-", ts2, suffix=" °C")
-                    if self.targets.get("ts3tempc_en", False):
-                        self.emit_result("TS3 Temp", "TS3 Temp (0x0072)", "-", ts3, suffix=" °C")
-                    if self.targets.get("ts4tempc_en", False):
-                        self.emit_result("TS4 Temp", "TS4 Temp (0x0072)", "-", ts4, suffix=" °C")
+                    int_temp_raw = self.smbus_read_word(0x28) # InternalTemp is 0x28
+                    if int_temp_raw:
+                        val = struct.unpack('<H', bytes(int_temp_raw))[0]
+                        temp_c = round(val * 0.1 - 273.15, 1)
+                        if self.targets.get("inttempc_en", False):
+                            self.emit_result("Int Temp", "Int Temp (0x28)", "-", temp_c, suffix=" °C")
+                            
+                    for i, (name, cmd) in enumerate([("TS1", 0x5E), ("TS2", 0x5F), ("TS3", 0x60), ("TS4", 0x61)]):
+                        if self.targets.get(f"{name.lower()}tempc_en", False):
+                            raw = self.smbus_read_word(cmd)
+                            if raw:
+                                val = struct.unpack('<H', bytes(raw))[0]
+                                temp_c = round(val * 0.1 - 273.15, 1)
+                                self.emit_result(f"{name} Temp", f"{name} Temp (0x{cmd:02X})", "-", temp_c, suffix=" °C")
+                return True
+            else:
+                # Read DAStatus1 (0x0071) for BQ40Z50
+                self.smbus_write_block_raw(0x44, [0x71, 0x00])
+                time.sleep(0.05)
+                data = self.smbus_read_block(0x44)
+                if data and len(data) >= 34:
+                    # 0: 0x71, 1: 0x00
+                    cell1 = struct.unpack_from('<H', data, 2)[0]
+                    cell2 = struct.unpack_from('<H', data, 4)[0]
+                    cell3 = struct.unpack_from('<H', data, 6)[0]
+                    cell4 = struct.unpack_from('<H', data, 8)[0]
+                    bat = struct.unpack_from('<H', data, 10)[0]
+                    pack = struct.unpack_from('<H', data, 12)[0]
                     
-            if not data and not data2:
-                return False
-            return True
+                    cells = [cell1, cell2, cell3, cell4]
+                    if show_voltage:
+                        for i in range(self.active_cells):
+                            self.emit_result(f"V_Cell {i+1}", f"V_Cell {i+1} (0x0071)", "-", cells[i], suffix=" mV")
+                            
+                        self.emit_result("V_Bat", "V_Bat (0x0071)", "-", bat, suffix=" mV")
+                        self.emit_result("V_Pack", "V_Pack (0x0071)", "-", pack, suffix=" mV")
+                
+                self.smbus_write_block_raw(0x44, [0x72, 0x00])
+                time.sleep(0.05)
+                data2 = self.smbus_read_block(0x44)
+                if data2 and len(data2) >= 16:
+                    int_temp = round(struct.unpack_from('<H', data2, 2)[0] * 0.1 - 273.15, 1)
+                    ts1 = round(struct.unpack_from('<H', data2, 4)[0] * 0.1 - 273.15, 1)
+                    ts2 = round(struct.unpack_from('<H', data2, 6)[0] * 0.1 - 273.15, 1)
+                    ts3 = round(struct.unpack_from('<H', data2, 8)[0] * 0.1 - 273.15, 1)
+                    ts4 = round(struct.unpack_from('<H', data2, 10)[0] * 0.1 - 273.15, 1)
+                    
+                    if show_temp:
+                        if self.targets.get("inttempc_en", False):
+                            self.emit_result("Int Temp", "Int Temp (0x0072)", "-", int_temp, suffix=" °C")
+                        if self.targets.get("ts1tempc_en", False):
+                            self.emit_result("TS1 Temp", "TS1 Temp (0x0072)", "-", ts1, suffix=" °C")
+                        if self.targets.get("ts2tempc_en", False):
+                            self.emit_result("TS2 Temp", "TS2 Temp (0x0072)", "-", ts2, suffix=" °C")
+                        if self.targets.get("ts3tempc_en", False):
+                            self.emit_result("TS3 Temp", "TS3 Temp (0x0072)", "-", ts3, suffix=" °C")
+                        if self.targets.get("ts4tempc_en", False):
+                            self.emit_result("TS4 Temp", "TS4 Temp (0x0072)", "-", ts4, suffix=" °C")
+                        
+                if not data and not data2:
+                    return False
+                return True
         except Exception as e:
             self._log(f"CRASH in post_verify: {e}")
             return False
@@ -811,6 +943,13 @@ class CalibrationThread(QThread):
         path = config.get_cal_log_path()
         if not path: return
         
+        # Append IC name to the log file name to separate logs for different ICs
+        base, ext = os.path.splitext(path)
+        if "BQ78350" in self.ic_name.upper():
+            path = f"{base}_BQ78350{ext}"
+        elif "BQ40Z50" in self.ic_name.upper() or "BQ4050" in self.ic_name.upper():
+            path = f"{base}_BQ40Z50{ext}"
+            
         ch_data = self.cal_log_buffer.get(ch, {})
         if not ch_data: return
         
