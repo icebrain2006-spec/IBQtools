@@ -58,9 +58,9 @@ static int tokenize(char *line, char **tokens, int max_tokens) {
 
 // Core 1 Main Entry
 static void core1_entry(void) {
-    char line_buf[256];
-    char *tokens[64];
-    uint8_t i2c_payload[64];
+    char line_buf[512];
+    char *tokens[128];
+    uint8_t i2c_payload[255];
 
     while (true) {
         // Wait for start signal from Core 0 via FIFO
@@ -99,7 +99,7 @@ static void core1_entry(void) {
                 continue;
             }
 
-            int num_tokens = tokenize(line_buf, tokens, 64);
+            int num_tokens = tokenize(line_buf, tokens, 128);
             if (num_tokens < 2) continue;
 
             char cmd_type = tokens[0][0];
@@ -110,7 +110,7 @@ static void core1_entry(void) {
                 uint8_t addr_7bit = addr_8bit >> 1;
                 
                 uint16_t payload_len = num_tokens - 2;
-                if (payload_len > 64) payload_len = 64;
+                if (payload_len > 255) payload_len = 255;
 
                 for (uint16_t i = 0; i < payload_len; i++) {
                     i2c_payload[i] = parse_hex_byte(tokens[2 + i]);
@@ -142,9 +142,9 @@ static void core1_entry(void) {
                 uint8_t reg = parse_hex_byte(tokens[2]);
 
                 uint16_t expected_len = num_tokens - 3;
-                if (expected_len > 64) expected_len = 64;
+                if (expected_len > 128) expected_len = 128;
 
-                uint8_t expected_data[64];
+                uint8_t expected_data[128];
                 for (uint16_t i = 0; i < expected_len; i++) {
                     expected_data[i] = parse_hex_byte(tokens[3 + i]);
                 }
@@ -153,7 +153,7 @@ static void core1_entry(void) {
                 for (uint8_t ch = 1; ch <= 6; ch++) {
                     uint8_t ch_mask = (1 << (ch - 1));
                     if ((update_status.active_channels & ch_mask) && !(update_status.error_channels & ch_mask)) {
-                        uint8_t rx_data[64];
+                        uint8_t rx_data[128];
                         memset(rx_data, 0, sizeof(rx_data));
                         
                         int err = SMBUS_ERR_TIMEOUT;
