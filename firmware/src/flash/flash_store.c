@@ -42,6 +42,8 @@ void flash_store_init(void) {
         current_meta.crc32 = 0;
         current_meta.timestamp = 0;
         memset((void*)current_meta.filename, 0, sizeof(current_meta.filename));
+        memset((void*)current_meta.ic_type, 0, sizeof(current_meta.ic_type));
+        memset((void*)current_meta.version, 0, sizeof(current_meta.version));
         meta_loaded = false;
     }
 }
@@ -77,6 +79,8 @@ int flash_store_upload_start(uint32_t size) {
     current_meta.crc32 = 0;
     current_meta.timestamp = 0;
     memset((void*)current_meta.filename, 0, sizeof(current_meta.filename));
+    memset((void*)current_meta.ic_type, 0, sizeof(current_meta.ic_type));
+    memset((void*)current_meta.version, 0, sizeof(current_meta.version));
     meta_loaded = false;
     
     return 0;
@@ -101,7 +105,7 @@ int flash_store_upload_chunk(uint32_t offset, const uint8_t *data, uint16_t len)
     return 0;
 }
 
-int flash_store_upload_end(uint32_t expected_crc32, uint32_t timestamp, const char *filename) {
+int flash_store_upload_end(uint32_t expected_crc32, uint32_t timestamp, const char *filename, const char *ic_type, const char *version) {
     // Flush remaining buffer
     if (write_buf_idx > 0) {
         // Pad the rest of the page with zeros
@@ -135,8 +139,17 @@ int flash_store_upload_end(uint32_t expected_crc32, uint32_t timestamp, const ch
     current_meta.crc32 = computed_crc;
     current_meta.timestamp = timestamp;
     memset((void*)current_meta.filename, 0, sizeof(current_meta.filename));
+    memset((void*)current_meta.ic_type, 0, sizeof(current_meta.ic_type));
+    memset((void*)current_meta.version, 0, sizeof(current_meta.version));
+    
     if (filename) {
         strncpy((char*)current_meta.filename, filename, sizeof(current_meta.filename) - 1);
+    }
+    if (ic_type) {
+        strncpy((char*)current_meta.ic_type, ic_type, sizeof(current_meta.ic_type) - 1);
+    }
+    if (version) {
+        strncpy((char*)current_meta.version, version, sizeof(current_meta.version) - 1);
     }
     
     // Prepare metadata block (must be 256 bytes aligned for program)

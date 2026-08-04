@@ -84,6 +84,21 @@ def upload_slfs(port_name, file_path):
     file_timestamp = int(os.path.getmtime(file_path)) & 0xFFFFFFFF
     filename_str = os.path.basename(file_path)[:63]
     
+    ic_type_str = "Unknown"
+    version_str = "Unknown"
+    
+    # Parse IC Type and Version from the first few lines
+    try:
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            for _ in range(10):
+                line = f.readline().strip()
+                if line.startswith("; IC Type:"):
+                    ic_type_str = line.split(":", 1)[1].strip()[:31]
+                elif line.startswith("; Version:"):
+                    version_str = line.split(":", 1)[1].strip()[:31]
+    except Exception as e:
+        print(f"Warning: Could not parse SLFS header - {e}")
+    
     print(f"Connecting to RP2040 on {port_name}...")
     try:
         ser = serial.Serial(port_name, 115200, timeout=1.0)
@@ -108,7 +123,15 @@ def upload_slfs(port_name, file_path):
             board_crc = struct.unpack(">I", resp[9:13])[0]
             board_ts = struct.unpack(">I", resp[13:17])[0]
             board_fn = resp[17:81].split(b'\x00')[0].decode('utf-8', errors='ignore')
+            
+            board_ic_type = "Unknown"
+            board_version = "Unknown"
+            if len(resp) >= 81 + 32 + 32:
+                board_ic_type = resp[81:113].split(b'\x00')[0].decode('utf-8', errors='ignore')
+                board_version = resp[113:145].split(b'\x00')[0].decode('utf-8', errors='ignore')
+                
             print(f"   -> Board has: {board_fn} ({board_size} bytes, CRC:{board_crc:#010x}, TS:{board_ts})")
+            print(f"      [IC: {board_ic_type} | Ver: {board_version}]")
             
             if board_size == file_size and board_crc == file_crc and board_ts == file_timestamp and board_fn == filename_str:
                 print("\n   [SUCCESS] Identical file already exists on board. Skipping upload!")
@@ -164,9 +187,12 @@ def upload_slfs(port_name, file_path):
     
     # 3. End Upload & Verify
     print("3. Sending FW_UPLOAD_END (CRC Check)...")
-    fn_bytes = filename_str.encode('utf-8')
-    payload = struct.pack(">I I", file_crc, file_timestamp) + fn_bytes
-    print(f"Debug UPLOAD_END payload: {payload.hex()}")
+    fn_bytes = filename_str.encode('utf-8').ljust(64, b'\x00')
+    ic_bytes = ic_type_str.encode('utf-8').ljust(32, b'\x00')
+    ver_bytes = version_str.encode('utf-8').ljust(32, b'\x00')
+    
+    payload = struct.pack(">I I", file_crc, file_timestamp) + fn_bytes + ic_bytes + ver_bytes
+    print(f"Debug UPLOAD_END payload len: {len(payload)}")
     packet = make_packet(CMD_FW_UPLOAD_END, payload)
     resp = send_and_wait(ser, packet, CMD_FW_UPLOAD_END, timeout=1.0)
     

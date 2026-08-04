@@ -31,12 +31,12 @@ static inline void write_u16_be(uint8_t *buf, uint16_t val) {
 }
 
 static void handle_packet(const rx_packet_t *pkt) {
-  uint8_t resp_payload[128];
+  uint8_t resp_payload[256];
   uint16_t resp_len = 0;
 
   switch (pkt->cmd) {
   case CMD_GET_VERSION: {
-    const char *version = "v1.0.31";
+    const char *version = "v1.0.32";
     resp_payload[0] = RESP_OK;
     strcpy((char *)(resp_payload + 1), version);
     protocol_send_packet(CMD_GET_VERSION, resp_payload, 1 + strlen(version));
@@ -269,35 +269,39 @@ static void handle_packet(const rx_packet_t *pkt) {
     uint32_t expected_crc = read_u32_be(pkt->payload);
     uint32_t timestamp = read_u32_be(pkt->payload + 4);
 
-    // Extract filename safely
-    char filename[64];
-    memset(filename, 0, sizeof(filename));
-    uint16_t str_len = pkt->length - 8;
-    if (str_len > 63)
-      str_len = 63;
-    memcpy(filename, pkt->payload + 8, str_len);
+    // Default empty strings
+    char filename[64] = {0};
+    char ic_type[32] = {0};
+    char version[32] = {0};
+    
+    // We expect the payload to be either the old format (variable length filename only)
+    // or the new format: filename(null-terminated, max 64) + ic_type(max 32) + version(max 32).
+    // Let's support the new format robustly: if length >= 8 + 64 + 32 + 32 = 136 bytes,
+    // we use fixed offsets, otherwise we fallback to legacy behavior.
+    if (pkt->length >= 8 + 64 + 32 + 32) {
+        memcpy(filename, pkt->payload + 8, 64);
+        memcpy(ic_type, pkt->payload + 8 + 64, 32);
+        memcpy(version, pkt->payload + 8 + 64 + 32, 32);
+    } else {
+        uint16_t str_len = pkt->length - 8;
+        if (str_len > 63) str_len = 63;
+        memcpy(filename, pkt->payload + 8, str_len);
+    }
 
-    // Sanitize filename: remove trailing non-printable characters or anomalous
-    // digits
-    for (int i = str_len - 1; i >= 0; i--) {
-      if (filename[i] < ' ' || filename[i] > '~') {
+    // Sanitize filename
+    for (int i = 63; i >= 0; i--) {
+      if (filename[i] > 0 && (filename[i] < ' ' || filename[i] > '~')) {
         filename[i] = '\0';
       }
     }
-
-    // Forcefully terminate if there's an anomalous trailing '1' (due to a known
-    // payload bug)
-    int actual_len = strlen(filename);
-    if (actual_len > 0 && filename[actual_len - 1] == '1') {
-      // Double check if the local filename also ends with 1. If not, strip it.
-      // Assuming standard extension .slfs
-      if (actual_len >= 5 &&
-          strncmp(&filename[actual_len - 5], ".slfs", 5) != 0) {
-        filename[actual_len - 1] = '\0';
-      }
+    
+    // Sanitize ic_type and version
+    for(int i=0; i<32; i++) {
+        if(ic_type[i] > 0 && (ic_type[i] < ' ' || ic_type[i] > '~')) ic_type[i] = '\0';
+        if(version[i] > 0 && (version[i] < ' ' || version[i] > '~')) version[i] = '\0';
     }
 
-    int res = flash_store_upload_end(expected_crc, timestamp, filename);
+    int res = flash_store_upload_end(expected_crc, timestamp, filename, ic_type, version);
 
     resp_payload[0] = (res == 0) ? RESP_OK : RESP_ERR_HW;
     protocol_send_packet(CMD_FW_UPLOAD_END, resp_payload, 1);
@@ -313,7 +317,9 @@ static void handle_packet(const rx_packet_t *pkt) {
       write_u32_be(resp_payload + 9, meta.crc32);
       write_u32_be(resp_payload + 13, meta.timestamp);
       memcpy(resp_payload + 17, meta.filename, 64);
-      protocol_send_packet(CMD_FW_GET_FILE_INFO, resp_payload, 1 + 16 + 64);
+      memcpy(resp_payload + 17 + 64, meta.ic_type, 32);
+      memcpy(resp_payload + 17 + 64 + 32, meta.version, 32);
+      protocol_send_packet(CMD_FW_GET_FILE_INFO, resp_payload, 1 + 16 + 64 + 32 + 32);
     } else {
       resp_payload[0] = RESP_ERR_HW; // Or not found
       protocol_send_packet(CMD_FW_GET_FILE_INFO, resp_payload, 1);
