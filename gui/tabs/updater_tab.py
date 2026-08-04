@@ -250,15 +250,28 @@ class RP2040BoardWidget(QGroupBox):
 
     def refresh_info(self):
         port = self.combo_port.currentText()
-        fname = get_file_info(port)
-        if fname:
+        file_info = get_file_info(port)
+        
+        fname = None
+        ic_type = ""
+        version = ""
+        
+        if file_info:
+            if isinstance(file_info, tuple) and len(file_info) == 3:
+                fname, ic_type, version = file_info
+            else:
+                fname = file_info
+                
             self.lbl_slfs_info.setText(f"SLFS: {fname}")
         else:
             self.lbl_slfs_info.setText("SLFS: Not Connected / Error")
             
         fw_ver = get_fw_version(port)
         if fw_ver:
-            self.lbl_fw_ver.setText(f"FW: {fw_ver}")
+            if ic_type and version:
+                self.lbl_fw_ver.setText(f"FW: {fw_ver}   (IC: {ic_type} | Ver: {version})")
+            else:
+                self.lbl_fw_ver.setText(f"FW: {fw_ver}")
         else:
             self.lbl_fw_ver.setText("FW: -")
             
@@ -475,7 +488,15 @@ class RP2040BoardWidget(QGroupBox):
                         sn_str = f"INVALID_BCD_0x{sn_int:04X}"
                     exp_sn_str = str(exp_sn_int)
                     
-                if date_str == exp_date and actual_sn_int == exp_sn_int:
+                date_match = True
+                if should_write_date:
+                    date_match = (date_str == exp_date)
+                    
+                sn_match = True
+                if should_write_sn:
+                    sn_match = (actual_sn_int == exp_sn_int)
+                    
+                if date_match and sn_match:
                     self.ch_status[ch_idx - 1].setText(f"PASS (M:{date_str} SN:{sn_str})")
                     self.ch_status[ch_idx - 1].setStyleSheet("color: #69F0AE; font-weight: bold;")
                     result_str = "PASS"
