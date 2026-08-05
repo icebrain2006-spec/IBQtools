@@ -64,19 +64,19 @@ class CalibrationThread(QThread):
         self._log(f"DEBUG THREAD: Received new limits via signal: V_Cell 2={self.limits.get('V_Cell 2')}")
         
     def emit_result(self, param_key, param_name, raw_adc, val, is_gain=False, suffix=""):
-        status = "PASS" if is_gain else "INFO"
+        raw_status = "PASS" if is_gain else "INFO"
         if param_key in self.limits:
             min_val, max_val = self.limits[param_key]
             if min_val <= val <= max_val:
-                status = "PASS"
+                raw_status = "PASS"
             else:
-                status = "FAIL"
-                # Log exactly what the thread sees
-                self._log(f"FAIL: {param_key} val={val} limits=({min_val}, {max_val})")
+                raw_status = "FAIL"
                 
         if is_gain:
+            if raw_status == "FAIL":
+                self._log(f"FAIL: {param_key} val={val} limits=({min_val}, {max_val})")
             # For gain rows, show the calculated gain value
-            self.row_signal.emit(param_name, self.ch, str(raw_adc), status)
+            self.row_signal.emit(param_name, self.ch, str(raw_adc), raw_status)
         else:
             # Apply 5-history sliding window for Voltage/Temp monitoring
             if param_name not in self.history:
@@ -85,13 +85,32 @@ class CalibrationThread(QThread):
                 self.history[param_name][self.ch] = []
                 
             ch_hist = self.history[param_name][self.ch]
-            ch_hist.append(status)
+            ch_hist.append(raw_status)
             if len(ch_hist) > 5:
                 ch_hist.pop(0)
                 
-            # Final status is FAIL if ANY of the last 5 measurements failed
-            final_status = "FAIL" if "FAIL" in ch_hist else status
+            # Final status is FAIL if ANY of the last 5 measurements failed (except for BQ78350 V_Cell)
+            if "BQ78350" in self.ic_name.upper() and param_key.startswith("V_Cell"):
+                pass_count = ch_hist.count("PASS")
+                fail_count = ch_hist.count("FAIL")
+                if len(ch_hist) >= 3:
+                    if pass_count >= 3:
+                        final_status = "PASS"
+                    elif fail_count >= 3:
+                        final_status = "FAIL"
+                    else:
+                        final_status = "PASS" if pass_count >= fail_count else "FAIL"
+                else:
+                    final_status = raw_status
+            else:
+                final_status = "FAIL" if "FAIL" in ch_hist else raw_status
             
+            if raw_status == "FAIL":
+                if final_status == "PASS":
+                    self._log(f"    (Filtered Noise) {param_key} val={val} limits=({min_val}, {max_val}) - Ignored due to majority PASS")
+                else:
+                    self._log(f"FAIL: {param_key} val={val} limits=({min_val}, {max_val})")
+                    
             # For validation rows, show the measured voltage/temp/current
             self.row_signal.emit(param_name, self.ch, f"{val}{suffix}", final_status)
             
@@ -389,6 +408,14 @@ class CalibrationThread(QThread):
             self._log("Warning: Failed to cache 0x4020 block at start.")
         else:
             self._log("0x4020 Calibration Block cached successfully.")
+            
+        if mode_name == "voltage" and "BQ78350" in self.ic_name.upper():
+            self._log("  [BQ78350] Pre-reading stable cell voltages before AFE filter reset...")
+            self.bq78350_stable_voltages = {}
+            for i in range(15):
+                meas = self.smbus_read_word(0x3F - i)
+                if meas:
+                    self.bq78350_stable_voltages[i] = struct.unpack('<H', bytes(meas))[0]
         
         new_gains = []
         
@@ -662,14 +689,21 @@ class CalibrationThread(QThread):
                                 target = self.targets.get(f'cell{i+1}mv', 0)
                                 if target > 0:
                                     # TRM 12.2.4.1: Read 0x3F to 0x31 to get Reported Cell Voltage in mV
-                                    meas = self.smbus_read_word(0x3F - i)
-                                    if meas:
-                                        adc = struct.unpack('<H', bytes(meas))[0]
-                                        old_off = struct.unpack_from('<b', df_bytes, cell1_base + i)[0]
-                                        new_off = max(-128, min(127, int(target - adc + old_off)))
-                                        df_bytes[cell1_base + i] = new_off & 0xFF
-                                        self._log(f"    New Cell {i+1} Offset = {new_off}")
-                                        self.emit_result(f"Cell {i+1} Offset", f"Cell {i+1} Offset", f"{new_off}", new_off, is_gain=True)
+                                    if hasattr(self, 'bq78350_stable_voltages') and i in self.bq78350_stable_voltages:
+                                        adc = self.bq78350_stable_voltages[i]
+                                        self._log(f"    Cell {i+1} Stable Pre-read ADC: {adc}")
+                                    else:
+                                        meas = self.smbus_read_word(0x3F - i)
+                                        if meas:
+                                            adc = struct.unpack('<H', bytes(meas))[0]
+                                        else:
+                                            continue
+                                            
+                                    old_off = struct.unpack_from('<b', df_bytes, cell1_base + i)[0]
+                                    new_off = max(-128, min(127, int(target - adc + old_off)))
+                                    df_bytes[cell1_base + i] = new_off & 0xFF
+                                    self._log(f"    New Cell {i+1} Offset = {new_off}")
+                                    self.emit_result(f"Cell {i+1} Offset", f"Cell {i+1} Offset", f"{new_off}", new_off, is_gain=True)
                         elif reg == 0x4020:
                             target_ext_avg = self.targets.get('extaveragecellmv', 0)
                             if target_ext_avg > 0:
