@@ -77,7 +77,8 @@ IC_CONFIGS = {
             "Ext Average Cell (mV)": "3200", "VAUX (mV)": "3200"
         },
         "current": {
-            "Current Gain (mA)": "-2000", "CC Offset": ""
+            "Current (mA)": "-1000",
+            "Shunt Resistor (mOhm)": "1.0"
         },
         "temperature": {
             "Sensor 1 (°C)": "25.0", "Sensor 2 (°C)": "25.0", "Sensor 3 (°C)": "25.0", "Internal Sensor (°C)": "25.0"
@@ -461,6 +462,12 @@ class CalibrationTab(QWidget):
         if not port or "Select" in port:
             self.log("Error: Please select a COM port first to toggle relay.")
             return
+            
+        if hasattr(self, 'cal_thread') and self.cal_thread and self.cal_thread.isRunning():
+            if hasattr(self.cal_thread, 'enqueue_relay'):
+                self.cal_thread.enqueue_relay(ch, on)
+                self.log(f"Queued Manual Relay {'ON' if on else 'OFF'} for CH{ch} via active thread.")
+                return
             
         try:
             ser = serial.Serial(port, 115200, timeout=1.0)

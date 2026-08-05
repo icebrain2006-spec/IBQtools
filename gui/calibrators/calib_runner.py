@@ -47,6 +47,7 @@ class CalibrationThread(QThread):
         self.limits = limits if limits is not None else {}
         self.ser = None
         self._running = True
+        self.relay_queue = []
         
         self.limits_update_signal.connect(self.on_limits_updated)
         
@@ -125,6 +126,22 @@ class CalibrationThread(QThread):
         
     def _log(self, msg):
         self.log_signal.emit(f"[CH{self.ch}] {msg}")
+
+    def enqueue_relay(self, ch, on):
+        self.relay_queue.append((ch, on))
+        
+    def _float_to_xemics(self, v):
+        import math
+        if v == 0.0: return [0, 0, 0, 0]
+        exp = int(math.floor(math.log(abs(v), 2)))
+        mant = int((abs(v) / (2**exp)) * (2**23))
+        exp += 128
+        b0 = exp
+        b1 = (mant >> 16) & 0x7F
+        if v < 0: b1 |= 0x80
+        b2 = (mant >> 8) & 0xFF
+        b3 = mant & 0xFF
+        return [b0, b1, b2, b3]
         
     def parse_val(self, s):
         if s.lower().startswith('0x'):
@@ -283,6 +300,10 @@ class CalibrationThread(QThread):
                 if da_data[i] == echo_bytes[0] and da_data[i+1] == echo_bytes[1]:
                     idx = i
                     break
+                    
+            if idx == -1 and len(da_data) >= 4:
+                self._log("Warning: Address echo not found in DA Config read, falling back to index 0.")
+                idx = 0
                     
             if idx != -1 and idx + 3 < len(da_data):
                 # Data starts right after the echo
@@ -541,19 +562,28 @@ class CalibrationThread(QThread):
                             int_sum = ts1_sum = ts2_sum = ts3_sum = ts4_sum = 0
                             valid_count = 0
                             for blk in blocks:
-                                if len(blk) >= 12:
-                                    int_sum += struct.unpack_from('<H', blk, 2)[0]
-                                    ts1_sum += struct.unpack_from('<H', blk, 4)[0]
-                                    ts2_sum += struct.unpack_from('<H', blk, 6)[0]
-                                    ts3_sum += struct.unpack_from('<H', blk, 8)[0]
-                                    ts4_sum += struct.unpack_from('<H', blk, 10)[0]
-                                    valid_count += 1
+
+                                if "BQ78350" in self.ic_name.upper():
+                                    if len(blk) >= 26:
+                                        ts1_sum += struct.unpack_from('<H', blk, 18)[0]
+                                        ts2_sum += struct.unpack_from('<H', blk, 20)[0]
+                                        ts3_sum += struct.unpack_from('<H', blk, 22)[0]
+                                        int_sum += struct.unpack_from('<H', blk, 24)[0]
+                                        valid_count += 1
+                                else:
+                                    if len(blk) >= 28:
+                                        int_sum += struct.unpack_from('<H', blk, 18)[0]
+                                        ts1_sum += struct.unpack_from('<H', blk, 20)[0]
+                                        ts2_sum += struct.unpack_from('<H', blk, 22)[0]
+                                        ts3_sum += struct.unpack_from('<H', blk, 24)[0]
+                                        ts4_sum += struct.unpack_from('<H', blk, 26)[0]
+                                        valid_count += 1
                             if valid_count > 0:
                                 int_avg = (int_sum / float(valid_count)) - 2732
                                 ts1_avg = (ts1_sum / float(valid_count)) - 2732
                                 ts2_avg = (ts2_sum / float(valid_count)) - 2732
                                 ts3_avg = (ts3_sum / float(valid_count)) - 2732
-                                ts4_avg = (ts4_sum / float(valid_count)) - 2732
+                                ts4_avg = (ts4_sum / float(valid_count)) - 2732 if ts4_sum > 0 else 0
                                 
                                 self._log(f"    Avg DAStatus2 -> Int:{int_avg/10:.1f}C, TS1:{ts1_avg/10:.1f}C, TS2:{ts2_avg/10:.1f}C, TS3:{ts3_avg/10:.1f}C, TS4:{ts4_avg/10:.1f}C")
                                 self.temp_measured = {
@@ -565,10 +595,15 @@ class CalibrationThread(QThread):
                             cc_sum = 0
                             valid_count = 0
                             for blk in blocks:
-                                if len(blk) >= 7:
-                                    # Raw CC is a 16-bit signed integer at offset 4 (after 1A 81 F0 BE 01)
-                                    cc_sum += struct.unpack_from('<h', blk, 4)[0]
-                                    valid_count += 1
+                                if "BQ78350" in self.ic_name.upper():
+                                    if len(blk) >= 18:
+                                        cc_sum += struct.unpack_from('<h', blk, 16)[0]
+                                        valid_count += 1
+                                else:
+                                    if len(blk) >= 7:
+                                        # Raw CC is a 16-bit signed integer at offset 4 (after 1A 81 F0 BE 01)
+                                        cc_sum += struct.unpack_from('<h', blk, 4)[0]
+                                        valid_count += 1
                                     
                             if valid_count > 0:
                                 cc_avg = cc_sum / float(valid_count)
@@ -661,41 +696,73 @@ class CalibrationThread(QThread):
                     def clamp(val):
                         return max(-128, min(127, int(val)))
                         
-                    t_int = self.targets.get('inttempc', 25.0) * 10
-                    t_ts1 = self.targets.get('ts1tempc', 25.0) * 10
-                    t_ts2 = self.targets.get('ts2tempc', 25.0) * 10
-                    t_ts3 = self.targets.get('ts3tempc', 25.0) * 10
+                    t_int = self.targets.get('inttempc', self.targets.get('internalsensorc', 25.0)) * 10
+                    t_ts1 = self.targets.get('ts1tempc', self.targets.get('sensor1c', 25.0)) * 10
+                    t_ts2 = self.targets.get('ts2tempc', self.targets.get('sensor2c', 25.0)) * 10
+                    t_ts3 = self.targets.get('ts3tempc', self.targets.get('sensor3c', 25.0)) * 10
                     t_ts4 = self.targets.get('ts4tempc', 25.0) * 10
                     
-                    if self.targets.get('inttempc_en', True):
-                        new_off = clamp(get_old(20) + (t_int - self.temp_measured["int"]))
-                        df_bytes[20] = new_off & 0xFF
-                        self._log(f"    New Int Offset = {new_off}")
-                        self.emit_result("Int Temp Gain", "Int Temp Gain", f"{new_off * 0.1:.1f} °C", new_off, is_gain=True)
-                        
-                    if self.targets.get('ts1tempc_en', True) and self.temp_measured["ts1"] > -500:
-                        new_off = clamp(get_old(21) + (t_ts1 - self.temp_measured["ts1"]))
-                        df_bytes[21] = new_off & 0xFF
-                        self._log(f"    New TS1 Offset = {new_off}")
-                        self.emit_result("TS1 Temp Gain", "TS1 Temp Gain", f"{new_off * 0.1:.1f} °C", new_off, is_gain=True)
-                        
-                    if self.targets.get('ts2tempc_en', True) and self.temp_measured["ts2"] > -500:
-                        new_off = clamp(get_old(22) + (t_ts2 - self.temp_measured["ts2"]))
-                        df_bytes[22] = new_off & 0xFF
-                        self._log(f"    New TS2 Offset = {new_off}")
-                        self.emit_result("TS2 Temp Gain", "TS2 Temp Gain", f"{new_off * 0.1:.1f} °C", new_off, is_gain=True)
-                        
-                    if self.targets.get('ts3tempc_en', True) and self.temp_measured["ts3"] > -500:
-                        new_off = clamp(get_old(23) + (t_ts3 - self.temp_measured["ts3"]))
-                        df_bytes[23] = new_off & 0xFF
-                        self._log(f"    New TS3 Offset = {new_off}")
-                        self.emit_result("TS3 Temp Gain", "TS3 Temp Gain", f"{new_off * 0.1:.1f} °C", new_off, is_gain=True)
-                        
-                    if self.targets.get('ts4tempc_en', True) and self.temp_measured["ts4"] > -500:
-                        new_off = clamp(get_old(24) + (t_ts4 - self.temp_measured["ts4"]))
-                        df_bytes[24] = new_off & 0xFF
-                        self._log(f"    New TS4 Offset = {new_off}")
-                        self.emit_result("TS4 Temp Gain", "TS4 Temp Gain", f"{new_off * 0.1:.1f} °C", new_off, is_gain=True)
+                    if "BQ78350" in self.ic_name.upper():
+                        if reg == 0x4000:
+                            if self.targets.get('ts1tempc_en', self.targets.get('sensor1c_en', True)) and self.temp_measured.get("ts1", -1000) > -500:
+                                new_off = clamp(get_old(30) + (t_ts1 - self.temp_measured["ts1"]))
+                                df_bytes[30] = new_off & 0xFF
+                                self._log(f"    New TS1 Offset = {new_off}")
+                                self.emit_result("TS1 Temp Gain", "TS1 Temp Offset", f"{new_off * 0.1:.1f} °C", new_off, is_gain=True)
+                                
+                            if self.targets.get('ts2tempc_en', self.targets.get('sensor2c_en', True)) and self.temp_measured.get("ts2", -1000) > -500:
+                                new_off = clamp(get_old(31) + (t_ts2 - self.temp_measured["ts2"]))
+                                df_bytes[31] = new_off & 0xFF
+                                self._log(f"    New TS2 Offset = {new_off}")
+                                self.emit_result("TS2 Temp Gain", "TS2 Temp Offset", f"{new_off * 0.1:.1f} °C", new_off, is_gain=True)
+                                
+                        elif reg == 0x4020:
+                            if self.targets.get('ts3tempc_en', self.targets.get('sensor3c_en', True)) and self.temp_measured.get("ts3", -1000) > -500:
+                                new_off = clamp(get_old(0) + (t_ts3 - self.temp_measured["ts3"]))
+                                df_bytes[0] = new_off & 0xFF
+                                self._log(f"    New TS3 Offset = {new_off}")
+                                self.emit_result("TS3 Temp Gain", "TS3 Temp Offset", f"{new_off * 0.1:.1f} °C", new_off, is_gain=True)
+                                
+                            if self.targets.get('inttempc_en', self.targets.get('internalsensorc_en', True)) and self.temp_measured.get("int", -1000) > -500:
+                                old_int = get_old(1)
+                                meas_int = self.temp_measured["int"]
+                                new_off = clamp(old_int + (t_int - meas_int))
+                                self._log(f"    [DEBUG] IntTemp: target={t_int}, measured={meas_int}, old_off={old_int} -> new_off={new_off}")
+                                df_bytes[1] = new_off & 0xFF
+                                self._log(f"    New Int Offset = {new_off}")
+                                self.emit_result("Int Temp Gain", "Int Temp Offset", f"{new_off * 0.1:.1f} °C", new_off, is_gain=True)
+                    else:
+                        # BQ40Z50 logic (all in 0x4000 block)
+                        if reg == 0x4000:
+                            if self.targets.get('inttempc_en', True):
+                                new_off = clamp(get_old(20) + (t_int - self.temp_measured["int"]))
+                                df_bytes[20] = new_off & 0xFF
+                                self._log(f"    New Int Offset = {new_off}")
+                                self.emit_result("Int Temp Gain", "Int Temp Gain", f"{new_off * 0.1:.1f} °C", new_off, is_gain=True)
+                                
+                            if self.targets.get('ts1tempc_en', True) and self.temp_measured["ts1"] > -500:
+                                new_off = clamp(get_old(21) + (t_ts1 - self.temp_measured["ts1"]))
+                                df_bytes[21] = new_off & 0xFF
+                                self._log(f"    New TS1 Offset = {new_off}")
+                                self.emit_result("TS1 Temp Gain", "TS1 Temp Gain", f"{new_off * 0.1:.1f} °C", new_off, is_gain=True)
+                                
+                            if self.targets.get('ts2tempc_en', True) and self.temp_measured["ts2"] > -500:
+                                new_off = clamp(get_old(22) + (t_ts2 - self.temp_measured["ts2"]))
+                                df_bytes[22] = new_off & 0xFF
+                                self._log(f"    New TS2 Offset = {new_off}")
+                                self.emit_result("TS2 Temp Gain", "TS2 Temp Gain", f"{new_off * 0.1:.1f} °C", new_off, is_gain=True)
+                                
+                            if self.targets.get('ts3tempc_en', True) and self.temp_measured["ts3"] > -500:
+                                new_off = clamp(get_old(23) + (t_ts3 - self.temp_measured["ts3"]))
+                                df_bytes[23] = new_off & 0xFF
+                                self._log(f"    New TS3 Offset = {new_off}")
+                                self.emit_result("TS3 Temp Gain", "TS3 Temp Gain", f"{new_off * 0.1:.1f} °C", new_off, is_gain=True)
+                                
+                            if self.targets.get('ts4tempc_en', True) and self.temp_measured["ts4"] > -500:
+                                new_off = clamp(get_old(24) + (t_ts4 - self.temp_measured["ts4"]))
+                                df_bytes[24] = new_off & 0xFF
+                                self._log(f"    New TS4 Offset = {new_off}")
+                                self.emit_result("TS4 Temp Gain", "TS4 Temp Gain", f"{new_off * 0.1:.1f} °C", new_off, is_gain=True)
                         
                     full_payload = df_addr_bytes + list(df_bytes)
                     if self.smbus_write_block_raw(0x44, full_payload):
@@ -714,20 +781,33 @@ class CalibrationThread(QThread):
                         self._log("  => FAIL: Target current cannot be 0")
                         return False
                         
-                    # TRM 2.4.3: CC Gain = I_cc / (ADC_cc - offsets)
-                    # We assume offsets are negligible or 0 for this basic calibration
-                    new_cc_gain = float(target_ma) / self.cc_measured
+                    # For BQ78350, CC Gain uses Xemics format
+                    if "BQ78350" in self.ic_name.upper():
+                        new_cc_gain = abs(float(target_ma) / self.cc_measured)
+                    else:
+                        new_cc_gain = abs(float(target_ma) / self.cc_measured)
                     
                     # TRM 2.4.3 Formula 4: Capacity Gain = CC Gain * 298261.6178
                     new_cap_gain = new_cc_gain * 298261.6178
                     
-                    struct.pack_into('<ff', df_bytes, 6, new_cc_gain, new_cap_gain)
-                    
+                    if "BQ78350" in self.ic_name.upper():
+                        # Xemics Float at offset 0 and 4
+                        b0, b1, b2, b3 = self._float_to_xemics(new_cc_gain)
+                        df_bytes[0:4] = bytes([b0, b1, b2, b3])
+                        b0, b1, b2, b3 = self._float_to_xemics(new_cap_gain)
+                        df_bytes[4:8] = bytes([b0, b1, b2, b3])
+                        
+                        mohm = 8.4381 / new_cc_gain if new_cc_gain != 0 else 0
+                    else:
+                        # IEEE 754 Float at offset 6 and 10
+                        struct.pack_into('<ff', df_bytes, 6, new_cc_gain, new_cap_gain)
+                        
+                        # TRM DF-to-Studio Conversion: 3.714528 / DF
+                        mohm = 3.714528 / new_cc_gain if new_cc_gain != 0 else 0
+                        
                     self._log(f"    New CC Gain = {new_cc_gain:.6f}")
                     self._log(f"    New Capacity Gain = {new_cap_gain:.1f}")
                     
-                    # TRM DF-to-Studio Conversion: 3.714528 / DF
-                    mohm = 3.714528 / new_cc_gain if new_cc_gain != 0 else 0
                     self.emit_result("CC Gain", "CC Gain (mOhm)", f"{mohm:.3f}", mohm, is_gain=True)
                     self.emit_result("Capacity Gain", "Capacity Gain (mOhm)", f"{mohm:.3f}", mohm, is_gain=True)
                     
@@ -891,6 +971,15 @@ class CalibrationThread(QThread):
                 self._log("--- Entering Continuous Monitoring Mode ---")
                 consecutive_fails = {ch: 0 for ch in self.channels}
                 while self._running:
+                    # Process queued relay toggles
+                    if self.relay_queue:
+                        for rq_ch, rq_on in list(self.relay_queue):
+                            old_ch = self.ch
+                            self.ch = rq_ch
+                            self._set_relay(rq_on)
+                            self.ch = old_ch
+                        self.relay_queue.clear()
+                        
                     any_ch_alive = False
                     for ch in self.channels:
                         if not self._running:
