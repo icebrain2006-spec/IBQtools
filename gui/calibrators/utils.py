@@ -41,5 +41,30 @@ def detect_dataflash_offset(ic_name, version_hex, param_name="DA Configuration")
                         return offset, os.path.basename(csv_file)
                     except ValueError:
                         pass
-                        
     return None, os.path.basename(csv_file)
+
+def load_calibration_offsets(csv_name):
+    """
+    Loads all relevant DataFlash offsets from the given CSV file.
+    Returns a dictionary mapping parameter names to their offset relative to the block.
+    """
+    if not csv_name:
+        return {}
+        
+    df_dir = os.path.join(os.path.dirname(__file__), "dataflashs")
+    csv_file = os.path.join(df_dir, csv_name)
+    
+    if not os.path.exists(csv_file):
+        return {}
+        
+    offsets = {}
+    with open(csv_file, 'r', encoding='utf-8', errors='ignore') as f:
+        reader = csv.reader(f)
+        for row in reader:
+            if len(row) > 6:
+                param_name = row[2].strip()
+                try:
+                    offsets[param_name] = int(row[6].strip())
+                except ValueError:
+                    pass
+    return offsets

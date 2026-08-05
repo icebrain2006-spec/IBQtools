@@ -743,13 +743,27 @@ class CalibrationTab(QWidget):
         
         # Extract limits from settings
         limits = {}
-        limit_keys = [
-            "Cell 1 Gain", "Pack Gain", "Bat Gain",
-            "V_Cell 1", "V_Cell 2", "V_Cell 3", "V_Cell 4",
-            "V_Bat", "V_Pack",
-            "Int Temp", "TS1 Temp", "TS2 Temp", "TS3 Temp", "TS4 Temp",
-            "Shunt Resistor"
-        ]
+        if "BQ78350" in ic.upper():
+            limit_keys = [
+                "Cell 1 Offset", "Cell 2 Offset", "Cell 3 Offset", "Cell 4 Offset",
+                "Cell 5 Offset", "Cell 6 Offset", "Cell 7 Offset", "Cell 8 Offset",
+                "Cell 9 Offset", "Cell 10 Offset", "Cell 11 Offset", "Cell 12 Offset",
+                "Cell 13 Offset", "Cell 14 Offset", "Cell 15 Offset",
+                "V_Cell 1", "V_Cell 2", "V_Cell 3", "V_Cell 4", "V_Cell 5", "V_Cell 6",
+                "V_Cell 7", "V_Cell 8", "V_Cell 9", "V_Cell 10", "V_Cell 11", "V_Cell 12",
+                "V_Cell 13", "V_Cell 14", "V_Cell 15",
+                "V_Ext", "V_Aux",
+                "Int Temp", "TS1 Temp", "TS2 Temp", "TS3 Temp", "TS4 Temp",
+                "CC Offset", "Shunt Resistor"
+            ]
+        else:
+            limit_keys = [
+                "Cell 1 Gain", "Pack Gain", "Bat Gain",
+                "V_Cell 1", "V_Cell 2", "V_Cell 3", "V_Cell 4",
+                "V_Bat", "V_Pack",
+                "Int Temp", "TS1 Temp", "TS2 Temp", "TS3 Temp", "TS4 Temp",
+                "Shunt Resistor"
+            ]
         for key in limit_keys:
             default_min = ""
             default_max = ""

@@ -7,7 +7,7 @@ from PySide6.QtCore import QThread, Signal, Slot
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from updater_thread import make_packet, parse_response, RESP_OK, CMD_I2C_RAW, CMD_SMBUS_CMD, CMD_SMBUS_POLL_BLOCK, CMD_RELAY_SET
-from calibrators.utils import detect_dataflash_offset
+from calibrators.utils import detect_dataflash_offset, load_calibration_offsets
 
 def crc8_smbus_byte(crc, data):
     crc ^= data
@@ -133,8 +133,8 @@ class CalibrationThread(QThread):
     def _float_to_xemics(self, v):
         import math
         if v == 0.0: return [0, 0, 0, 0]
-        exp = int(math.floor(math.log(abs(v), 2)))
-        mant = int((abs(v) / (2**exp)) * (2**23))
+        exp = int(math.floor(math.log(abs(v), 2))) + 1
+        mant = int((abs(v) / (2**exp)) * (2**24))
         exp += 128
         b0 = exp
         b1 = (mant >> 16) & 0x7F
@@ -142,6 +142,16 @@ class CalibrationThread(QThread):
         b2 = (mant >> 8) & 0xFF
         b3 = mant & 0xFF
         return [b0, b1, b2, b3]
+
+    def _xemics_to_float(self, data):
+        if not data or len(data) < 4: return 0.0
+        b0, b1, b2, b3 = data[0], data[1], data[2], data[3]
+        if b0 == 0 and b1 == 0 and b2 == 0 and b3 == 0: return 0.0
+        exp = b0 - 128
+        mant = (((b1 & 0x7F) | 0x80) << 16) | (b2 << 8) | b3
+        v = (mant / (2**24)) * (2**exp)
+        if b1 & 0x80: v = -v
+        return v
         
     def parse_val(self, s):
         if s.lower().startswith('0x'):
@@ -279,6 +289,8 @@ class CalibrationThread(QThread):
             self._log(f"Warning: Could not find DA Configuration offset for {self.ic_name} V{major}.{minor:02d}. Defaulting to 0x4000.")
             da_addr = 0x4000
         else:
+            self.csv_name = csv_name
+            self.df_offsets = load_calibration_offsets(csv_name)
             self._log(f"Loaded CSV: {csv_name}, DA Config Offset: {offset}")
             # All these gauges (BQ40Z50, BQ78350) use 0x4000 as the base for DataFlash access
             da_addr = 0x4000 + offset
@@ -309,7 +321,9 @@ class CalibrationThread(QThread):
                 # Data starts right after the echo
                 da_val = struct.unpack_from('<H', da_data, idx + 2)[0]
                 if "BQ78350" in self.ic_name.upper():
-                    # For BQ78350, it's AFE Cell Map (e.g., 0x003F = 6 cells). Count the '1' bits.
+                    # For BQ78350, DA Config is 1 byte, AFE Cell Map is the next 2 bytes (Big Endian)
+                    da_val = struct.unpack_from('>H', da_data, idx + 3)[0]
+                    self.afe_cell_map = da_val
                     self.active_cells = bin(da_val).count('1')
                     self._log(f"Parsed AFE Cell Map: 0x{da_val:04X} -> Detected {self.active_cells} active cells.")
                 else:
@@ -597,6 +611,7 @@ class CalibrationThread(QThread):
                             for blk in blocks:
                                 if "BQ78350" in self.ic_name.upper():
                                     if len(blk) >= 18:
+                                        # FCALCC is at offset 16, Little Endian for BQ78350
                                         cc_sum += struct.unpack_from('<h', blk, 16)[0]
                                         valid_count += 1
                                 else:
@@ -641,17 +656,18 @@ class CalibrationThread(QThread):
                 if mode_name == "voltage":
                     if "BQ78350" in self.ic_name.upper():
                         if reg == 0x4000:
-                            if not hasattr(self, 'bq78350_v_cal'):
-                                self._log("  => FAIL: No ADC data gathered for Cell Offsets.")
-                                return False
                             
+                            cell1_base = self.df_offsets.get("Cell 1 Offset", 8) if hasattr(self, 'df_offsets') else 8
                             for i in range(15):
                                 target = self.targets.get(f'cell{i+1}mv', 0)
                                 if target > 0:
-                                    adc = self.bq78350_v_cal.get(f"cell{i+1}", 0)
-                                    if adc > 0:
-                                        new_off = max(-128, min(127, int(target - adc)))
-                                        df_bytes[8 + i] = new_off & 0xFF
+                                    # TRM 12.2.4.1: Read 0x3F to 0x31 to get Reported Cell Voltage in mV
+                                    meas = self.smbus_read_word(0x3F - i)
+                                    if meas:
+                                        adc = struct.unpack('<H', bytes(meas))[0]
+                                        old_off = struct.unpack_from('<b', df_bytes, cell1_base + i)[0]
+                                        new_off = max(-128, min(127, int(target - adc + old_off)))
+                                        df_bytes[cell1_base + i] = new_off & 0xFF
                                         self._log(f"    New Cell {i+1} Offset = {new_off}")
                                         self.emit_result(f"Cell {i+1} Offset", f"Cell {i+1} Offset", f"{new_off}", new_off, is_gain=True)
                         elif reg == 0x4020:
@@ -781,26 +797,30 @@ class CalibrationThread(QThread):
                         self._log("  => FAIL: Target current cannot be 0")
                         return False
                         
-                    # For BQ78350, CC Gain uses Xemics format
-                    if "BQ78350" in self.ic_name.upper():
-                        new_cc_gain = abs(float(target_ma) / self.cc_measured)
-                    else:
-                        new_cc_gain = abs(float(target_ma) / self.cc_measured)
+                    # For both BQ40Z50 and BQ78350, 0xF082 outputs Raw ADC, so we do not multiply by old gain!
+                    new_cc_gain = abs(float(target_ma) / self.cc_measured)
                     
                     # TRM 2.4.3 Formula 4: Capacity Gain = CC Gain * 298261.6178
                     new_cap_gain = new_cc_gain * 298261.6178
                     
                     if "BQ78350" in self.ic_name.upper():
-                        # Xemics Float at offset 0 and 4
-                        b0, b1, b2, b3 = self._float_to_xemics(new_cc_gain)
-                        df_bytes[0:4] = bytes([b0, b1, b2, b3])
-                        b0, b1, b2, b3 = self._float_to_xemics(new_cap_gain)
-                        df_bytes[4:8] = bytes([b0, b1, b2, b3])
+                        cc_gain_off = self.df_offsets.get("CC Gain", 0) if hasattr(self, 'df_offsets') else 0
+                        cap_gain_off = self.df_offsets.get("Capacity Gain", 4) if hasattr(self, 'df_offsets') else 4
                         
+                        # Xemics Float at dynamic offset
+                        b0, b1, b2, b3 = self._float_to_xemics(new_cc_gain)
+                        df_bytes[cc_gain_off:cc_gain_off+4] = bytes([b0, b1, b2, b3])
+                        b0, b1, b2, b3 = self._float_to_xemics(new_cap_gain)
+                        df_bytes[cap_gain_off:cap_gain_off+4] = bytes([b0, b1, b2, b3])
+                        
+                        # GUI display conversion as per df_bq78350r1_V1_04.csv (8.4381/x)
                         mohm = 8.4381 / new_cc_gain if new_cc_gain != 0 else 0
                     else:
-                        # IEEE 754 Float at offset 6 and 10
-                        struct.pack_into('<ff', df_bytes, 6, new_cc_gain, new_cap_gain)
+                        cc_gain_off = self.df_offsets.get("CC Gain", 6) if hasattr(self, 'df_offsets') else 6
+                        cap_gain_off = self.df_offsets.get("Capacity Gain", 10) if hasattr(self, 'df_offsets') else 10
+                        # IEEE 754 Float at dynamic offset
+                        struct.pack_into('<f', df_bytes, cc_gain_off, new_cc_gain)
+                        struct.pack_into('<f', df_bytes, cap_gain_off, new_cap_gain)
                         
                         # TRM DF-to-Studio Conversion: 3.714528 / DF
                         mohm = 3.714528 / new_cc_gain if new_cc_gain != 0 else 0
@@ -837,15 +857,17 @@ class CalibrationThread(QThread):
                             val = struct.unpack('<H', bytes(val))[0]
                             self.emit_result(f"V_Cell {i+1}", f"V_Cell {i+1} (0x{cmd:02X})", "-", val, suffix=" mV")
                             
-                    v_ext = self.smbus_read_word(0x4D)
-                    if v_ext:
-                        v_ext = struct.unpack('<H', bytes(v_ext))[0]
-                        self.emit_result("V_Ext", "Ext Ave Cell (0x4D)", "-", v_ext, suffix=" mV")
-                        
-                    v_aux = self.smbus_read_word(0x2E)
-                    if v_aux:
-                        v_aux = struct.unpack('<H', bytes(v_aux))[0]
-                        self.emit_result("V_Aux", "VAux (0x2E)", "-", v_aux, suffix=" mV")
+                    if self.targets.get('extaveragecellmv', 0) > 0:
+                        v_ext = self.smbus_read_word(0x4D)
+                        if v_ext:
+                            v_ext = struct.unpack('<H', bytes(v_ext))[0]
+                            self.emit_result("V_Ext", "Ext Ave Cell (0x4D)", "-", v_ext, suffix=" mV")
+                            
+                    if self.targets.get('vauxmv', 0) > 0:
+                        v_aux = self.smbus_read_word(0x2E)
+                        if v_aux:
+                            v_aux = struct.unpack('<H', bytes(v_aux))[0]
+                            self.emit_result("V_Aux", "VAux (0x2E)", "-", v_aux, suffix=" mV")
                         
                 if show_temp:
                     int_temp_raw = self.smbus_read_word(0x28) # InternalTemp is 0x28
