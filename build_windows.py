@@ -3,6 +3,9 @@ import sys
 import subprocess
 import shutil
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), 'gui')))
+from version import __version__
+
 def build_app():
     print("Cleaning previous builds...")
     for dir_name in ['build', 'dist']:
@@ -35,11 +38,13 @@ def build_app():
     shutil.copytree('assets', dist_assets)
     
     print("Zipping the distribution folder...")
-    if os.path.exists('IBQtools_Release_v1.0.zip'):
-        os.remove('IBQtools_Release_v1.0.zip')
+    zip_name = f'IBQtools_Release_v{__version__}'
+    zip_file = f'{zip_name}.zip'
+    if os.path.exists(zip_file):
+        os.remove(zip_file)
         
-    shutil.make_archive('IBQtools_Release_v1.0', 'zip', 'dist/IBQtools')
-    print("Successfully created IBQtools_Release_v1.0.zip!")
+    shutil.make_archive(zip_name, 'zip', 'dist/IBQtools')
+    print(f"Successfully created {zip_file}!")
 
 if __name__ == '__main__':
     build_app()

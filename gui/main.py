@@ -2,6 +2,7 @@ import sys
 import os
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QTabWidget
 from PySide6.QtGui import QIcon
+from PySide6.QtCore import Qt
 
 from config import config, setup_error_logging
 from tabs.updater_tab import UpdaterTab
@@ -10,6 +11,7 @@ from tabs.manual_tab import ManualTab
 from tabs.upload_tab import UploadTab
 from tabs.csv_tab import CsvTab
 from tabs.options_tab import OptionsTab
+from version import __version__
 
 def handle_exception(exc_type, exc_value, exc_traceback):
     if issubclass(exc_type, KeyboardInterrupt):
@@ -24,7 +26,7 @@ sys.excepthook = handle_exception
 class BqUpdaterMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("IBQtools v1.0 (Multi BQ Firmware Programmer)")
+        self.setWindowTitle(f"IBQtools v{__version__} (Multi BQ Firmware Programmer)")
         
         # Set app icon
         icon_path = os.path.join(os.path.dirname(__file__), "app_icon.png")
@@ -67,10 +69,38 @@ class BqUpdaterMainWindow(QMainWindow):
         
         self.tabs.currentChanged.connect(self.on_tab_changed)
         
+        # Setup Global Hotkey for Quick Start
+        from PySide6.QtGui import QKeySequence, QShortcut
+        from config import config
+        self.start_shortcut = QShortcut(QKeySequence(config.get_start_hotkey()), self)
+        self.start_shortcut.setContext(Qt.ApplicationShortcut)
+        self.start_shortcut.activated.connect(self._on_global_hotkey_pressed)
+        
         # Load UI states in the updater tab
         self.updater_tab.load_ui_states()
 
+    def update_start_hotkey(self, key_str):
+        from PySide6.QtGui import QKeySequence
+        self.start_shortcut.setKeySequence(QKeySequence(key_str))
+        
+    def _on_global_hotkey_pressed(self):
+        current_widget = self.tabs.currentWidget()
+        if current_widget == self.updater_tab:
+            if hasattr(self.updater_tab, 'is_hotkey_ready') and self.updater_tab.is_hotkey_ready():
+                if hasattr(self.updater_tab, 'trigger_start_all'):
+                    self.updater_tab.trigger_start_all()
+        elif current_widget == self.calibration_tab:
+            if hasattr(self.calibration_tab, 'is_hotkey_ready') and self.calibration_tab.is_hotkey_ready():
+                if hasattr(self.calibration_tab, 'trigger_start_all'):
+                    self.calibration_tab.trigger_start_all()
+
     def on_tab_changed(self, index):
+        # Turn off Quick Start buttons when tab changes
+        if hasattr(self.updater_tab, 'btn_quick_start'):
+            self.updater_tab.btn_quick_start.setChecked(False)
+        if hasattr(self.calibration_tab, 'btn_quick_start'):
+            self.calibration_tab.btn_quick_start.setChecked(False)
+
         if self.tabs.widget(index) != self.calibration_tab:
             if hasattr(self.calibration_tab, 'cal_thread') and self.calibration_tab.cal_thread and self.calibration_tab.cal_thread.isRunning():
                 self.calibration_tab.cal_thread.stop()
