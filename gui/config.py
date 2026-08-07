@@ -41,4 +41,10 @@ class AppConfig:
     def set_cal_log_path(self, path):
         self.settings.setValue("cal_log_path", path)
         
+    def get_start_hotkey(self):
+        return self.settings.value("start_hotkey", "Space", type=str)
+        
+    def set_start_hotkey(self, key):
+        self.settings.setValue("start_hotkey", key)
+
 config = AppConfig()

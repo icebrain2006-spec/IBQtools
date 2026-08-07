@@ -147,6 +147,17 @@ class CsvViewerDialog(QDialog):
         self.resize(800, 600)
         layout = QVBoxLayout(self)
         
+        # Search Bar
+        search_layout = QHBoxLayout()
+        search_label = QLabel("Search:")
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Type to filter logs by date, SN, result, etc...")
+        self.search_input.textChanged.connect(self._filter_table)
+        
+        search_layout.addWidget(search_label)
+        search_layout.addWidget(self.search_input)
+        layout.addLayout(search_layout)
+        
         self.table = QTableWidget()
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
@@ -200,6 +211,19 @@ class CsvViewerDialog(QDialog):
             self.table.resizeRowsToContents()
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to load CSV: {e}")
+            
+    def _filter_table(self, text):
+        search_text = text.lower()
+        for row in range(self.table.rowCount()):
+            match = False
+            for col in range(self.table.columnCount()):
+                item = self.table.item(row, col)
+                if item and search_text in item.text().lower():
+                    match = True
+                    break
+            # Optional: Always show empty rows or header-like rows? 
+            # For simplicity, if search_text is empty, all rows match.
+            self.table.setRowHidden(row, not match)
 
 class OptionsTab(QWidget):
     def __init__(self, parent=None):
@@ -249,10 +273,22 @@ class OptionsTab(QWidget):
         self.cb_global_debug_log.setChecked(config.settings.value("global_debug_log_en", "false") == "true")
         layout_error.addRow("Console Output:", self.cb_global_debug_log)
         
+        # --- Production Settings ---
+        group_prod_settings = QGroupBox("Production Settings")
+        layout_prod = QFormLayout(group_prod_settings)
+        
+        from PySide6.QtGui import QKeySequence
+        from PySide6.QtWidgets import QKeySequenceEdit
+        self.input_hotkey = QKeySequenceEdit()
+        self.input_hotkey.setKeySequence(QKeySequence(config.get_start_hotkey()))
+        self.input_hotkey.setToolTip("Click here and press the desired hotkey combination (e.g., Space)")
+        layout_prod.addRow("Quick Start Hotkey:", self.input_hotkey)
+        
         self.btn_save_options = QPushButton("Save Settings")
         
         layout_options.addWidget(group_log_settings)
         layout_options.addWidget(group_error_settings)
+        layout_options.addWidget(group_prod_settings)
         layout_options.addWidget(self.btn_save_options)
         
         # --- Firmware Auto-Update Settings ---
@@ -303,7 +339,7 @@ class OptionsTab(QWidget):
         self.btn_view_work.clicked.connect(self._view_work_log)
         self.btn_view_cal.clicked.connect(self._view_cal_log)
         
-        self.btn_save_options.clicked.connect(self._save_options)
+        self.btn_save_options.clicked.connect(self._save_settings)
         
         self.btn_check_update.clicked.connect(self._on_check_update)
         self.btn_download_update.clicked.connect(self._on_download_update)
@@ -336,21 +372,33 @@ class OptionsTab(QWidget):
             
         dialog = CsvViewerDialog(path, self)
         dialog.exec()
-            
+        
     def _browse_error_log(self):
         path, _ = QFileDialog.getSaveFileName(self, "Select Error Log File", self.input_error_log.text(), "Text Files (*.txt *.log);;All Files (*)")
         if path:
             self.input_error_log.setText(path)
             
-    def _save_options(self):
+    def _save_settings(self):
         config.set_work_log_path(self.input_work_log.text())
         config.set_cal_log_path(self.input_cal_log.text())
         config.set_error_log_path(self.input_error_log.text())
         config.settings.setValue("github_repo", self.input_github_repo.text().strip())
         config.settings.setValue("global_debug_log_en", "true" if self.cb_global_debug_log.isChecked() else "false")
         
+        seq = self.input_hotkey.keySequence().toString()
+        if not seq: seq = "Space" # Default fallback
+        config.set_start_hotkey(seq)
+        
+        config.settings.sync()
+        
+        # Also notify main window to update its shortcut
+        # We can find the main window and call a method
+        main_win = self.window()
+        if hasattr(main_win, 'update_start_hotkey'):
+            main_win.update_start_hotkey(seq)
+            
         setup_error_logging(self.input_error_log.text())
-        QMessageBox.information(self, "Settings Saved", "Configuration saved successfully.")
+        QMessageBox.information(self, "Settings Saved", "Application settings have been saved successfully.")
 
     def _on_check_update(self):
         repo = self.input_github_repo.text().strip()

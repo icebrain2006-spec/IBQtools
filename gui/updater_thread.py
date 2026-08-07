@@ -194,6 +194,14 @@ class GlobalPreflightWorker(QThread):
         serial_ok = self._read_smbus_word(ser, ch, 0x0B, 0x1C)
         return date_ok and serial_ok
 
+    def _exit_rom_mode(self, ser, ch):
+        # ROM mode exit command: Write 0x08 to 0x0B (0 data bytes)
+        payload = bytes([ch, 0x0B, 1, 0, 0x08])
+        packet = make_packet(CMD_I2C_RAW, payload)
+        ser.reset_input_buffer()
+        ser.write(packet)
+        time.sleep(0.01)
+
     def run(self):
         self.log_msg.emit("[INFO] Starting Global Pre-flight SMBus Check...")
         all_errors = {}
@@ -227,6 +235,16 @@ class GlobalPreflightWorker(QThread):
                     continue
                 
             ch_errors = []
+            
+            # -- Exit ROM Mode before pre-flight --
+            for ch in channels:
+                if not self.is_running:
+                    ser.close()
+                    return
+                self._exit_rom_mode(ser, ch)
+                
+            time.sleep(0.5) # Wait for BQ to boot into firmware mode
+            
             for ch in channels:
                 if not self.is_running:
                     ser.close()
@@ -425,6 +443,14 @@ class UpdaterWorker(QThread):
         
         return f"{year}-{month:02d}-{day:02d}", serial_val
 
+    def _exit_rom_mode(self, ch):
+        # ROM mode exit command: Write 0x08 to 0x0B (0 data bytes)
+        payload = bytes([ch, 0x0B, 1, 0, 0x08])
+        packet = make_packet(CMD_I2C_RAW, payload)
+        self.ser.reset_input_buffer()
+        self.ser.write(packet)
+        time.sleep(0.01)
+
     def run(self):
         self.log_msg.emit(f"[INFO] Connecting to RP2040 on {self.port}...")
         self.ser = None
@@ -453,7 +479,19 @@ class UpdaterWorker(QThread):
             
             # --- Pre-flight SMBus Check ---
             if not self.skip_preflight:
-                self.log_msg.emit("[INFO] Pre-flight SMBus check...")
+                self.log_msg.emit("[INFO] Pre-flight SMBus check (Waking up BQ...)")
+                
+                # -- Exit ROM Mode before pre-flight --
+                for ch in self.channels:
+                    if not self.is_running:
+                        break
+                    self._exit_rom_mode(ch)
+                    
+                if not self.is_running:
+                    break
+                    
+                time.sleep(0.5) # Wait for BQ to boot into firmware mode
+                
                 ch_errors = []
                 for ch in self.channels:
                     if not self.is_running:
@@ -739,6 +777,96 @@ class UploadWorker(QThread):
     def run(self):
         import os, zlib
         self.log_msg.emit(f"[INFO] Connecting to {self.port} for SLFS Upload...")
+
+class DisconnectionMonitor(QThread):
+    channel_disconnected = Signal(int)
+    log_msg = Signal(str)
+
+    def __init__(self, port, channels, parent=None):
+        super().__init__(parent)
+        self.port = port
+        self.channels_to_monitor = list(channels)
+        self.is_running = True
+
+    def _read_smbus_word(self, ser, ch, addr, reg):
+        # 똑같은 로직의 SMBus Read 패킷 생성
+        payload = bytes([ch, addr, reg, 1, 2, 0, 0])
+        packet = make_packet(CMD_SMBUS_CMD, payload)
+        ser.reset_input_buffer()
+        ser.write(packet)
+        
+        start_time = time.time()
+        buf = b""
+        old_timeout = ser.timeout
+        ser.timeout = 0.05
+        
+        try:
+            while time.time() - start_time < 0.3:
+                rx = ser.read(128)
+                if rx: 
+                    buf += rx
+                
+                stx_idx = buf.find(PROTOCOL_STX)
+                if stx_idx != -1 and len(buf) >= stx_idx + 7:
+                    length = struct.unpack(">H", buf[stx_idx+1:stx_idx+3])[0]
+                    expected_total = length + 6
+                    if len(buf) >= stx_idx + expected_total:
+                        pkt_chunk = buf[stx_idx:stx_idx+expected_total]
+                        cmd, resp = parse_response(pkt_chunk)
+                        
+                        if cmd == CMD_SMBUS_CMD:
+                            return resp and resp[0] == RESP_OK
+                        buf = buf[stx_idx+expected_total:]
+                        continue
+        finally:
+            ser.timeout = old_timeout
+        return False
+
+    def run(self):
+        self.log_msg.emit(f"[INFO] Started Disconnection Monitor on {self.port} for channels {self.channels_to_monitor}")
+        ser = None
+        for _ in range(5):
+            try:
+                ser = serial.Serial(self.port, 115200, timeout=0.5)
+                break
+            except Exception:
+                time.sleep(0.1)
+                
+        if ser is None:
+            self.log_msg.emit("[WARN] Disconnection Monitor failed to open COM port.")
+            return
+
+        try:
+            while self.is_running and self.channels_to_monitor:
+                channels_to_remove = []
+                for ch in self.channels_to_monitor:
+                    if not self.is_running:
+                        break
+                    
+                    # 0x0B 주소의 0x1C (Serial Number) 읽기 시도
+                    success = self._read_smbus_word(ser, ch, 0x0B, 0x1C)
+                    if not success:
+                        # 한 번 더 확인 (노이즈로 인한 일시적 통신 실패 대비)
+                        time.sleep(0.1)
+                        success_retry = self._read_smbus_word(ser, ch, 0x0B, 0x1C)
+                        if not success_retry:
+                            self.log_msg.emit(f"[CH {ch}] Board disconnection detected.")
+                            self.channel_disconnected.emit(ch)
+                            channels_to_remove.append(ch)
+                            
+                for ch in channels_to_remove:
+                    self.channels_to_monitor.remove(ch)
+                    
+                time.sleep(0.5)
+        finally:
+            if ser and ser.is_open:
+                ser.close()
+        
+        if not self.channels_to_monitor:
+            self.log_msg.emit("[INFO] All monitored channels disconnected. Monitor stopped.")
+
+    def stop(self):
+        self.is_running = False
         
         if not os.path.exists(self.file_path):
             self.log_msg.emit(f"[ERROR] File '{self.file_path}' not found.")

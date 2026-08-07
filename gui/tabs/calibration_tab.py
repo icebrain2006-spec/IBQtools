@@ -211,9 +211,10 @@ class CalibrationTab(QWidget):
         self.log_console = QTextEdit()
         self.log_console.setReadOnly(True)
         self.log_console.setStyleSheet("background-color: #1E1E1E; color: #00FF00; font-family: Consolas;")
+        self.log_console.setMaximumHeight(180)
         
-        left_container_layout.addWidget(self.left_scroll, stretch=3)
-        left_container_layout.addWidget(self.log_console, stretch=2)
+        left_container_layout.addWidget(self.left_scroll, stretch=5)
+        left_container_layout.addWidget(self.log_console, stretch=1)
         
         # Build initial UI
         self._build_dynamic_ui(self.combo_ic.currentText())
@@ -271,6 +272,37 @@ class CalibrationTab(QWidget):
         
         right_layout.addWidget(self.table_data, stretch=1)
         
+        # Overall Result Table (Fixed at bottom)
+        self.table_overall = QTableWidget(1, 7)
+        self.table_overall.horizontalHeader().hide()
+        self.table_overall.verticalHeader().setDefaultAlignment(Qt.AlignCenter)
+        self.table_overall.verticalHeader().setDefaultSectionSize(30)
+        self.table_overall.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table_overall.setStyleSheet(self.table_data.styleSheet())
+        self.table_overall.setMaximumHeight(35)
+        self.table_overall.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        
+        # Initialize Overall Result row
+        item_param = QTableWidgetItem("Overall Result")
+        item_param.setTextAlignment(Qt.AlignCenter)
+        font = QFont()
+        font.setBold(True)
+        item_param.setFont(font)
+        self.table_overall.setItem(0, 0, item_param)
+        
+        # Sync column widths
+        for i in range(7):
+            self.table_overall.horizontalHeader().setSectionResizeMode(i, self.table_data.horizontalHeader().sectionResizeMode(i))
+            
+        def sync_widths():
+            self.table_overall.verticalHeader().setFixedWidth(self.table_data.verticalHeader().width())
+            for i in range(7):
+                self.table_overall.setColumnWidth(i, self.table_data.columnWidth(i))
+                
+        self.table_data.horizontalHeader().sectionResized.connect(sync_widths)
+        
+        right_layout.addWidget(self.table_overall)
+        
         # Add to splitter
         splitter.addWidget(left_container)
         splitter.addWidget(self.right_widget)
@@ -303,9 +335,12 @@ class CalibrationTab(QWidget):
         if "voltage" in config and config["voltage"]:
             group_vt = QGroupBox("Voltage Calibration")
             grid_vt = QGridLayout()
+            
+            v_cols = 3 if len(config["voltage"]) > 10 else 2
+            
             for i, (label_text, default_data) in enumerate(config["voltage"].items()):
-                row = i // 2
-                col = (i % 2) * 2
+                row = i // v_cols
+                col = (i % v_cols) * 2
                 val = default_data["val"] if isinstance(default_data, dict) else default_data
                 saved_val = self.settings.value(f"calib_{ic_name}_{label_text}_val", val)
                 
@@ -397,13 +432,32 @@ class CalibrationTab(QWidget):
         self.btn_cal_v.setStyleSheet(get_btn_style("#232a35", "#3a5070"))
         
         self.btn_cal_t = QPushButton("Start Temp")
-        self.btn_cal_t.setStyleSheet(get_btn_style("#352323", "#703a3a"))
+        self.btn_cal_t.setStyleSheet(get_btn_style("#352335", "#703a70"))
         
         self.btn_cal_c = QPushButton("Start Current")
         self.btn_cal_c.setStyleSheet(get_btn_style("#353223", "#70663a"))
         
         self.btn_cal_all = QPushButton("Start All")
         self.btn_cal_all.setStyleSheet(get_btn_style("#2b2b2b", "#555555"))
+        
+        self.btn_quick_start = QPushButton("Quick Start")
+        self.btn_quick_start.setCheckable(True)
+        self.btn_quick_start.setStyleSheet("""
+            QPushButton {
+                background-color: #222222;
+                color: #AAAAAA;
+                border: 1px solid #444444;
+                border-radius: 6px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }
+            QPushButton:checked {
+                background-color: #004d40;
+                color: white;
+                border: 1px solid #00e676;
+            }
+        """)
+        self.btn_quick_start.setToolTip("Enable this to trigger 'Start All' using the configured hotkey")
         
         self.btn_cal_v.clicked.connect(lambda: self.on_start_calib("voltage"))
         self.btn_cal_t.clicked.connect(lambda: self.on_start_calib("temp"))
@@ -414,9 +468,17 @@ class CalibrationTab(QWidget):
         btn_layout.addWidget(self.btn_cal_t)
         btn_layout.addWidget(self.btn_cal_c)
         btn_layout.addWidget(self.btn_cal_all)
+        btn_layout.addWidget(self.btn_quick_start)
         
         self.left_layout.addLayout(btn_layout)
         self.left_layout.addStretch()
+        
+    def is_hotkey_ready(self):
+        return hasattr(self, 'btn_quick_start') and self.btn_quick_start.isChecked()
+        
+    def trigger_start_all(self):
+        if self.btn_cal_all.isEnabled():
+            self.btn_cal_all.click()
         
     def _on_header_context_menu(self, pos):
         logical_index = self.table_data.horizontalHeader().logicalIndexAt(pos)
@@ -614,7 +676,7 @@ class CalibrationTab(QWidget):
         # Apply background color to entire row based on category
         bg_colors = {
             0: QColor("#232a35"), # Subtle blue for Voltage
-            1: QColor("#352323"), # Subtle red for Temp
+            1: QColor("#352335"), # Subtle purple for Temp
             2: QColor("#353223"), # Subtle yellow/orange for Current
             3: QColor("#2b2b2b")  # Default dark for Overall
         }
@@ -626,16 +688,7 @@ class CalibrationTab(QWidget):
                 self.table_data.setItem(param_row, c, it)
             it.setBackground(bg)
             
-        # Update Overall Result
-        if overall_row == -1:
-            overall_row = self.table_data.rowCount()
-            self.table_data.insertRow(overall_row)
-            item_param = QTableWidgetItem("Overall Result")
-            item_param.setTextAlignment(Qt.AlignCenter)
-            self.table_data.setItem(overall_row, 0, item_param)
-            
-        # For each channel, evaluate overall status
-        
+        # Update Overall Result in the fixed bottom table
         for active_ch in range(1, 7):
             ch_status = "PASS"
             has_data = False
@@ -647,7 +700,7 @@ class CalibrationTab(QWidget):
                         break
                         
             if has_data:
-                item_overall = self.table_data.item(overall_row, active_ch)
+                item_overall = self.table_overall.item(0, active_ch)
                 if not item_overall:
                     item_overall = QTableWidgetItem()
                     item_overall.setTextAlignment(Qt.AlignCenter)
@@ -655,7 +708,7 @@ class CalibrationTab(QWidget):
                     font.setPointSize(14)
                     font.setBold(True)
                     item_overall.setFont(font)
-                    self.table_data.setItem(overall_row, active_ch, item_overall)
+                    self.table_overall.setItem(0, active_ch, item_overall)
                     
                 item_overall.setText(ch_status)
                 if ch_status == "PASS":
@@ -736,6 +789,12 @@ class CalibrationTab(QWidget):
         ch_text = ", ".join([f"CH{ch}" for ch in selected_channels])
         self.log(f"Starting {ic} calibration ({mode} mode) on {port}, Channels: {ch_text}...")
         self.table_data.setRowCount(0)
+        
+        # Clear Overall Result table
+        for c in range(1, 7):
+            item = self.table_overall.item(0, c)
+            if item: item.setText("")
+            
         self.param_statuses = {}
         
         # Sync QSettings to clear cache before reading limits

@@ -116,8 +116,6 @@ class CalibrationThread(QThread):
             
         if self.ch not in self.cal_log_buffer:
             self.cal_log_buffer[self.ch] = {}
-        
-        # min_val and max_val might not exist if param_key not in self.limits, so use defaults
         min_v, max_v = self.limits.get(param_key, (None, None))
         range_str = f"{min_v}{suffix} - {max_v}{suffix}" if min_v is not None and max_v is not None else "0 - 65535"
         if is_gain: range_str = "0 - 65535"
@@ -990,8 +988,6 @@ class CalibrationThread(QThread):
             else:
                 modes_to_run = [run_mode]
             
-            success = True
-            
             # Initial safety reset: Ensure all relays are OFF before starting
             self._log("Initializing Relays to OFF state...")
             for ch in self.channels:
@@ -1002,6 +998,7 @@ class CalibrationThread(QThread):
                 if not self._running:
                     break
                 self.ch = ch
+                success = True
                 self._log(f"--- Processing Calibration for Channel {ch} ---")
             
                 if not self.detect_firmware_and_config():
@@ -1013,9 +1010,8 @@ class CalibrationThread(QThread):
                         success = False
                         break
                         
-                if success:
-                    # Capture final measurements into the buffer before writing log
-                    self.post_verify()
+                # Capture final measurements into the buffer before writing log (even if failed)
+                self.post_verify()
             
                 # Write to Cal Log CSV after each channel is processed
                 serial_num, mfg_date = self._read_mfg_info()
@@ -1087,13 +1083,6 @@ class CalibrationThread(QThread):
         
         path = config.get_cal_log_path()
         if not path: return
-        
-        # Append IC name to the log file name to separate logs for different ICs
-        base, ext = os.path.splitext(path)
-        if "BQ78350" in self.ic_name.upper():
-            path = f"{base}_BQ78350{ext}"
-        elif "BQ40Z50" in self.ic_name.upper() or "BQ4050" in self.ic_name.upper():
-            path = f"{base}_BQ40Z50{ext}"
             
         ch_data = self.cal_log_buffer.get(ch, {})
         if not ch_data: return

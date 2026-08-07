@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
 from PySide6.QtCore import Qt, Signal, QRegularExpression, QTimer
 from PySide6.QtGui import QRegularExpressionValidator
 
-from updater_thread import UpdaterWorker, SerialCheckWorker, get_file_info, get_fw_version, set_led_state
+from updater_thread import UpdaterWorker, SerialCheckWorker, get_file_info, get_fw_version, set_led_state, DisconnectionMonitor
 from config import config
 
 class ClickableProgressBar(QProgressBar):
@@ -64,6 +64,8 @@ class RP2040BoardWidget(QGroupBox):
         self.get_expected_cb = get_expected_cb
         self.cache_values_cb = cache_values_cb
         self.worker = None
+        self.disconnect_monitor = None
+        self.passed_channels = set()
         self.expected_sn_map = {}
         self.expected_date_map = {}
         self.expected_fmt = "DEC"
@@ -299,6 +301,15 @@ class RP2040BoardWidget(QGroupBox):
             self.setStyleSheet(self.default_style)
 
     def start_worker(self, loop_count, skip_preflight=False):
+        if self.passed_channels:
+            self.log_callback(f"[Board {self.board_id}] Board is in PASS state. Swap the board to unlock.")
+            return False
+            
+        if self.disconnect_monitor and self.disconnect_monitor.isRunning():
+            self.disconnect_monitor.stop()
+            self.disconnect_monitor.wait(500)
+        self.passed_channels.clear()
+
         if not skip_preflight:
             self.refresh_info()
             
@@ -335,6 +346,10 @@ class RP2040BoardWidget(QGroupBox):
                 self.ch_status[i].setText("Status: Disabled")
                 self.ch_status[i].setStyleSheet("color: #555555;")
                 
+        self.btn_start_board.setEnabled(False)
+        self.combo_port.setEnabled(False)
+        self.btn_refresh.setEnabled(False)
+        
         self.log_callback(f"[Board {self.board_id}] Initializing thread on {port}...")
         self.expected_sn_map.clear()
         self.expected_date_map.clear()
@@ -354,6 +369,16 @@ class RP2040BoardWidget(QGroupBox):
             self.log_callback(f"[Board {self.board_id}] Worker is already running. Please stop it first.")
             return
             
+        if self.passed_channels and ch_idx in self.passed_channels:
+            self.log_callback(f"[Board {self.board_id} CH {ch_idx}] Channel is in PASS state. Swap to unlock.")
+            return
+
+        if self.disconnect_monitor and self.disconnect_monitor.isRunning():
+            # 특정 채널만 다시 시작할 때 모니터가 돌고 있으면 충돌 방지를 위해 모니터 중지
+            self.disconnect_monitor.stop()
+            self.disconnect_monitor.wait(500)
+        self.passed_channels.discard(ch_idx)
+            
         self.refresh_info()
         if "Unknown" in self.lbl_slfs_info.text() or "Error" in self.lbl_slfs_info.text():
             QMessageBox.warning(self, "SLFS Check", f"Board {self.board_id}: SLFS file not found! Please check the connection or upload the SLFS file first.")
@@ -369,6 +394,10 @@ class RP2040BoardWidget(QGroupBox):
             
         self.ch_progress[ch_idx - 1].setValue(0)
         self.ch_status[ch_idx - 1].setText("Status: Starting...")
+        
+        self.btn_start_board.setEnabled(False)
+        self.combo_port.setEnabled(False)
+        self.btn_refresh.setEnabled(False)
         
         self.log_callback(f"[Board {self.board_id}] Initializing SINGLE update for CH {ch_idx} on {port}...")
         self.expected_sn_map.clear()
@@ -500,6 +529,7 @@ class RP2040BoardWidget(QGroupBox):
                     self.ch_status[ch_idx - 1].setText(f"PASS (M:{date_str} SN:{sn_str})")
                     self.ch_status[ch_idx - 1].setStyleSheet("color: #69F0AE; font-weight: bold;")
                     result_str = "PASS"
+                    self.passed_channels.add(ch_idx)
                 else:
                     self.ch_status[ch_idx - 1].setText(f"FAIL (M:{date_str} SN:{sn_str})")
                     self.ch_status[ch_idx - 1].setStyleSheet("color: #FF4444; font-weight: bold;")
@@ -528,6 +558,8 @@ class RP2040BoardWidget(QGroupBox):
                 logging.getLogger('IBQtools').error(f"Failed to write work log: {e}")
             
     def _on_worker_finished(self, success):
+        self.combo_port.setEnabled(True)
+        self.btn_refresh.setEnabled(True)
         for chk in self.ch_checkboxes:
             chk.setEnabled(True)
             
@@ -540,6 +572,30 @@ class RP2040BoardWidget(QGroupBox):
             
         self.log_callback(f"[Board {self.board_id}] Thread finished.")
         self.board_finished.emit()
+
+        # Start Disconnection Monitor for passed channels
+        if self.passed_channels:
+            self.btn_start_board.setEnabled(False) # 비활성화
+            port = self.combo_port.currentText().strip()
+            self.disconnect_monitor = DisconnectionMonitor(port, self.passed_channels)
+            self.disconnect_monitor.channel_disconnected.connect(self._on_channel_disconnected)
+            self.disconnect_monitor.log_msg.connect(lambda msg: self.log_callback(f"[Board {self.board_id} MON] {msg}"))
+            self.disconnect_monitor.start()
+        else:
+            # 성공한 채널이 하나도 없으면 버튼 다시 활성화
+            self.btn_start_board.setEnabled(True)
+
+    def _on_channel_disconnected(self, ch_idx):
+        # UI 상태를 대기(Waiting)로 초기화
+        if 1 <= ch_idx <= 6:
+            self.ch_progress[ch_idx - 1].setValue(0)
+            self.ch_status[ch_idx - 1].setText("Status: Waiting (Swapped)")
+            self.ch_status[ch_idx - 1].setStyleSheet("color: #AAAAAA;")
+            self.passed_channels.discard(ch_idx)
+            
+            # 모든 채널이 교체 완료되면 시작 버튼 다시 활성화
+            if not self.passed_channels:
+                self.btn_start_board.setEnabled(True)
 
 
 class UpdaterTab(QWidget):
@@ -648,11 +704,31 @@ class UpdaterTab(QWidget):
         self.btn_stop.setObjectName("stopBtn")
         self.btn_stop.setEnabled(False)
         
+        self.btn_quick_start = QPushButton("Quick Start")
+        self.btn_quick_start.setCheckable(True)
+        self.btn_quick_start.setStyleSheet("""
+            QPushButton {
+                background-color: #222222;
+                color: #AAAAAA;
+                border: 1px solid #444444;
+                border-radius: 4px;
+                padding: 4px 15px;
+                font-weight: bold;
+            }
+            QPushButton:checked {
+                background-color: #004d40;
+                color: white;
+                border: 1px solid #00e676;
+            }
+        """)
+        self.btn_quick_start.setToolTip("Enable this to trigger 'START ALL' using the configured hotkey")
+        
         self.btn_start.clicked.connect(self._start_all)
         self.btn_stop.clicked.connect(self._stop_all)
         
         action_layout.addWidget(self.btn_start)
         action_layout.addWidget(self.btn_stop)
+        action_layout.addWidget(self.btn_quick_start)
         
         left_layout.addLayout(action_layout)
         
@@ -683,6 +759,13 @@ class UpdaterTab(QWidget):
         
         # Initialize board widgets
         self._update_board_count(1)
+
+    def is_hotkey_ready(self):
+        return hasattr(self, 'btn_quick_start') and self.btn_quick_start.isChecked()
+        
+    def trigger_start_all(self):
+        if self.btn_start.isEnabled():
+            self.btn_start.click()
 
     def _update_board_count(self, count):
         for board in self.boards:
@@ -730,8 +813,7 @@ class UpdaterTab(QWidget):
             
         if board_widget.start_worker(loops):
             self.active_workers += 1
-            self.btn_start.setEnabled(False)
-            self.btn_stop.setEnabled(True)
+            self._set_master_ui_enabled(False)
 
     def _safe_update_sn_ui(self, sn_str):
         self.input_exp_sn.setText(sn_str)
@@ -817,9 +899,9 @@ class UpdaterTab(QWidget):
             
             if hasattr(self, 'start_time'):
                 elapsed = time.time() - self.start_time
-                self.log_console.append(f"\n[SYS] ALL BOARDS FINISHED. Total Time: {elapsed:.2f} seconds")
+                self._log_to_console(f"\n[SYS] ALL BOARDS FINISHED. Total Time: {elapsed:.2f} seconds")
                 
-            self._reset_master_ui()
+            self._set_master_ui_enabled(True)
 
     def _log_to_console(self, msg):
         lower_msg = msg.lower()
@@ -863,9 +945,7 @@ class UpdaterTab(QWidget):
         except ValueError:
             self.loops = 1
             
-        self.btn_start.setEnabled(False)
-        self.btn_stop.setEnabled(True)
-        self.spin_boards.setEnabled(False)
+        self._set_master_ui_enabled(False)
         
         self.log_console.append(f"\n[SYS] STARTING ALL {len(self.boards)} BOARDS...")
         
@@ -882,7 +962,7 @@ class UpdaterTab(QWidget):
                 
         if not board_configs:
             self.log_console.append("[SYS] No channels were enabled across any boards.")
-            self._reset_master_ui()
+            self._set_master_ui_enabled(True)
             return
             
         from updater_thread import GlobalPreflightWorker
@@ -921,7 +1001,7 @@ class UpdaterTab(QWidget):
                 else:
                     set_led_state(port, board.led_color, 0, 0) # Normal Solid
             
-            self._reset_master_ui()
+            self._set_master_ui_enabled(True)
             
             try:
                 wav_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "assets", "wav", "testFail.wav")
@@ -944,7 +1024,7 @@ class UpdaterTab(QWidget):
                     
             if self.active_workers == 0:
                 self._log_to_console("[SYS] Failed to launch workers.")
-                self._reset_master_ui()
+                self._set_master_ui_enabled(True)
         except Exception as e:
             import traceback
             err_str = traceback.format_exc()
@@ -954,12 +1034,25 @@ class UpdaterTab(QWidget):
         self.log_console.append("\n[SYS] STOP ALL REQUESTED...")
         for board in self.boards:
             board.stop_worker()
-        self._reset_master_ui()
+        self._set_master_ui_enabled(True)
 
-    def _reset_master_ui(self):
-        self.btn_start.setEnabled(True)
-        self.btn_stop.setEnabled(False)
-        self.spin_boards.setEnabled(True)
+    def _set_master_ui_enabled(self, enabled):
+        self.btn_start.setEnabled(enabled)
+        self.btn_stop.setEnabled(not enabled)
+        self.spin_boards.setEnabled(enabled)
+        self.loop_count.setEnabled(enabled)
+        self.input_exp_date.setEnabled(enabled)
+        self.chk_write_date.setEnabled(enabled)
+        self.combo_sn_fmt.setEnabled(enabled)
+        self.input_exp_sn.setEnabled(enabled)
+        self.chk_write_sn.setEnabled(enabled)
+        self.btn_check_all.setEnabled(enabled)
+        self.btn_quick_start.setEnabled(enabled)
+        
+        if enabled:
+            self.chk_auto_inc.setEnabled(self.chk_write_sn.isChecked())
+        else:
+            self.chk_auto_inc.setEnabled(False)
 
     def save_ui_states(self):
         settings = config.settings
