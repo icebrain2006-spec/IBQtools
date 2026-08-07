@@ -1,6 +1,6 @@
 import sys
 import os
-from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QTabWidget
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QTabWidget, QHBoxLayout, QPushButton
 from PySide6.QtGui import QIcon
 from PySide6.QtCore import Qt
 
@@ -11,6 +11,7 @@ from tabs.manual_tab import ManualTab
 from tabs.upload_tab import UploadTab
 from tabs.csv_tab import CsvTab
 from tabs.options_tab import OptionsTab
+from tabs.relay_tab import RelayWindow
 from version import __version__
 
 def handle_exception(exc_type, exc_value, exc_traceback):
@@ -49,6 +50,15 @@ class BqUpdaterMainWindow(QMainWindow):
         self.main_layout = QVBoxLayout(self.central_widget)
         self.main_layout.setContentsMargins(15, 15, 15, 15)
         
+        # Top Bar for independent tools
+        self.top_bar = QHBoxLayout()
+        self.btn_open_relay = QPushButton("🚀 Open Mini Relay Controller")
+        self.btn_open_relay.setStyleSheet("font-weight: bold; background-color: #2E7D32; color: white; padding: 5px 15px;")
+        self.btn_open_relay.clicked.connect(self.open_relay_window)
+        self.top_bar.addStretch()
+        self.top_bar.addWidget(self.btn_open_relay)
+        self.main_layout.addLayout(self.top_bar)
+        
         self.tabs = QTabWidget()
         self.main_layout.addWidget(self.tabs)
         
@@ -78,6 +88,13 @@ class BqUpdaterMainWindow(QMainWindow):
         
         # Load UI states in the updater tab
         self.updater_tab.load_ui_states()
+
+    def open_relay_window(self):
+        if not hasattr(self, 'relay_window') or not self.relay_window.isVisible():
+            self.relay_window = RelayWindow()
+            self.relay_window.show()
+        else:
+            self.relay_window.activateWindow()
 
     def update_start_hotkey(self, key_str):
         from PySide6.QtGui import QKeySequence
