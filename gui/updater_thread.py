@@ -421,7 +421,10 @@ class UpdaterWorker(QThread):
                         cmd, resp = parse_response(pkt_chunk)
                         
                         if cmd == CMD_SMBUS_CMD:
-                            return resp and resp[0] == RESP_OK
+                            self.log_msg.emit(f"    [RAW IO] TX({len(packet)}b): {packet.hex(' ')} | RX({len(pkt_chunk)}b): {pkt_chunk.hex(' ')}")
+                            if resp and resp[0] == RESP_OK and len(resp) >= 3:
+                                return struct.unpack("<H", resp[1:3])[0]
+                            return None
                                 
                         buf = buf[stx_idx+expected_total:]
                         continue
