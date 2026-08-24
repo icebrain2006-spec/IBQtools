@@ -228,6 +228,7 @@ class CalibrationThread(QThread):
     def smbus_read_word(self, cmd_reg):
         payload = bytes([self.ch, self.addr, cmd_reg, 1, 2, 0, 0])
         tx_pkt = make_packet(CMD_SMBUS_CMD, payload)
+        self.ser.reset_input_buffer()
         self.ser.write(tx_pkt)
         rx = self._read_packet()
         self._log(f"    [RAW IO] TX({len(tx_pkt)}b): {tx_pkt.hex(' ')} | RX({len(rx)}b): {rx.hex(' ')}")
@@ -242,6 +243,7 @@ class CalibrationThread(QThread):
             if not self._running: return None
             payload = bytes([self.ch, self.addr, cmd_reg, 1, 32, 0, 0])
             tx_pkt = make_packet(CMD_SMBUS_CMD, payload)
+            self.ser.reset_input_buffer()
             self.ser.write(tx_pkt)
             rx = self._read_packet()
             self._log(f"    [RAW IO] Attempt {attempt+1} TX({len(tx_pkt)}b): {tx_pkt.hex(' ')} | RX({len(rx)}b): {rx.hex(' ')}")
