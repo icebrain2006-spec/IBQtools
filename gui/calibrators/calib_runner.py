@@ -1031,6 +1031,7 @@ class CalibrationThread(QThread):
             else:
                 modes_to_run = [run_mode]
             
+            total_start_time = time.time()
             for ch in self.channels:
                 if not self._running:
                     break
@@ -1039,6 +1040,7 @@ class CalibrationThread(QThread):
                     self.targets = self.targets_per_ch[ch]
                 success = True
                 self._log(f"--- Processing Calibration for Channel {ch} ---")
+                ch_start_time = time.time()
             
                 # Perform Serial Check first to wake up and verify BQ chip SBD communication
                 sn, date_str = self._read_mfg_info()
@@ -1056,12 +1058,18 @@ class CalibrationThread(QThread):
                         success = False
                         break
                         
+                ch_pure_cal_time = time.time() - ch_start_time
+                self._log(f"    [TIME] CH{ch} Pure Cal Execution Time: {ch_pure_cal_time:.3f} sec")
+
                 # Capture final measurements into the buffer before writing log (even if failed)
                 self.post_verify()
             
                 # Write to Cal Log CSV after each channel is processed
                 serial_num, mfg_date = self._read_mfg_info()
                 self._write_cal_log(self.ch, serial_num, mfg_date, success)
+                
+            total_cal_time = time.time() - total_start_time
+            self._log(f"[TIME] Total Calibration Execution Time (All Channels): {total_cal_time:.3f} sec")
                 
             # 3. Verification & Continuous Monitoring
             if success:
