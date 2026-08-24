@@ -1011,10 +1011,7 @@ class CalibrationThread(QThread):
         for _ in range(5):
             try:
                 self.ser = serial.Serial(self.port, 115200, timeout=1.5)
-                self.ser.dtr = False
-                self.ser.rts = False
                 self.ser.reset_input_buffer()
-                self.ser.reset_output_buffer()
                 break
             except Exception:
                 time.sleep(0.1)
@@ -1022,15 +1019,11 @@ class CalibrationThread(QThread):
         if self.ser is None:
             try:
                 self.ser = serial.Serial(self.port, 115200, timeout=1.5)
-                self.ser.dtr = False
-                self.ser.rts = False
                 self.ser.reset_input_buffer()
-                self.ser.reset_output_buffer()
             except Exception as e:
                 self._log(f"[ERROR] Failed to open {self.port}: {e}")
                 self.finished_signal.emit(False)
                 return
-        time.sleep(0.3)
 
         try:
             run_mode = self.targets.get("run_mode", "voltage")
