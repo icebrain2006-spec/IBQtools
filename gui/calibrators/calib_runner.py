@@ -206,9 +206,9 @@ class CalibrationThread(QThread):
     def _read_packet(self):
         rx = bytearray()
         start_time = time.time()
-        # Wait up to 300ms for STX header 0x02 to arrive in buffer
+        # Wait up to 500ms for STX header 0x02 to arrive in buffer
         found_header = False
-        while time.time() - start_time < 0.3:
+        while time.time() - start_time < 0.5:
             b = self.ser.read(1)
             if b and b[0] == 0x02:
                 rx.extend(b)
@@ -222,7 +222,7 @@ class CalibrationThread(QThread):
         # Read 2 bytes for payload length
         len_bytes = bytearray()
         read_start = time.time()
-        while len(len_bytes) < 2 and (time.time() - read_start < 0.2):
+        while len(len_bytes) < 2 and (time.time() - read_start < 0.3):
             chunk = self.ser.read(2 - len(len_bytes))
             if chunk:
                 len_bytes.extend(chunk)
@@ -237,7 +237,7 @@ class CalibrationThread(QThread):
         needed = length + 3  # Cmd(1) + Payload(length) + Checksum(1) + ETX(1)
         payload = bytearray()
         payload_start = time.time()
-        while len(payload) < needed and (time.time() - payload_start < 0.3):
+        while len(payload) < needed and (time.time() - payload_start < 0.5):
             chunk = self.ser.read(needed - len(payload))
             if chunk:
                 payload.extend(chunk)
@@ -1017,7 +1017,7 @@ class CalibrationThread(QThread):
     def run(self):
         import serial
         try:
-            self.ser = serial.Serial(self.port, 115200, timeout=0.1)
+            self.ser = serial.Serial(self.port, 115200, timeout=1.0)
             self.ser.dtr = False
             self.ser.rts = False
             self.ser.reset_input_buffer()
