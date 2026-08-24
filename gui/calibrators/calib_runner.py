@@ -268,11 +268,20 @@ class CalibrationThread(QThread):
             self.clear_ch_signal.emit(self.ch)
         return None
 
+    def _exit_rom_mode(self):
+        payload = bytes([self.ch, 0x0B, 1, 0, 0x08])
+        tx_pkt = make_packet(CMD_I2C_RAW, payload)
+        self.ser.reset_input_buffer()
+        self.ser.write(tx_pkt)
+        time.sleep(0.01)
+
     def _read_mfg_info(self):
         import struct
         serial_num = "Unknown"
         mfg_date = "Unknown"
         try:
+            self._exit_rom_mode()
+            time.sleep(0.5) # Wait for BQ to boot into firmware mode
             m_data = self.smbus_read_word(0x1B)
             if m_data and len(m_data) >= 2:
                 val = struct.unpack('<H', bytes(m_data))[0]

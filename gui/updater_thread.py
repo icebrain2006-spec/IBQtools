@@ -838,6 +838,7 @@ class DisconnectionMonitor(QThread):
 
     def stop(self):
         self.is_running = False
+        self.quit()
 
 class UploadWorker(QThread):
     finished = Signal(bool)
