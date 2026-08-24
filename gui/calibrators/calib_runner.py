@@ -195,7 +195,7 @@ class CalibrationThread(QThread):
             pec = smbus_pec_calculate(pec_data)
             tx_data.append(pec)
             
-        payload = struct.pack('<BBBB', self.ch, self.addr, len(tx_data), 0) + tx_data
+        payload = bytes([self.ch, self.addr, len(tx_data), 0]) + tx_data
         tx_pkt = make_packet(CMD_I2C_RAW, payload)
         self.ser.write(tx_pkt)
         rx = self._read_packet()
