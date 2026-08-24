@@ -25,7 +25,9 @@ def build_app():
         '--add-data=gui/style.qss;.',
         '--add-data=gui/BQ_Information.csv;.',
         '--add-data=gui/calibrators/scripts/*;calibrators/scripts',
+        '--add-data=gui/calibrators/scripts/*;gui/calibrators/scripts',
         '--add-data=gui/calibrators/dataflashs/*;calibrators/dataflashs',
+        '--add-data=gui/calibrators/dataflashs/*;gui/calibrators/dataflashs',
     ]
     
     print(f"Running PyInstaller...")

@@ -34,7 +34,7 @@ class CalibrationThread(QThread):
     
     limits_update_signal = Signal(dict)
     
-    def __init__(self, port, channels, script_dir, script_base, targets, ic_name, limits=None):
+    def __init__(self, port, channels, script_dir, script_base, targets, ic_name, limits=None, limits_per_ch=None):
         super().__init__()
         self.port = port
         self.channels = channels
@@ -43,8 +43,13 @@ class CalibrationThread(QThread):
         self.script_dir = script_dir
         self.script_base = script_base
         self.targets = targets
+        if isinstance(targets, dict) and "per_ch" in targets:
+            self.targets_per_ch = targets["per_ch"]
+        else:
+            self.targets_per_ch = {}
         self.ic_name = ic_name
         self.limits = limits if limits is not None else {}
+        self.limits_per_ch = limits_per_ch if limits_per_ch is not None else {}
         self.ser = None
         self._running = True
         self.relay_queue = []
@@ -55,8 +60,6 @@ class CalibrationThread(QThread):
         self.active_cells = 4 # Default
         self.history = {} # Store history of statuses for sliding window
         
-        with open("scratch/limits_debug.txt", "w") as f:
-            f.write(f"INIT LIMITS: {self.limits}\n")
             
     @Slot(dict)
     def on_limits_updated(self, new_limits):
@@ -65,8 +68,9 @@ class CalibrationThread(QThread):
         
     def emit_result(self, param_key, param_name, raw_adc, val, is_gain=False, suffix=""):
         raw_status = "PASS" if is_gain else "INFO"
-        if param_key in self.limits:
-            min_val, max_val = self.limits[param_key]
+        ch_limits = self.limits_per_ch.get(self.ch, self.limits)
+        if param_key in ch_limits:
+            min_val, max_val = ch_limits[param_key]
             if min_val <= val <= max_val:
                 raw_status = "PASS"
             else:
@@ -180,7 +184,7 @@ class CalibrationThread(QThread):
         self.ser.write(make_packet(CMD_SMBUS_CMD, payload))
         rx = self._read_packet()
         cmd, resp = parse_response(rx)
-        return resp and resp[0] == RESP_OK
+        return isinstance(resp, (bytes, bytearray)) and len(resp) > 0 and resp[0] == RESP_OK
         
     def smbus_write_block_raw(self, cmd_reg, data_bytes, use_pec=True):
         tx_data = bytearray([cmd_reg, len(data_bytes)]) + bytearray(data_bytes)
@@ -193,7 +197,7 @@ class CalibrationThread(QThread):
         self.ser.write(make_packet(CMD_I2C_RAW, payload))
         rx = self._read_packet()
         cmd, resp = parse_response(rx)
-        return resp and resp[0] == RESP_OK
+        return isinstance(resp, (bytes, bytearray)) and len(resp) > 0 and resp[0] == RESP_OK
 
     def _read_packet(self):
         rx = bytearray()
@@ -217,11 +221,12 @@ class CalibrationThread(QThread):
         self.ser.write(make_packet(CMD_SMBUS_CMD, payload))
         rx = self._read_packet()
         cmd, resp = parse_response(rx)
-        if resp and resp[0] == RESP_OK:
+        if isinstance(resp, (bytes, bytearray)) and len(resp) > 0 and resp[0] == RESP_OK:
             return resp[1:3]
         return None
 
     def smbus_read_block(self, cmd_reg):
+        resp = None
         for attempt in range(10):
             if not self._running: return None
             payload = struct.pack('<BBBBBB', self.ch, self.addr, cmd_reg, 1, 32, 1)
@@ -231,14 +236,20 @@ class CalibrationThread(QThread):
             if cmd is None:
                 time.sleep(0.05)
                 continue
-            if resp and resp[0] == RESP_OK:
-                return resp[2:2+resp[1]]
-            if resp and resp[0] == 0x04 and resp[1] == 0x04:
-                time.sleep(0.05)
-                continue
+            if isinstance(resp, (bytes, bytearray)) and len(resp) > 0:
+                if resp[0] == RESP_OK:
+                    return resp[2:2+resp[1]]
+                if resp[0] == 0x04 and len(resp) > 1 and resp[1] == 0x04:
+                    time.sleep(0.05)
+                    continue
             break
         if resp:
-            self._log(f"    -> Comm Lost: 0x{resp[0]:02x}, Detail: {resp[1] if len(resp)>1 else 'None'}")
+            if isinstance(resp, (bytes, bytearray)) and len(resp) > 0:
+                err_code = resp[0]
+                detail = resp[1] if len(resp) > 1 else 'None'
+                self._log(f"    -> Comm Lost: 0x{err_code:02x}, Detail: {detail}")
+            else:
+                self._log(f"    -> Comm Lost: {resp}")
             self.clear_ch_signal.emit(self.ch)
         return None
 
@@ -998,6 +1009,8 @@ class CalibrationThread(QThread):
                 if not self._running:
                     break
                 self.ch = ch
+                if self.targets_per_ch and ch in self.targets_per_ch:
+                    self.targets = self.targets_per_ch[ch]
                 success = True
                 self._log(f"--- Processing Calibration for Channel {ch} ---")
             
@@ -1062,7 +1075,8 @@ class CalibrationThread(QThread):
 
 
         except Exception as e:
-            self._log(f"CRASH in CalibrationThread: {e}")
+            import traceback
+            self._log(f"CRASH in CalibrationThread: {e}\n{traceback.format_exc()}")
             self.play_sound_signal.emit(False)
             self.finished_signal.emit(False)
         finally:

@@ -147,16 +147,31 @@ class CalibrationTab(QWidget):
         super().__init__(parent)
         # Use explicitly named QSettings to match LimitsDialog and the rest of the application
         self.settings = QSettings("IBQ", "IBQtools")
-        # Define script directory and base name for calibration scripts
-        import os
-        self.script_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "calibrators", "scripts")
+        import os, sys
+        self.script_dir = self.get_script_dir()
         # Use the script base defined in IC_CONFIGS for the selected IC (default to first key)
         self.script_base = "bq40z50"  # fallback; will be overridden when IC selected
         self.dynamic_inputs = {}
         self.dynamic_checks = {}
+        self.current_channel = 1
 
         self._init_ui()
         self.refresh_ports()
+
+    def get_script_dir(self):
+        import os, sys
+        if getattr(sys, 'frozen', False):
+            base_meipass = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+            candidates = [
+                os.path.join(base_meipass, "gui", "calibrators", "scripts"),
+                os.path.join(base_meipass, "calibrators", "scripts"),
+                os.path.join(os.path.dirname(sys.executable), "gui", "calibrators", "scripts"),
+                os.path.join(os.path.dirname(sys.executable), "calibrators", "scripts"),
+            ]
+            for c in candidates:
+                if os.path.exists(c):
+                    return c
+        return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "calibrators", "scripts")
         
     def _init_ui(self):
         main_layout = QVBoxLayout(self)
@@ -310,6 +325,65 @@ class CalibrationTab(QWidget):
         
         main_layout.addWidget(splitter)
         
+    def _save_current_channel_inputs(self):
+        ic_name = self.combo_ic.currentText()
+        if not ic_name:
+            return
+        ch = self.current_channel
+        for key, line_edit in self.dynamic_inputs.items():
+            val = line_edit.text()
+            self.settings.setValue(f"calib_ch{ch}_{ic_name}_{key}_val", val)
+        for key, chk in self.dynamic_checks.items():
+            self.settings.setValue(f"calib_ch{ch}_{ic_name}_{key}_chk", chk.isChecked())
+
+    def _load_channel_inputs(self, ch):
+        ic_name = self.combo_ic.currentText()
+        if ic_name not in IC_CONFIGS:
+            return
+        config = IC_CONFIGS[ic_name]
+        
+        all_defaults = {}
+        for section in ["voltage", "temperature", "current"]:
+            if section in config and config[section]:
+                all_defaults.update(config[section])
+                
+        for key, line_edit in self.dynamic_inputs.items():
+            line_edit.blockSignals(True)
+            default_data = all_defaults.get(key, "")
+            default_val = default_data["val"] if isinstance(default_data, dict) else default_data
+            global_fallback = self.settings.value(f"calib_{ic_name}_{key}_val", default_val)
+            saved_val = self.settings.value(f"calib_ch{ch}_{ic_name}_{key}_val", global_fallback)
+            line_edit.setText(str(saved_val))
+            line_edit.blockSignals(False)
+            
+        for key, chk in self.dynamic_checks.items():
+            chk.blockSignals(True)
+            global_fallback = self.settings.value(f"calib_{ic_name}_{key}_chk", "true")
+            saved_check = self.settings.value(f"calib_ch{ch}_{ic_name}_{key}_chk", global_fallback)
+            is_checked = True if str(saved_check).lower() == "true" else False
+            chk.setChecked(is_checked)
+            chk.blockSignals(False)
+            
+        if hasattr(self, 'lbl_current_ch'):
+            self.lbl_current_ch.setText(f"CH {ch}")
+
+    def _switch_channel(self, new_ch):
+        if new_ch < 1:
+            new_ch = 6
+        elif new_ch > 6:
+            new_ch = 1
+        if new_ch == self.current_channel:
+            return
+        self._save_current_channel_inputs()
+        self.current_channel = new_ch
+        self._load_channel_inputs(new_ch)
+
+    def _on_prev_ch(self):
+        self._switch_channel(self.current_channel - 1)
+
+    def _on_next_ch(self):
+        self._switch_channel(self.current_channel + 1)
+
     def _build_dynamic_ui(self, ic_name):
         # Clear existing dynamic widgets
         while self.left_layout.count():
@@ -331,6 +405,38 @@ class CalibrationTab(QWidget):
         self.dynamic_inputs.clear()
         self.dynamic_checks.clear()
         
+        # 0. Channel Selection Header Bar
+        ch_bar_box = QGroupBox()
+        ch_bar_box.setStyleSheet("QGroupBox { background-color: #1e1e1e; border: 1px solid #3a3a3a; border-radius: 6px; margin-top: 0px; padding: 4px; }")
+        ch_bar_layout = QHBoxLayout(ch_bar_box)
+        ch_bar_layout.setContentsMargins(8, 4, 8, 4)
+        
+        btn_prev = QPushButton("◀")
+        btn_prev.setFixedWidth(36)
+        btn_prev.setStyleSheet("QPushButton { background-color: #333333; color: white; border-radius: 4px; font-weight: bold; font-size: 13px; } QPushButton:hover { background-color: #444444; }")
+        btn_prev.clicked.connect(self._on_prev_ch)
+        
+        self.lbl_current_ch = QLabel(f"CH {self.current_channel}")
+        self.lbl_current_ch.setStyleSheet("font-size: 15px; font-weight: bold; color: #00E676; padding: 0 14px;")
+        self.lbl_current_ch.setAlignment(Qt.AlignCenter)
+        
+        btn_next = QPushButton("▶")
+        btn_next.setFixedWidth(36)
+        btn_next.setStyleSheet("QPushButton { background-color: #333333; color: white; border-radius: 4px; font-weight: bold; font-size: 13px; } QPushButton:hover { background-color: #444444; }")
+        btn_next.clicked.connect(self._on_next_ch)
+        
+        ch_label = QLabel("Target Channel:")
+        ch_label.setStyleSheet("font-weight: bold; color: #CCCCCC; font-size: 13px;")
+        
+        ch_bar_layout.addStretch()
+        ch_bar_layout.addWidget(ch_label)
+        ch_bar_layout.addWidget(btn_prev)
+        ch_bar_layout.addWidget(self.lbl_current_ch)
+        ch_bar_layout.addWidget(btn_next)
+        ch_bar_layout.addStretch()
+        
+        self.left_layout.addWidget(ch_bar_box)
+        
         # 1. Voltage Group
         if "voltage" in config and config["voltage"]:
             group_vt = QGroupBox("Voltage Calibration")
@@ -342,11 +448,12 @@ class CalibrationTab(QWidget):
                 row = i // v_cols
                 col = (i % v_cols) * 2
                 val = default_data["val"] if isinstance(default_data, dict) else default_data
-                saved_val = self.settings.value(f"calib_{ic_name}_{label_text}_val", val)
+                global_fallback = self.settings.value(f"calib_{ic_name}_{label_text}_val", val)
+                saved_val = self.settings.value(f"calib_ch{self.current_channel}_{ic_name}_{label_text}_val", global_fallback)
                 
                 grid_vt.addWidget(QLabel(label_text), row, col)
                 line_edit = QLineEdit(str(saved_val))
-                line_edit.textChanged.connect(lambda t, k=f"calib_{ic_name}_{label_text}_val": self.settings.setValue(k, t))
+                line_edit.textChanged.connect(lambda t, k=label_text: self.settings.setValue(f"calib_ch{self.current_channel}_{ic_name}_{k}_val", t))
                 self.dynamic_inputs[label_text] = line_edit
                 grid_vt.addWidget(line_edit, row, col + 1)
             
@@ -363,16 +470,18 @@ class CalibrationTab(QWidget):
                 row = i // 2
                 col = (i % 2) * 3
                 val = default_data["val"] if isinstance(default_data, dict) else default_data
-                saved_val = self.settings.value(f"calib_{ic_name}_{label_text}_val", val)
+                global_fallback = self.settings.value(f"calib_{ic_name}_{label_text}_val", val)
+                saved_val = self.settings.value(f"calib_ch{self.current_channel}_{ic_name}_{label_text}_val", global_fallback)
                 
                 # Checkbox
                 if isinstance(default_data, dict) and default_data.get("check"):
                     chk = QCheckBox(label_text)
-                    saved_check = self.settings.value(f"calib_{ic_name}_{label_text}_chk", "true")
+                    global_chk_fallback = self.settings.value(f"calib_{ic_name}_{label_text}_chk", "true")
+                    saved_check = self.settings.value(f"calib_ch{self.current_channel}_{ic_name}_{label_text}_chk", global_chk_fallback)
                     # handle string/bool conversion for settings
                     is_checked = True if str(saved_check).lower() == "true" else False
                     chk.setChecked(is_checked)
-                    chk.toggled.connect(lambda checked, k=f"calib_{ic_name}_{label_text}_chk": self.settings.setValue(k, checked))
+                    chk.toggled.connect(lambda checked, k=label_text: self.settings.setValue(f"calib_ch{self.current_channel}_{ic_name}_{k}_chk", checked))
                     
                     self.dynamic_checks[label_text] = chk
                     grid_temp.addWidget(chk, row, col)
@@ -380,7 +489,7 @@ class CalibrationTab(QWidget):
                     grid_temp.addWidget(QLabel(label_text), row, col)
                     
                 line_edit = QLineEdit(str(saved_val))
-                line_edit.textChanged.connect(lambda t, k=f"calib_{ic_name}_{label_text}_val": self.settings.setValue(k, t))
+                line_edit.textChanged.connect(lambda t, k=label_text: self.settings.setValue(f"calib_ch{self.current_channel}_{ic_name}_{k}_val", t))
                 self.dynamic_inputs[label_text] = line_edit
                 grid_temp.addWidget(line_edit, row, col + 1)
                 
@@ -397,11 +506,12 @@ class CalibrationTab(QWidget):
                 row = i // 2
                 col = (i % 2) * 2
                 val = default_data["val"] if isinstance(default_data, dict) else default_data
-                saved_val = self.settings.value(f"calib_{ic_name}_{label_text}_val", val)
+                global_fallback = self.settings.value(f"calib_{ic_name}_{label_text}_val", val)
+                saved_val = self.settings.value(f"calib_ch{self.current_channel}_{ic_name}_{label_text}_val", global_fallback)
                 
                 grid_c.addWidget(QLabel(label_text), row, col)
                 line_edit = QLineEdit(str(saved_val))
-                line_edit.textChanged.connect(lambda t, k=f"calib_{ic_name}_{label_text}_val": self.settings.setValue(k, t))
+                line_edit.textChanged.connect(lambda t, k=label_text: self.settings.setValue(f"calib_ch{self.current_channel}_{ic_name}_{k}_val", t))
                 self.dynamic_inputs[label_text] = line_edit
                 grid_c.addWidget(line_edit, row, col + 1)
                 
@@ -753,25 +863,39 @@ class CalibrationTab(QWidget):
             
         config = IC_CONFIGS[ic]
         
-        # Parse all dynamic targets
-        targets = {}
-        for key, line_edit in self.dynamic_inputs.items():
-            val = line_edit.text().strip()
-            if val:
-                try:
-                    safe_key = "".join(e for e in key if e.isalnum()).lower()
-                    targets[safe_key] = float(val) if '.' in val else int(val)
-                    targets[key] = targets[safe_key]
-                except ValueError:
-                    self.log(f"Error: Invalid numeric value for {key}.")
-                    return
+        # Save current channel inputs to settings first
+        self._save_current_channel_inputs()
         
-        # Parse checkboxes
-        for key, chk in self.dynamic_checks.items():
-            safe_key = "".join(e for e in key if e.isalnum()).lower() + "_en"
-            targets[safe_key] = chk.isChecked()
-            
-        # Modes requested
+        all_defaults = {}
+        for section in ["voltage", "temperature", "current"]:
+            if section in config and config[section]:
+                all_defaults.update(config[section])
+                
+        targets_per_ch = {}
+        for ch in range(1, 7):
+            ch_targets = {}
+            for key, default_data in all_defaults.items():
+                global_fallback = self.settings.value(f"calib_{ic}_{key}_val", default_data["val"] if isinstance(default_data, dict) else default_data)
+                val = self.settings.value(f"calib_ch{ch}_{ic}_{key}_val", global_fallback)
+                val_str = str(val).strip() if val is not None else ""
+                if val_str:
+                    try:
+                        safe_key = "".join(e for e in key if e.isalnum()).lower()
+                        parsed_val = float(val_str) if '.' in val_str else int(val_str)
+                        ch_targets[safe_key] = parsed_val
+                        ch_targets[key] = parsed_val
+                    except ValueError:
+                        pass
+                if isinstance(default_data, dict) and default_data.get("check"):
+                    global_chk_fallback = self.settings.value(f"calib_{ic}_{key}_chk", "true")
+                    chk_val = self.settings.value(f"calib_ch{ch}_{ic}_{key}_chk", global_chk_fallback)
+                    safe_key = "".join(e for e in key if e.isalnum()).lower() + "_en"
+                    ch_targets[safe_key] = (str(chk_val).lower() == "true")
+            ch_targets["run_mode"] = mode
+            targets_per_ch[ch] = ch_targets
+
+        targets = targets_per_ch.get(self.current_channel, {}).copy()
+        targets["per_ch"] = targets_per_ch
         targets["run_mode"] = mode
         
         selected_channels = sorted(list(self.selected_channels))
@@ -823,68 +947,77 @@ class CalibrationTab(QWidget):
                 "Int Temp", "TS1 Temp", "TS2 Temp", "TS3 Temp", "TS4 Temp",
                 "Shunt Resistor"
             ]
-        for key in limit_keys:
-            default_min = ""
-            default_max = ""
-            base_target = 0
-            is_offset = False
-            
-            if key in ["Cell 1 Gain", "Pack Gain", "Bat Gain"]:
-                default_min = "0"
-                default_max = "65535"
-            else:
-                is_offset = True
-                target_key = key.lower().replace(" ", "").replace("_", "")
-                if "shunt" in target_key:
-                    base_target = float(targets.get("shuntresistormohm", 1.0))
-                    default_min = "-0.05"
-                    default_max = "0.05"
-                elif "vcell" in target_key or "vpack" in target_key or "vbat" in target_key:
-                    default_min = "-20"
-                    default_max = "20"
-                    if "cell" in target_key:
-                        base_target = float(targets.get("cell1mv", 3200))
-                    elif "pack" in target_key:
-                        base_target = float(targets.get("packmv", 12780))
-                    elif "bat" in target_key:
-                        base_target = float(targets.get("batmv", 12780))
-                elif "temp" in target_key:
-                    default_min = "-1.0"
-                    default_max = "1.0"
-                    if "int" in target_key:
-                        base_target = float(targets.get("inttempc", 25.0))
-                    elif "ts1" in target_key:
-                        base_target = float(targets.get("ts1tempc", 25.0))
-                    elif "ts2" in target_key:
-                        base_target = float(targets.get("ts2tempc", 25.0))
-                    elif "ts3" in target_key:
-                        base_target = float(targets.get("ts3tempc", 25.0))
-                    elif "ts4" in target_key:
-                        base_target = float(targets.get("ts4tempc", 25.0))
+        limits_per_ch = {}
+        for ch in range(1, 7):
+            ch_t = targets_per_ch.get(ch, {})
+            ch_limits = {}
+            for key in limit_keys:
+                default_min = ""
+                default_max = ""
+                base_target = 0
+                is_offset = False
+                
+                if key in ["Cell 1 Gain", "Pack Gain", "Bat Gain"]:
+                    default_min = "0"
+                    default_max = "65535"
+                else:
+                    is_offset = True
+                    target_key = key.lower().replace(" ", "").replace("_", "")
+                    if "shunt" in target_key:
+                        base_target = float(ch_t.get("shuntresistormohm", 1.0))
+                        default_min = "-0.05"
+                        default_max = "0.05"
+                    elif "vcell" in target_key or "vpack" in target_key or "vbat" in target_key:
+                        default_min = "-20"
+                        default_max = "20"
+                        if "cell" in target_key:
+                            base_target = float(ch_t.get("cell1mv", 3200))
+                        elif "pack" in target_key:
+                            base_target = float(ch_t.get("packmv", 12780))
+                        elif "bat" in target_key:
+                            base_target = float(ch_t.get("batmv", 12780))
+                    elif "temp" in target_key:
+                        default_min = "-1.0"
+                        default_max = "1.0"
+                        if "int" in target_key:
+                            base_target = float(ch_t.get("inttempc", 25.0))
+                        elif "ts1" in target_key:
+                            base_target = float(ch_t.get("ts1tempc", 25.0))
+                        elif "ts2" in target_key:
+                            base_target = float(ch_t.get("ts2tempc", 25.0))
+                        elif "ts3" in target_key:
+                            base_target = float(ch_t.get("ts3tempc", 25.0))
+                        elif "ts4" in target_key:
+                            base_target = float(ch_t.get("ts4tempc", 25.0))
 
-            l_min = self.settings.value(f"limit_{ic}_{key}_min", default_min)
-            l_max = self.settings.value(f"limit_{ic}_{key}_max", default_max)
-            
-            if l_min != "" and l_max != "":
-                try:
-                    v_min = float(l_min)
-                    v_max = float(l_max)
-                    if is_offset:
-                        if key == "Shunt Resistor":
-                            limits["CC Gain"] = (base_target + v_min, base_target + v_max)
-                            limits["Capacity Gain"] = (base_target + v_min, base_target + v_max)
+                l_min = self.settings.value(f"limit_{ic}_{key}_min", default_min)
+                l_max = self.settings.value(f"limit_{ic}_{key}_max", default_max)
+                
+                if l_min != "" and l_max != "":
+                    try:
+                        v_min = float(l_min)
+                        v_max = float(l_max)
+                        if is_offset:
+                            if key == "Shunt Resistor":
+                                ch_limits["CC Gain"] = (base_target + v_min, base_target + v_max)
+                                ch_limits["Capacity Gain"] = (base_target + v_min, base_target + v_max)
+                            else:
+                                ch_limits[key] = (base_target + v_min, base_target + v_max)
                         else:
-                            limits[key] = (base_target + v_min, base_target + v_max)
-                    else:
-                        limits[key] = (v_min, v_max)
-                except ValueError:
-                    pass
-                    
-        self.log(f"DEBUG Extracted Limits for Thread: V_Bat={limits.get('V_Bat')} V_Cell3={limits.get('V_Cell 3')}")
+                            ch_limits[key] = (v_min, v_max)
+                    except ValueError:
+                        pass
+            limits_per_ch[ch] = ch_limits
+
+        limits = limits_per_ch.get(self.current_channel, {})
+        ch1_pack_lim = limits_per_ch.get(1, {}).get('V_Pack')
+        ch2_pack_lim = limits_per_ch.get(2, {}).get('V_Pack')
+        self.log(f"DEBUG Extracted Limits per Channel: CH1 V_Pack={ch1_pack_lim}, CH2 V_Pack={ch2_pack_lim}")
+        
         # Determine script base for the selected IC (fallback to default if missing)
         script_base = IC_CONFIGS.get(ic, {}).get("script", "bq40z50")
         try:
-            self.cal_thread = CalibrationThread(port, selected_channels, self.script_dir, script_base, targets, ic, limits)
+            self.cal_thread = CalibrationThread(port, selected_channels, self.script_dir, script_base, targets, ic, limits, limits_per_ch)
         except Exception as e:
             self.log(f"Error initializing CalibrationThread: {e}")
             return

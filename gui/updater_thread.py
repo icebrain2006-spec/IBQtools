@@ -744,40 +744,6 @@ class ScanWorker(QThread):
     def stop(self):
         self.is_running = False
 
-class UploadWorker(QThread):
-    finished = Signal(bool)
-    progress_updated = Signal(int)
-    log_msg = Signal(str)
-
-    def __init__(self, port, file_path, parent=None):
-        super().__init__(parent)
-        self.port = port
-        self.file_path = file_path
-        self.is_running = True
-        
-    def send_and_wait(self, ser, packet, expected_cmd, timeout=2.0):
-        ser.reset_input_buffer()
-        ser.write(packet)
-        
-        start_time = time.time()
-        rx_buf = bytearray()
-        
-        while time.time() - start_time < timeout:
-            if not self.is_running:
-                return None
-            if ser.in_waiting:
-                rx_buf.extend(ser.read(ser.in_waiting))
-                if len(rx_buf) >= 7 and rx_buf[0] == PROTOCOL_STX and rx_buf[-1] == PROTOCOL_ETX:
-                    cmd, payload = parse_response(rx_buf)
-                    if cmd == expected_cmd:
-                        return payload
-            time.sleep(0.01)
-        return None
-
-    def run(self):
-        import os, zlib
-        self.log_msg.emit(f"[INFO] Connecting to {self.port} for SLFS Upload...")
-
 class DisconnectionMonitor(QThread):
     channel_disconnected = Signal(int)
     log_msg = Signal(str)
@@ -867,6 +833,40 @@ class DisconnectionMonitor(QThread):
 
     def stop(self):
         self.is_running = False
+
+class UploadWorker(QThread):
+    finished = Signal(bool)
+    progress_updated = Signal(int)
+    log_msg = Signal(str)
+
+    def __init__(self, port, file_path, parent=None):
+        super().__init__(parent)
+        self.port = port
+        self.file_path = file_path
+        self.is_running = True
+        
+    def send_and_wait(self, ser, packet, expected_cmd, timeout=2.0):
+        ser.reset_input_buffer()
+        ser.write(packet)
+        
+        start_time = time.time()
+        rx_buf = bytearray()
+        
+        while time.time() - start_time < timeout:
+            if not self.is_running:
+                return None
+            if ser.in_waiting:
+                rx_buf.extend(ser.read(ser.in_waiting))
+                if len(rx_buf) >= 7 and rx_buf[0] == PROTOCOL_STX and rx_buf[-1] == PROTOCOL_ETX:
+                    cmd, payload = parse_response(rx_buf)
+                    if cmd == expected_cmd:
+                        return payload
+            time.sleep(0.01)
+        return None
+
+    def run(self):
+        import os, zlib
+        self.log_msg.emit(f"[INFO] Connecting to {self.port} for SLFS Upload...")
         
         if not os.path.exists(self.file_path):
             self.log_msg.emit(f"[ERROR] File '{self.file_path}' not found.")

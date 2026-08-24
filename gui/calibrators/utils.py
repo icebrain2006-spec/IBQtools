@@ -1,6 +1,21 @@
-import csv
-import glob
+import sys
 import os
+import glob
+import csv
+
+def get_dataflash_dir():
+    if getattr(sys, 'frozen', False):
+        base_meipass = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+        candidates = [
+            os.path.join(base_meipass, "gui", "calibrators", "dataflashs"),
+            os.path.join(base_meipass, "calibrators", "dataflashs"),
+            os.path.join(os.path.dirname(sys.executable), "gui", "calibrators", "dataflashs"),
+            os.path.join(os.path.dirname(sys.executable), "calibrators", "dataflashs"),
+        ]
+        for c in candidates:
+            if os.path.exists(c):
+                return c
+    return os.path.join(os.path.dirname(__file__), "dataflashs")
 
 def detect_dataflash_offset(ic_name, version_hex, param_name="DA Configuration"):
     """
@@ -11,7 +26,7 @@ def detect_dataflash_offset(ic_name, version_hex, param_name="DA Configuration")
     minor = version_hex & 0xFF
     ver_str = f"V{major}_{minor:02d}"
     
-    df_dir = os.path.join(os.path.dirname(__file__), "dataflashs")
+    df_dir = get_dataflash_dir()
     
     # Clean IC name (e.g. BQ40Z50 -> bq40z50)
     ic = ic_name.lower()
@@ -51,7 +66,7 @@ def load_calibration_offsets(csv_name):
     if not csv_name:
         return {}
         
-    df_dir = os.path.join(os.path.dirname(__file__), "dataflashs")
+    df_dir = get_dataflash_dir()
     csv_file = os.path.join(df_dir, csv_name)
     
     if not os.path.exists(csv_file):
