@@ -293,11 +293,6 @@ class CalibrationThread(QThread):
         serial_num = "Unknown"
         mfg_date = "Unknown"
         try:
-            s_data = self.smbus_read_word(0x1C)
-            if s_data and len(s_data) >= 2:
-                val = struct.unpack('<H', bytes(s_data))[0]
-                serial_num = f"{val:04X}"
-                
             m_data = self.smbus_read_word(0x1B)
             if m_data and len(m_data) >= 2:
                 val = struct.unpack('<H', bytes(m_data))[0]
@@ -305,6 +300,11 @@ class CalibrationThread(QThread):
                 month = (val >> 5) & 0x0F
                 year = (val >> 9) + 1980
                 mfg_date = f"{year}-{month:02d}-{day:02d}"
+                
+            s_data = self.smbus_read_word(0x1C)
+            if s_data and len(s_data) >= 2:
+                val = struct.unpack('<H', bytes(s_data))[0]
+                serial_num = f"{val:04X}"
         except Exception as e:
             self._log(f"Error reading Mfg Info: {e}")
         return serial_num, mfg_date
@@ -1038,12 +1038,6 @@ class CalibrationThread(QThread):
             else:
                 modes_to_run = [run_mode]
             
-            # Initial safety reset: Ensure all relays are OFF before starting
-            self._log("Initializing Relays to OFF state...")
-            for ch in self.channels:
-                self.ch = ch
-                self._set_relay(False)
-        
             for ch in self.channels:
                 if not self._running:
                     break
