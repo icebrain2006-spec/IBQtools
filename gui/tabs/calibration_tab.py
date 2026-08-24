@@ -335,9 +335,8 @@ class CalibrationTab(QWidget):
         for p in serial.tools.list_ports.comports():
             hwid = str(p.hwid).upper()
             desc = str(p.description).upper()
+            # Filter out virtual/bluetooth ports
             if "BTHENUM" in hwid or "BLUETOOTH" in desc or "BTHENUM" in desc:
-                continue
-            if "USB" not in hwid and "USB" not in desc:
                 continue
             active_ports.append(p.device)
             
