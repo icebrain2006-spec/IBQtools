@@ -204,48 +204,26 @@ class CalibrationThread(QThread):
         return isinstance(resp, (bytes, bytearray)) and len(resp) > 0 and resp[0] == RESP_OK
 
     def _read_packet(self):
-        rx = bytearray()
         start_time = time.time()
-        # Wait up to 500ms for STX header 0x02 to arrive in buffer
-        found_header = False
-        while time.time() - start_time < 0.5:
-            b = self.ser.read(1)
-            if b and b[0] == 0x02:
-                rx.extend(b)
-                found_header = True
-                break
-            time.sleep(0.005)
-            
-        if not found_header:
-            return rx # Timeout without receiving 0x02 STX header
-            
-        # Read 2 bytes for payload length
-        len_bytes = bytearray()
-        read_start = time.time()
-        while len(len_bytes) < 2 and (time.time() - read_start < 0.3):
-            chunk = self.ser.read(2 - len(len_bytes))
-            if chunk:
-                len_bytes.extend(chunk)
-            else:
-                time.sleep(0.005)
+        buf = b""
+        old_timeout = self.ser.timeout
+        self.ser.timeout = 0.05
+        try:
+            while time.time() - start_time < 0.5:
+                rx = self.ser.read(128)
+                if rx:
+                    buf += rx
+                    buf = buf.replace(b'\r\n', b'\n')
                 
-        rx.extend(len_bytes)
-        if len(len_bytes) < 2:
-            return rx
-            
-        length = struct.unpack(">H", len_bytes)[0]
-        needed = length + 3  # Cmd(1) + Payload(length) + Checksum(1) + ETX(1)
-        payload = bytearray()
-        payload_start = time.time()
-        while len(payload) < needed and (time.time() - payload_start < 0.5):
-            chunk = self.ser.read(needed - len(payload))
-            if chunk:
-                payload.extend(chunk)
-            else:
-                time.sleep(0.005)
-                
-        rx.extend(payload)
-        return rx
+                stx_idx = buf.find(PROTOCOL_STX)
+                if stx_idx != -1 and len(buf) >= stx_idx + 7:
+                    length = struct.unpack(">H", buf[stx_idx+1:stx_idx+3])[0]
+                    expected_total = length + 6
+                    if len(buf) >= stx_idx + expected_total:
+                        return buf[stx_idx:stx_idx+expected_total]
+        finally:
+            self.ser.timeout = old_timeout
+        return b""
 
     def smbus_read_word(self, cmd_reg):
         payload = bytes([self.ch, self.addr, cmd_reg, 1, 2, 0, 0])
