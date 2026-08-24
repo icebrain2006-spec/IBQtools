@@ -375,6 +375,7 @@ class UpdaterWorker(QThread):
                         cmd, resp = parse_response(pkt_chunk)
                         
                         if cmd == CMD_SMBUS_CMD:
+                            self.log_msg.emit(f"    [RAW IO] TX({len(packet)}b): {packet.hex(' ')} | RX({len(pkt_chunk)}b): {pkt_chunk.hex(' ')}")
                             if resp and resp[0] == RESP_OK:
                                 return resp[1] | (resp[2] << 8)
                             else:
