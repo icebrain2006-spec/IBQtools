@@ -6,7 +6,7 @@ from PySide6.QtCore import QThread, Signal, Slot
 
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from updater_thread import make_packet, parse_response, RESP_OK, CMD_I2C_RAW, CMD_SMBUS_CMD, CMD_SMBUS_POLL_BLOCK, CMD_RELAY_SET
+from updater_thread import make_packet, parse_response, RESP_OK, CMD_I2C_RAW, CMD_SMBUS_CMD, CMD_SMBUS_POLL_BLOCK, CMD_RELAY_SET, PROTOCOL_STX
 from calibrators.utils import detect_dataflash_offset, load_calibration_offsets
 
 def crc8_smbus_byte(crc, data):
