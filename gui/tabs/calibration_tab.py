@@ -826,6 +826,7 @@ class CalibrationTab(QWidget):
             if not it:
                 it = QTableWidgetItem("")
                 self.table_data.setItem(param_row, c, it)
+            it.setTextAlignment(Qt.AlignCenter)
             it.setBackground(bg)
             
         # Update Overall Result in the fixed bottom table
