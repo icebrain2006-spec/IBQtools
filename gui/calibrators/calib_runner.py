@@ -281,9 +281,14 @@ class CalibrationThread(QThread):
         serial_num = "Unknown"
         mfg_date = "Unknown"
         try:
-            self._exit_rom_mode()
-            time.sleep(0.5) # Wait for BQ to boot into firmware mode
+            # 1st attempt: Direct read (Fast path)
             m_data = self.smbus_read_word(0x1B)
+            if not m_data or len(m_data) < 2:
+                # 2nd attempt: If direct read fails, exit ROM mode and retry
+                self._exit_rom_mode()
+                time.sleep(0.1) # Brief wait for BQ firmware mode
+                m_data = self.smbus_read_word(0x1B)
+
             if m_data and len(m_data) >= 2:
                 val = struct.unpack('<H', bytes(m_data))[0]
                 day = val & 0x1F
@@ -1008,22 +1013,13 @@ class CalibrationThread(QThread):
         import serial
         self._log(f"[INFO] Connecting to {self.port} for Calibration...")
         self.ser = None
-        for _ in range(5):
-            try:
-                self.ser = serial.Serial(self.port, 115200, timeout=1.5)
-                self.ser.reset_input_buffer()
-                break
-            except Exception:
-                time.sleep(0.1)
-                
-        if self.ser is None:
-            try:
-                self.ser = serial.Serial(self.port, 115200, timeout=1.5)
-                self.ser.reset_input_buffer()
-            except Exception as e:
-                self._log(f"[ERROR] Failed to open {self.port}: {e}")
-                self.finished_signal.emit(False)
-                return
+        try:
+            self.ser = serial.Serial(self.port, 115200, timeout=1.5)
+            self.ser.reset_input_buffer()
+        except Exception as e:
+            self._log(f"[ERROR] Failed to open {self.port}: {e}")
+            self.finished_signal.emit(False)
+            return
 
         try:
             run_mode = self.targets.get("run_mode", "voltage")
