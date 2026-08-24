@@ -193,6 +193,10 @@ class CalibrationTab(QWidget):
         self.combo_ic.currentTextChanged.connect(self._build_dynamic_ui)
         self.combo_ic.currentTextChanged.connect(lambda t: self.settings.setValue("calib_last_ic", t))
         
+        top_layout.addWidget(QLabel("COM Port:"))
+        top_layout.addWidget(self.combo_port)
+        top_layout.addWidget(self.btn_refresh_ports)
+        top_layout.addSpacing(20)
         top_layout.addWidget(QLabel("Target IC:"))
         top_layout.addWidget(self.combo_ic)
         top_layout.addSpacing(20)
@@ -201,10 +205,35 @@ class CalibrationTab(QWidget):
             if self.settings.value(f"calib_ch_{i}_en", "true") == "true":
                 self.selected_channels.add(i)
                 
-        # We removed the top layout checkboxes here.
-            
         top_layout.addStretch()
         main_layout.addLayout(top_layout)
+
+    def refresh_ports(self):
+        current_text = self.combo_port.currentText()
+        self.combo_port.clear()
+        
+        active_ports = []
+        for p in serial.tools.list_ports.comports():
+            hwid = str(p.hwid).upper()
+            desc = str(p.description).upper()
+            if "BTHENUM" in hwid or "BLUETOOTH" in desc or "BTHENUM" in desc:
+                continue
+            if "USB" not in hwid and "USB" not in desc:
+                continue
+            active_ports.append(p.device)
+            
+        if not active_ports:
+            active_ports = ["Select COM"]
+            
+        self.combo_port.addItems(active_ports)
+        
+        last_port = self.settings.value("calib_last_port", "")
+        if current_text in active_ports:
+            self.combo_port.setCurrentText(current_text)
+        elif last_port in active_ports:
+            self.combo_port.setCurrentText(last_port)
+        elif active_ports and active_ports[0] != "Select COM":
+            self.combo_port.setCurrentText(active_ports[0])
         
         # --- Splitter for Left/Right Panels ---
         splitter = QSplitter(Qt.Horizontal)
