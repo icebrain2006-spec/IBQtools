@@ -985,7 +985,7 @@ class CalibrationThread(QThread):
             self.ser = serial.Serial(self.port, 115200, timeout=0.1)
             time.sleep(0.5)
         except Exception as e:
-            self._log(f"Error opening port: {e}")
+            self._log(f"Error opening port {self.port}: {e}. (Please check if another tab or program is using {self.port})")
             self.finished_signal.emit(False)
             return
 

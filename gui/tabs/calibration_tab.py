@@ -854,6 +854,20 @@ class CalibrationTab(QWidget):
         if not port or "Select" in port:
             self.log("Error: Please select a valid COM port.")
             return
+
+        # Ensure UpdaterTab or any background worker releases the COM port if occupied
+        parent_main = self.window()
+        if hasattr(parent_main, 'updater_tab') and parent_main.updater_tab:
+            for board in parent_main.updater_tab.boards:
+                if board.combo_port.currentText() == port:
+                    if hasattr(board, 'disconnect_monitor') and board.disconnect_monitor and board.disconnect_monitor.isRunning():
+                        board.disconnect_monitor.stop()
+                        board.disconnect_monitor.wait(500)
+                        self.log(f"Notice: Released DisconnectionMonitor on {port} from UpdaterTab.")
+                    if hasattr(board, 'worker') and board.worker and board.worker.isRunning():
+                        board.worker.stop()
+                        board.worker.wait(500)
+                        self.log(f"Notice: Stopped active Updater Worker on {port}.")
             
         ic = self.combo_ic.currentText()
         
