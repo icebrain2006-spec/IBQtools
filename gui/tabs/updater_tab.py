@@ -909,8 +909,8 @@ class UpdaterTab(QWidget):
         
         from config import config
         if config.settings.value("global_debug_log_en", "false") != "true":
-            # If debug log is off, allow error, system, finished, and RAW IO messages
-            if not is_error and "[sys]" not in lower_msg and "finished" not in lower_msg and "[raw io]" not in lower_msg:
+            # If debug log is off, allow error, system, finished messages
+            if not is_error and "[sys]" not in lower_msg and "finished" not in lower_msg:
                 return
                 
         # To prevent Qt from bleeding the HTML span color into subsequent plain-text lines,

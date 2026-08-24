@@ -705,9 +705,7 @@ class CalibrationTab(QWidget):
             "crash" in msg_lower or 
             "---" in msg or 
             "calibration finished" in msg_lower or 
-            "calibration failed" in msg_lower or
-            "raw io" in msg_lower or
-            "debug" in msg_lower
+            "calibration failed" in msg_lower
         )
         
         # Log to error file globally
