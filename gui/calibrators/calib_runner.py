@@ -1053,6 +1053,13 @@ class CalibrationThread(QThread):
                 success = True
                 self._log(f"--- Processing Calibration for Channel {ch} ---")
             
+                # Perform Serial Check first to wake up and verify BQ chip SBD communication
+                sn, date_str = self._read_mfg_info()
+                if sn != "Unknown" or date_str != "Unknown":
+                    self._log(f"    [Serial Check] SBD Check OK -> Serial: {sn}, Date: {date_str}")
+                else:
+                    self._log(f"    [Serial Check] Warning: Could not read Mfg Info, proceeding anyway...")
+                
                 if not self.detect_firmware_and_config():
                     self._log("Warning: Could not detect configuration, proceeding with defaults.")
                 
