@@ -273,6 +273,7 @@ class CalibrationThread(QThread):
         tx_pkt = make_packet(CMD_I2C_RAW, payload)
         self.ser.reset_input_buffer()
         self.ser.write(tx_pkt)
+        self._read_packet()
         time.sleep(0.01)
 
     def _read_mfg_info(self):
