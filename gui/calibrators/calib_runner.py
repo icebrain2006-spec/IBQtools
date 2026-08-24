@@ -181,8 +181,10 @@ class CalibrationThread(QThread):
 
     def smbus_write_word(self, reg, val):
         payload = struct.pack('<BBBBBBH', self.ch, self.addr, reg, 0, 2, 0, val)
-        self.ser.write(make_packet(CMD_SMBUS_CMD, payload))
+        tx_pkt = make_packet(CMD_SMBUS_CMD, payload)
+        self.ser.write(tx_pkt)
         rx = self._read_packet()
+        self._log(f"    [RAW IO] TX({len(tx_pkt)}b): {tx_pkt.hex(' ')} | RX({len(rx)}b): {rx.hex(' ')}")
         cmd, resp = parse_response(rx)
         return isinstance(resp, (bytes, bytearray)) and len(resp) > 0 and resp[0] == RESP_OK
         
@@ -194,8 +196,10 @@ class CalibrationThread(QThread):
             tx_data.append(pec)
             
         payload = struct.pack('<BBBB', self.ch, self.addr, len(tx_data), 0) + tx_data
-        self.ser.write(make_packet(CMD_I2C_RAW, payload))
+        tx_pkt = make_packet(CMD_I2C_RAW, payload)
+        self.ser.write(tx_pkt)
         rx = self._read_packet()
+        self._log(f"    [RAW IO] TX({len(tx_pkt)}b): {tx_pkt.hex(' ')} | RX({len(rx)}b): {rx.hex(' ')}")
         cmd, resp = parse_response(rx)
         return isinstance(resp, (bytes, bytearray)) and len(resp) > 0 and resp[0] == RESP_OK
 
@@ -218,8 +222,10 @@ class CalibrationThread(QThread):
 
     def smbus_read_word(self, cmd_reg):
         payload = struct.pack('<BBBBBB', self.ch, self.addr, cmd_reg, 1, 2, 1)
-        self.ser.write(make_packet(CMD_SMBUS_CMD, payload))
+        tx_pkt = make_packet(CMD_SMBUS_CMD, payload)
+        self.ser.write(tx_pkt)
         rx = self._read_packet()
+        self._log(f"    [RAW IO] TX({len(tx_pkt)}b): {tx_pkt.hex(' ')} | RX({len(rx)}b): {rx.hex(' ')}")
         cmd, resp = parse_response(rx)
         if isinstance(resp, (bytes, bytearray)) and len(resp) > 0 and resp[0] == RESP_OK:
             return resp[1:3]
@@ -230,8 +236,10 @@ class CalibrationThread(QThread):
         for attempt in range(10):
             if not self._running: return None
             payload = struct.pack('<BBBBBB', self.ch, self.addr, cmd_reg, 1, 32, 1)
-            self.ser.write(make_packet(CMD_SMBUS_CMD, payload))
+            tx_pkt = make_packet(CMD_SMBUS_CMD, payload)
+            self.ser.write(tx_pkt)
             rx = self._read_packet()
+            self._log(f"    [RAW IO] Attempt {attempt+1} TX({len(tx_pkt)}b): {tx_pkt.hex(' ')} | RX({len(rx)}b): {rx.hex(' ')}")
             cmd, resp = parse_response(rx)
             if cmd is None:
                 time.sleep(0.05)
