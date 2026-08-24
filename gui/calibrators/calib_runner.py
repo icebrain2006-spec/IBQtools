@@ -248,7 +248,7 @@ class CalibrationThread(QThread):
         return rx
 
     def smbus_read_word(self, cmd_reg):
-        payload = struct.pack('<BBBBBB', self.ch, self.addr, cmd_reg, 1, 2, 0)
+        payload = bytes([self.ch, self.addr, cmd_reg, 1, 2, 0, 0])
         tx_pkt = make_packet(CMD_SMBUS_CMD, payload)
         self.ser.write(tx_pkt)
         rx = self._read_packet()
@@ -262,7 +262,7 @@ class CalibrationThread(QThread):
         resp = None
         for attempt in range(10):
             if not self._running: return None
-            payload = struct.pack('<BBBBBB', self.ch, self.addr, cmd_reg, 1, 32, 0)
+            payload = bytes([self.ch, self.addr, cmd_reg, 1, 32, 0, 0])
             tx_pkt = make_packet(CMD_SMBUS_CMD, payload)
             self.ser.write(tx_pkt)
             rx = self._read_packet()
