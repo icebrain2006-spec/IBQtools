@@ -178,7 +178,8 @@ class CalibrationTab(QWidget):
         
         # --- Top: Port & Channel Selection ---
         top_layout = QHBoxLayout()
-        self.combo_port = QComboBox()
+        from tabs.updater_tab import PortComboBox
+        self.combo_port = PortComboBox()
         self.combo_port.setMinimumWidth(120)
         self.combo_port.currentTextChanged.connect(lambda t: self.settings.setValue("calib_last_port", t))
         
@@ -335,8 +336,7 @@ class CalibrationTab(QWidget):
         for p in serial.tools.list_ports.comports():
             hwid = str(p.hwid).upper()
             desc = str(p.description).upper()
-            # Filter out virtual/bluetooth ports
-            if "BTHENUM" in hwid or "BLUETOOTH" in desc or "BTHENUM" in desc:
+            if "USB" not in hwid and "USB" not in desc:
                 continue
             active_ports.append(p.device)
             
