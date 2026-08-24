@@ -205,19 +205,46 @@ class CalibrationThread(QThread):
 
     def _read_packet(self):
         rx = bytearray()
-        while True:
+        start_time = time.time()
+        # Wait up to 300ms for STX header 0x02 to arrive in buffer
+        found_header = False
+        while time.time() - start_time < 0.3:
             b = self.ser.read(1)
-            if not b: return rx # Timeout
-            if b[0] == 0x02:
+            if b and b[0] == 0x02:
                 rx.extend(b)
+                found_header = True
                 break
+            time.sleep(0.005)
+            
+        if not found_header:
+            return rx # Timeout without receiving 0x02 STX header
+            
+        # Read 2 bytes for payload length
+        len_bytes = bytearray()
+        read_start = time.time()
+        while len(len_bytes) < 2 and (time.time() - read_start < 0.2):
+            chunk = self.ser.read(2 - len(len_bytes))
+            if chunk:
+                len_bytes.extend(chunk)
+            else:
+                time.sleep(0.005)
                 
-        len_bytes = self.ser.read(2)
         rx.extend(len_bytes)
-        if len(len_bytes) < 2: return rx
-        
+        if len(len_bytes) < 2:
+            return rx
+            
         length = struct.unpack(">H", len_bytes)[0]
-        rx.extend(self.ser.read(length + 3))
+        needed = length + 3  # Cmd(1) + Payload(length) + Checksum(1) + ETX(1)
+        payload = bytearray()
+        payload_start = time.time()
+        while len(payload) < needed and (time.time() - payload_start < 0.3):
+            chunk = self.ser.read(needed - len(payload))
+            if chunk:
+                payload.extend(chunk)
+            else:
+                time.sleep(0.005)
+                
+        rx.extend(payload)
         return rx
 
     def smbus_read_word(self, cmd_reg):
