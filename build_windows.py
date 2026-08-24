@@ -45,7 +45,7 @@ def build_app():
     if os.path.exists(zip_file):
         os.remove(zip_file)
         
-    shutil.make_archive(zip_name, 'zip', 'dist/IBQtools')
+    shutil.make_archive(zip_name, 'zip', root_dir='dist', base_dir='IBQtools')
     print(f"Successfully created {zip_file}!")
 
 if __name__ == '__main__':
