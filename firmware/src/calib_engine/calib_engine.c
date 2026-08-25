@@ -1,8 +1,10 @@
 #include "calib_engine.h"
 #include "smbus.h"
+#include "relay/relay.h"
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
 #include <string.h>
+#include <math.h>
 
 volatile calib_status_t calib_status = {
     .state = 0,
@@ -19,6 +21,12 @@ static uint16_t g_target_bat_mv[7];
 static void run_calib_pipeline(void) {
     uint8_t ch_mask = calib_status.active_channels;
     
+    // If mode == 1 (CURRENT mode), turn ON relays for active channels
+    if (calib_status.mode == 1) {
+        relay_set_mask(ch_mask);
+        sleep_ms(1000); // Wait 1s for load current to stabilize
+    }
+
     // 1. Enter CAL mode (MAC 0x002D: Block Write [0x2D, 0x00] to 0x00/0x44) for all active channels in parallel
     uint8_t cal_enter_cmd[2] = {0x2D, 0x00};
     for (uint8_t ch = 1; ch <= 6; ch++) {
@@ -77,9 +85,10 @@ static void run_calib_pipeline(void) {
                     uint16_t cell1 = rx_buf[6] | (rx_buf[7] << 8);
                     uint16_t pack = rx_buf[14] | (rx_buf[15] << 8);
                     uint16_t bat = rx_buf[16] | (rx_buf[17] << 8);
+                    int16_t cc = (int16_t)(rx_buf[4] | (rx_buf[5] << 8));
                     
                     cell1_sum[ch] += cell1;
-                    pack_sum[ch] += pack;
+                    pack_sum[ch] += (calib_status.mode == 1) ? (uint16_t)(int32_t)cc : pack;
                     bat_sum[ch] += bat;
                     sample_cnt[ch]++;
                 }
@@ -104,39 +113,71 @@ static void run_calib_pipeline(void) {
     for (uint8_t ch = 1; ch <= 6; ch++) {
         if ((ch_mask & (1 << (ch - 1))) && !(calib_status.error_channels & (1 << (ch - 1)))) {
             if (sample_cnt[ch] > 0) {
-                double cell1_avg = (double)cell1_sum[ch] / sample_cnt[ch];
-                double pack_avg = (double)pack_sum[ch] / sample_cnt[ch];
-                double bat_avg = (double)bat_sum[ch] / sample_cnt[ch];
+                if (calib_status.mode == 1) { // CURRENT CALIBRATION
+                    int16_t cc_avg_signed = (int16_t)(pack_sum[ch] / sample_cnt[ch]);
+                    double cc_avg = (double)cc_avg_signed;
+                    if (cc_avg != 0.0) {
+                        int16_t target_ma = (int16_t)g_target_cell1_mv[ch]; // We pass target_ma via cell1 target
+                        if (target_ma == 0) target_ma = -2000; // default fallback
+                        float new_cc_gain = (float)fabs((double)target_ma / cc_avg);
+                        float new_cap_gain = new_cc_gain * 298261.6178f;
 
-                uint16_t g_cell1 = (cell1_avg > 0) ? (uint16_t)((((double)g_target_cell1_mv[ch] / cell1_avg) * 65536.0) + 0.5) : 32768;
-                uint16_t g_pack = (pack_avg > 0) ? (uint16_t)((((double)g_target_pack_mv[ch] / pack_avg) * 65536.0) + 0.5) : 12800;
-                uint16_t g_bat = (bat_avg > 0) ? (uint16_t)((((double)g_target_bat_mv[ch] / bat_avg) * 65536.0) + 0.5) : 12800;
+                        uint8_t df_block[36] = {0};
+                        uint8_t rx_len = 0;
+                        uint8_t df_cmd[2] = {0x00, 0x40};
+                        smbus_write_block(ch, 0x0B, 0x44, df_cmd, 2, false);
+                        sleep_ms(25);
+                        if (smbus_read_block(ch, 0x0B, 0x44, df_block, &rx_len, false) == SMBUS_OK && rx_len >= 14) {
+                            memcpy(df_block + 6, &new_cc_gain, 4);
+                            memcpy(df_block + 10, &new_cap_gain, 4);
 
-                calib_status.results[ch].cell1_gain = g_cell1;
-                calib_status.results[ch].pack_gain = g_pack;
-                calib_status.results[ch].bat_gain = g_bat;
-                // Read cached 0x4000 block, update gains and write back
-                uint8_t df_block[36] = {0};
-                uint8_t rx_len = 0;
-                uint8_t df_cmd[2] = {0x00, 0x40};
-                smbus_write_block(ch, 0x0B, 0x44, df_cmd, 2, false);
-                sleep_ms(25);
-                if (smbus_read_block(ch, 0x0B, 0x44, df_block, &rx_len, false) == SMBUS_OK && rx_len >= 6) {
-                    df_block[0] = g_cell1 & 0xFF;
-                    df_block[1] = (g_cell1 >> 8) & 0xFF;
-                    df_block[2] = g_bat & 0xFF;
-                    df_block[3] = (g_bat >> 8) & 0xFF;
-                    df_block[4] = g_pack & 0xFF;
-                    df_block[5] = (g_pack >> 8) & 0xFF;
+                            uint8_t wr_payload[38];
+                            wr_payload[0] = 0x00;
+                            wr_payload[1] = 0x40;
+                            memcpy(wr_payload + 2, df_block, rx_len);
+                            smbus_write_block(ch, 0x0B, 0x44, wr_payload, 2 + rx_len, true);
+                            calib_status.results[ch].success = true;
+                        } else {
+                            calib_status.error_channels |= (1 << (ch - 1));
+                        }
+                    } else {
+                        calib_status.error_channels |= (1 << (ch - 1));
+                    }
+                } else { // VOLTAGE CALIBRATION
+                    double cell1_avg = (double)cell1_sum[ch] / sample_cnt[ch];
+                    double pack_avg = (double)pack_sum[ch] / sample_cnt[ch];
+                    double bat_avg = (double)bat_sum[ch] / sample_cnt[ch];
 
-                    uint8_t wr_payload[38];
-                    wr_payload[0] = 0x00;
-                    wr_payload[1] = 0x40;
-                    memcpy(wr_payload + 2, df_block, rx_len);
-                    smbus_write_block(ch, 0x0B, 0x44, wr_payload, 2 + rx_len, true); // Send 0x4000 block write with PEC
-                    calib_status.results[ch].success = true;
-                } else {
-                    calib_status.error_channels |= (1 << (ch - 1));
+                    uint16_t g_cell1 = (cell1_avg > 0) ? (uint16_t)((((double)g_target_cell1_mv[ch] / cell1_avg) * 65536.0) + 0.5) : 32768;
+                    uint16_t g_pack = (pack_avg > 0) ? (uint16_t)((((double)g_target_pack_mv[ch] / pack_avg) * 65536.0) + 0.5) : 12800;
+                    uint16_t g_bat = (bat_avg > 0) ? (uint16_t)((((double)g_target_bat_mv[ch] / bat_avg) * 65536.0) + 0.5) : 12800;
+
+                    calib_status.results[ch].cell1_gain = g_cell1;
+                    calib_status.results[ch].pack_gain = g_pack;
+                    calib_status.results[ch].bat_gain = g_bat;
+                    // Read cached 0x4000 block, update gains and write back
+                    uint8_t df_block[36] = {0};
+                    uint8_t rx_len = 0;
+                    uint8_t df_cmd[2] = {0x00, 0x40};
+                    smbus_write_block(ch, 0x0B, 0x44, df_cmd, 2, false);
+                    sleep_ms(25);
+                    if (smbus_read_block(ch, 0x0B, 0x44, df_block, &rx_len, false) == SMBUS_OK && rx_len >= 6) {
+                        df_block[0] = g_cell1 & 0xFF;
+                        df_block[1] = (g_cell1 >> 8) & 0xFF;
+                        df_block[2] = g_bat & 0xFF;
+                        df_block[3] = (g_bat >> 8) & 0xFF;
+                        df_block[4] = g_pack & 0xFF;
+                        df_block[5] = (g_pack >> 8) & 0xFF;
+
+                        uint8_t wr_payload[38];
+                        wr_payload[0] = 0x00;
+                        wr_payload[1] = 0x40;
+                        memcpy(wr_payload + 2, df_block, rx_len);
+                        smbus_write_block(ch, 0x0B, 0x44, wr_payload, 2 + rx_len, true); // Send 0x4000 block write with PEC
+                        calib_status.results[ch].success = true;
+                    } else {
+                        calib_status.error_channels |= (1 << (ch - 1));
+                    }
                 }
             } else {
                 calib_status.error_channels |= (1 << (ch - 1));
@@ -153,6 +194,11 @@ static void run_calib_pipeline(void) {
         }
     }
     sleep_ms(60);
+
+    // If mode == 1 (CURRENT mode), turn OFF relays
+    if (calib_status.mode == 1) {
+        relay_set_mask(0);
+    }
 
     calib_status.state = 2; // DONE
 }
