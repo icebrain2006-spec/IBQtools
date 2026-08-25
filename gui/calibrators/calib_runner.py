@@ -607,10 +607,10 @@ class CalibrationThread(QThread):
                                 batt_sum = 0
                                 valid_count = 0
                                 for blk in blocks:
-                                    if len(blk) >= 14:
-                                        cell1_sum += struct.unpack_from('<H', blk, 6)[0]
-                                        pack_sum += struct.unpack_from('<H', blk, 14)[0]
-                                        batt_sum += struct.unpack_from('<H', blk, 16)[0]
+                                    if len(blk) >= 12:
+                                        cell1_sum += struct.unpack_from('<H', blk, 0)[0]
+                                        batt_sum += struct.unpack_from('<H', blk, 8)[0]
+                                        pack_sum += struct.unpack_from('<H', blk, 10)[0]
                                         valid_count += 1
                                         
                                 if valid_count > 0:
