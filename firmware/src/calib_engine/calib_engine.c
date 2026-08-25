@@ -73,10 +73,10 @@ static void run_calib_pipeline(void) {
                 uint8_t rx_buf[32];
                 uint8_t rx_len = 0;
                 // Raw ADC Block is 0x44 read, byte len varies per firmware (usually >= 12 or 14)
-                if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK && rx_len >= 16) {
-                    uint16_t cell1 = rx_buf[6] | (rx_buf[7] << 8);
-                    uint16_t pack = rx_buf[14] | (rx_buf[15] << 8);
-                    uint16_t bat = (rx_len >= 18) ? (rx_buf[16] | (rx_buf[17] << 8)) : pack;
+                if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK && rx_len >= 12) {
+                    uint16_t cell1 = rx_buf[0] | (rx_buf[1] << 8);
+                    uint16_t bat = rx_buf[8] | (rx_buf[9] << 8);
+                    uint16_t pack = rx_buf[10] | (rx_buf[11] << 8);
                     
                     cell1_sum[ch] += cell1;
                     pack_sum[ch] += pack;
