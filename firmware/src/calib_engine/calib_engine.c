@@ -157,6 +157,7 @@ static void run_calib_pipeline(void) {
                             memcpy(wr_payload + 2, df_block, rx_len);
                             smbus_write_block(ch, 0x0B, 0x44, wr_payload, 2 + rx_len, true);
                             calib_status.results[ch].cell1_gain = (uint16_t)(int16_t)cc_avg;
+                            calib_status.results[ch].pack_gain = (uint16_t)(new_cc_gain * 1000.0f);
                             calib_status.results[ch].success = true;
                         } else {
                             calib_status.error_channels |= (1 << (ch - 1));
