@@ -72,6 +72,7 @@ static void run_calib_pipeline(void) {
     uint32_t cell1_sum[7] = {0};
     uint32_t pack_sum[7] = {0};
     uint32_t bat_sum[7] = {0};
+    int32_t  cc_sum[7] = {0};
     uint8_t sample_cnt[7] = {0};
 
     for (int sample = 0; sample < 6; sample++) {
@@ -88,8 +89,9 @@ static void run_calib_pipeline(void) {
                     int16_t cc = (int16_t)(rx_buf[4] | (rx_buf[5] << 8));
                     
                     cell1_sum[ch] += cell1;
-                    pack_sum[ch] += (calib_status.mode == 1) ? (uint16_t)(int32_t)cc : pack;
+                    pack_sum[ch] += pack;
                     bat_sum[ch] += bat;
+                    cc_sum[ch] += cc;
                     sample_cnt[ch]++;
                 }
             }
@@ -114,8 +116,7 @@ static void run_calib_pipeline(void) {
         if ((ch_mask & (1 << (ch - 1))) && !(calib_status.error_channels & (1 << (ch - 1)))) {
             if (sample_cnt[ch] > 0) {
                 if (calib_status.mode == 1) { // CURRENT CALIBRATION
-                    int16_t cc_avg_signed = (int16_t)(pack_sum[ch] / sample_cnt[ch]);
-                    double cc_avg = (double)cc_avg_signed;
+                    double cc_avg = (double)cc_sum[ch] / sample_cnt[ch];
                     if (cc_avg != 0.0) {
                         int16_t target_ma = (int16_t)g_target_cell1_mv[ch]; // We pass target_ma via cell1 target
                         if (target_ma == 0) target_ma = -2000; // default fallback
