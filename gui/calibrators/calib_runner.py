@@ -1129,8 +1129,9 @@ class CalibrationThread(QThread):
                                         avg_cc = cc_adc_map.get(ch, 0)
                                         self._log(f"    [CH{ch} RP2040 HW Result] PASS -> Avg CC ADC: {avg_cc}, CC Gain: {cc_gain:.6f}, Shunt Resistor: {mohm:.3f} mOhm")
                                         self._log(f"    [CH{ch} RAW 0x4000 Bytes]: {df_b[2:18].hex(' ')}")
-                                        self.emit_result("CC Gain", "CC Gain (mOhm)", f"{cc_gain:.6f}", mohm, is_gain=True)
-                                        self.emit_result("Capacity Gain", "Capacity Gain (mOhm)", f"{cap_gain:.1f}", mohm, is_gain=True)
+                                        self.emit_result("Shunt Resistor", "Shunt Resistor", f"{mohm:.3f}", mohm, is_gain=True)
+                                        self.emit_result("CC Gain", "CC Gain", f"{cc_gain:.6f}", mohm, is_gain=True)
+                                        self.emit_result("Capacity Gain", "Capacity Gain", f"{cap_gain:.1f}", mohm, is_gain=True)
                         break
                     elif state == 3: # ERROR state from RP2040
                         self._log(f"    [RP2040 HW Result] RP2040 returned ERROR state (err_mask={bin(err_channels)})")
