@@ -1124,7 +1124,8 @@ class CalibrationThread(QThread):
                                         cc_gain = struct.unpack_from('<f', df_b, 8)[0]
                                         cap_gain = struct.unpack_from('<f', df_b, 12)[0]
                                         mohm = 3.714528 / cc_gain if cc_gain != 0 else 0
-                                        self._log(f"    [CH{ch} RP2040 HW Result] PASS -> CC Gain: {cc_gain:.6f}, Shunt Resistor: {mohm:.3f} mOhm")
+                                        self._log(f"    [CH{ch} RP2040 HW Result] PASS -> Avg CC ADC: {cell1_g}, CC Gain: {cc_gain:.6f}, Shunt Resistor: {mohm:.3f} mOhm")
+                                        self._log(f"    [CH{ch} RAW 0x4000 Bytes]: {df_b[2:18].hex(' ')}")
                                         self.emit_result("CC Gain", "CC Gain (mOhm)", f"{mohm:.3f}", mohm, is_gain=True)
                                         self.emit_result("Capacity Gain", "Capacity Gain (mOhm)", f"{mohm:.3f}", mohm, is_gain=True)
                         break
