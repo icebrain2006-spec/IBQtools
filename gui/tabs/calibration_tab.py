@@ -334,12 +334,15 @@ class CalibrationTab(QWidget):
         self.combo_port.clear()
         
         rp2040_ports = []
-        other_ports = []
+        other_usb_ports = []
         
         for p in serial.tools.list_ports.comports():
             hwid = str(p.hwid).upper()
             desc = str(p.description).upper()
             if "BTHENUM" in hwid or "BLUETOOTH" in desc:
+                continue
+            # Strictly require USB CDC device (excludes internal motherboard COM1)
+            if "USB" not in hwid and "USB" not in desc:
                 continue
             
             # Helper to extract port number for natural sorting (e.g. COM6 -> 6)
@@ -351,16 +354,16 @@ class CalibrationTab(QWidget):
                     pass
                     
             # Identify RP2040 Pico USB Serial device (VID 2E8A)
-            if "2E8A" in hwid or "RP2040" in desc or "PICO" in desc or "USB SERIAL" in desc:
+            if "2E8A" in hwid or "RP2040" in desc or "PICO" in desc:
                 rp2040_ports.append((port_num, p.device))
             else:
-                other_ports.append((port_num, p.device))
+                other_usb_ports.append((port_num, p.device))
                 
         # Sort RP2040 ports by smallest port number first (Index 0)
         rp2040_ports.sort(key=lambda x: x[0])
-        other_ports.sort(key=lambda x: x[0])
+        other_usb_ports.sort(key=lambda x: x[0])
         
-        sorted_ports = [dev for _, dev in rp2040_ports] + [dev for _, dev in other_ports]
+        sorted_ports = [dev for _, dev in rp2040_ports] + [dev for _, dev in other_usb_ports]
             
         if not sorted_ports:
             sorted_ports = ["Select COM"]
