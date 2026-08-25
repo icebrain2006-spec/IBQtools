@@ -148,6 +148,10 @@ static void run_calib_pipeline(void) {
     calib_status.state = 2; // DONE
 }
 
+static void calib_worker_entry(void) {
+    run_calib_pipeline();
+}
+
 bool calib_engine_start(uint8_t channel_mask, uint8_t mode, uint16_t target_cell1_mv, uint16_t target_pack_mv, uint16_t target_bat_mv) {
     if (calib_status.state == 1) return false;
     calib_status.active_channels = channel_mask;
@@ -158,6 +162,7 @@ bool calib_engine_start(uint8_t channel_mask, uint8_t mode, uint16_t target_cell
     g_target_pack_mv = target_pack_mv;
     g_target_bat_mv = target_bat_mv;
 
-    run_calib_pipeline();
+    multicore_reset_core1();
+    multicore_launch_core1(calib_worker_entry);
     return true;
 }
