@@ -58,10 +58,12 @@ static void run_calib_pipeline(void) {
                 sleep_ms(25);
                 uint8_t rx_buf[32];
                 uint8_t rx_len = 0;
-                if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK && rx_len >= 2) {
-                    // CAL_EN bit check
-                    chk_ok = true;
-                    break;
+                if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK && rx_len >= 4) {
+                    // CAL_EN bit is bit 7 of byte 3 (0x80) in ManufacturingStatus (MAC 0x0057)
+                    if (rx_buf[3] & 0x80) {
+                        chk_ok = true;
+                        break;
+                    }
                 }
                 sleep_ms(25);
             }
@@ -145,9 +147,9 @@ static void run_calib_pipeline(void) {
                             sleep_ms(25);
                             smbus_read_block(ch, 0x0B, 0x44, df_block, &rx_len, false);
                         }
-                        if (rx_len >= 8) {
-                            memcpy(df_block + 0, &new_cc_gain, 4);
-                            memcpy(df_block + 4, &new_cap_gain, 4);
+                        if (rx_len >= 14) {
+                            memcpy(df_block + 6, &new_cc_gain, 4);
+                            memcpy(df_block + 10, &new_cap_gain, 4);
 
                             uint8_t wr_payload[38];
                             wr_payload[0] = 0x00;
