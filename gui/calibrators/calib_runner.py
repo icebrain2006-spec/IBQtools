@@ -1042,12 +1042,20 @@ class CalibrationThread(QThread):
             payload_bytes = bytearray([ch_mask, mode_code])
             for ch in range(1, 7):
                 ch_t = self.targets_per_ch.get(ch, self.targets)
-                tc1 = int(ch_t.get('cell1mv', 3200))
-                tpk = int(ch_t.get('packmv', 12780))
-                tbt = int(ch_t.get('batmv', 12780))
+                if run_mode == "current":
+                    tc1 = int(abs(ch_t.get('currentma', -2000)))
+                    tpk = 0
+                    tbt = 0
+                else:
+                    tc1 = int(ch_t.get('cell1mv', 3200))
+                    tpk = int(ch_t.get('packmv', 12780))
+                    tbt = int(ch_t.get('batmv', 12780))
                 payload_bytes.extend(struct.pack(">HHH", tc1, tpk, tbt))
                 if ch in self.channels:
-                    self._log(f"    [DEBUG Target CH{ch}] Cell1={tc1}mV, Pack={tpk}mV, Bat={tbt}mV")
+                    if run_mode == "current":
+                        self._log(f"    [DEBUG Target CH{ch}] Current={tc1}mA")
+                    else:
+                        self._log(f"    [DEBUG Target CH{ch}] Cell1={tc1}mV, Pack={tpk}mV, Bat={tbt}mV")
 
             self._log(f"--- Sending Hardware Calibration Command to RP2040 (Channels: {self.channels}) ---")
             
