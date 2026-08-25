@@ -32,20 +32,18 @@ static void run_calib_pipeline(void) {
         if (ch_mask & (1 << (ch - 1))) {
             bool chk_ok = false;
             uint8_t cmd_buf[2] = {0x57, 0x00};
-            for (int r = 0; r < 10; r++) {
+            for (int r = 0; r < 15; r++) {
                 smbus_write_block(ch, 0x0B, 0x44, cmd_buf, 2, false);
-                sleep_ms(20);
+                sleep_ms(25);
                 uint8_t rx_buf[32];
                 uint8_t rx_len = 0;
-                if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK && rx_len >= 2) {
-                    // ManufacturingStatus: Check bit 7 (CAL_EN) or bit 15
-                    uint16_t mfg_stat = rx_buf[0] | (rx_buf[1] << 8);
-                    if ((mfg_stat & 0x0080) || (rx_len >= 4 && (rx_buf[3] & 0x80))) { // CAL_EN bit
+                if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK && rx_len >= 4) {
+                    if (rx_buf[3] & 0x80) { // CAL_EN bit (Byte 3 Bit 7)
                         chk_ok = true;
                         break;
                     }
                 }
-                sleep_ms(20);
+                sleep_ms(25);
             }
             if (!chk_ok) {
                 calib_status.error_channels |= (1 << (ch - 1));
