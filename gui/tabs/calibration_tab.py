@@ -181,7 +181,7 @@ class CalibrationTab(QWidget):
         from tabs.updater_tab import PortComboBox
         self.combo_port = PortComboBox()
         self.combo_port.setMinimumWidth(120)
-        self.combo_port.currentTextChanged.connect(lambda t: self.settings.setValue("calib_last_port", t))
+        self.combo_port.currentTextChanged.connect(lambda t: self.settings.setValue("calib_last_port", t) if t and t != "Select COM" else None)
         
         self.btn_refresh_ports = QPushButton("Refresh")
         self.btn_refresh_ports.clicked.connect(self.refresh_ports)
