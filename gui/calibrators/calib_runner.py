@@ -1103,9 +1103,12 @@ class CalibrationThread(QThread):
             total_cal_time = time.time() - total_start_time
             self._log(f"[TIME] Total Pure RP2040 Hardware Calibration Time (All Channels): {total_cal_time:.3f} sec")
 
+            if not calib_done:
+                self._log("Error: RP2040 hardware calibration timed out or failed to reach DONE state.")
+
             # Phase 2: Post Verification & CSV Logging Loop
             self._log("--- Running Post-Verification & Measurement Capture ---")
-            success = all(ch_status_map.values()) if ch_status_map else False
+            success = calib_done and all(ch_status_map.values()) if ch_status_map else False
             for ch in self.channels:
                 if not self._running:
                     break
