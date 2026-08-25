@@ -54,7 +54,7 @@ def main():
     # 2. Build firmware via make_uf2.py
     print("\n[*] Building firmware via make_uf2.py...")
     firmware_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'firmware')
-    build_res = subprocess.run(["python", "make_uf2.py"], cwd=firmware_dir, shell=True)
+    build_res = subprocess.run(["uv", "run", "python", "make_uf2.py"], cwd=firmware_dir, shell=True)
     if build_res.returncode != 0:
         print("[!] Build failed. Aborting Git commit and Release.")
         sys.exit(1)
