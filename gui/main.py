@@ -118,7 +118,10 @@ class BqUpdaterMainWindow(QMainWindow):
         if hasattr(self.calibration_tab, 'btn_quick_start'):
             self.calibration_tab.btn_quick_start.setChecked(False)
 
-        if self.tabs.widget(index) != self.calibration_tab:
+        if self.tabs.widget(index) == self.calibration_tab:
+            if hasattr(self.calibration_tab, 'refresh_ports'):
+                self.calibration_tab.refresh_ports()
+        else:
             if hasattr(self.calibration_tab, 'cal_thread') and self.calibration_tab.cal_thread and self.calibration_tab.cal_thread.isRunning():
                 self.calibration_tab.cal_thread.stop()
                 self.calibration_tab.cal_thread.wait(500)
