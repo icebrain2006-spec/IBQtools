@@ -1072,7 +1072,7 @@ class CalibrationThread(QThread):
                 
                 rx_st = self._read_packet()
                 st_cmd, st_resp = parse_response(rx_st)
-                if isinstance(st_resp, (bytes, bytearray)) and len(st_resp) >= 46 and st_resp[0] == RESP_OK:
+                if isinstance(st_resp, (bytes, bytearray)) and st_resp[0] == RESP_OK:
                     state = st_resp[1]
                     err_channels = st_resp[3]
                     if state == 2: # DONE
@@ -1091,7 +1091,7 @@ class CalibrationThread(QThread):
                                     self.emit_result("Pack Gain", "Pack Gain", str(pack_g), pack_g, is_gain=True)
                                     self.emit_result("Bat Gain", "Bat Gain", str(bat_g), bat_g, is_gain=True)
                                 else:
-                                    self._log(f"    [CH{ch} RP2040 HW Result] FAIL")
+                                    self._log(f"    [CH{ch} RP2040 HW Result] FAIL (err_mask: {bin(err_channels)})")
                         break
 
             total_cal_time = time.time() - total_start_time
