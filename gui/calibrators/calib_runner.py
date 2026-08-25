@@ -1113,20 +1113,19 @@ class CalibrationThread(QThread):
                         for ch in self.channels:
                             self.ch = ch
                             chk_ok = False
-                            for _ in range(3):
+                            for _ in range(10):
                                 self.smbus_write_block_raw(0x44, [0x57, 0x00])
-                                time.sleep(0.01)
+                                time.sleep(0.02)
                                 data = self.smbus_read_block(0x44)
+                                time.sleep(0.05)
                                 if data and len(data) >= 4:
                                     cal_en = (data[3] & 0x80) != 0
                                     if (cal_en and expected == 1) or (not cal_en and expected == 0):
                                         chk_ok = True
                                         break
-                                time.sleep(0.01)
                             if not chk_ok:
                                 self._log(f"    [Warning] CH{ch} CHK_CAL {expected} check failed, proceeding...")
                                 ch_status_map[ch] = False
-                            time.sleep(0.005)
                     elif cmd == 'A':
                         reg = self.parse_val(parts[1])
                         interval_ms = self.parse_val(parts[2])
