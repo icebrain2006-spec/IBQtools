@@ -239,7 +239,7 @@ class CalibrationThread(QThread):
 
     def smbus_read_block(self, cmd_reg):
         resp = None
-        for attempt in range(10):
+        for attempt in range(2):
             if not self._running: return None
             payload = bytes([self.ch, self.addr, cmd_reg, 1, 32, 0, 0])
             tx_pkt = make_packet(CMD_SMBUS_CMD, payload)
@@ -1080,12 +1080,14 @@ class CalibrationThread(QThread):
                         for ch in self.channels:
                             self.ch = ch
                             self.smbus_write_word(reg, val)
+                            time.sleep(0.005)
                     elif cmd == 'B':
                         reg = self.parse_val(parts[1])
                         data_bytes = [self.parse_val(x) for x in parts[2:]]
                         for ch in self.channels:
                             self.ch = ch
                             self.smbus_write_block_raw(reg, data_bytes)
+                            time.sleep(0.005)
                     elif cmd == 'X':
                         delay_ms = self.parse_val(parts[1])
                         # Shared single sleep across all channels
@@ -1099,17 +1101,19 @@ class CalibrationThread(QThread):
                                 val = struct.unpack('<H', bytes(data))[0]
                                 if not hasattr(self, 'script_vars'): self.script_vars = {}
                                 self.script_vars[reg] = val
+                            time.sleep(0.005)
                     elif cmd == 'R':
                         reg = self.parse_val(parts[1])
                         for ch in self.channels:
                             self.ch = ch
                             self.smbus_read_block(reg)
+                            time.sleep(0.005)
                     elif cmd == 'CHK_CAL':
                         expected = self.parse_val(parts[1])
                         for ch in self.channels:
                             self.ch = ch
                             chk_ok = False
-                            for _ in range(10):
+                            for _ in range(3):
                                 self.smbus_write_block_raw(0x44, [0x57, 0x00])
                                 time.sleep(0.01)
                                 data = self.smbus_read_block(0x44)
@@ -1118,9 +1122,11 @@ class CalibrationThread(QThread):
                                     if (cal_en and expected == 1) or (not cal_en and expected == 0):
                                         chk_ok = True
                                         break
-                                time.sleep(0.02)
+                                time.sleep(0.01)
                             if not chk_ok:
+                                self._log(f"    [Warning] CH{ch} CHK_CAL {expected} check failed, proceeding...")
                                 ch_status_map[ch] = False
+                            time.sleep(0.005)
                     elif cmd == 'A':
                         reg = self.parse_val(parts[1])
                         interval_ms = self.parse_val(parts[2])
