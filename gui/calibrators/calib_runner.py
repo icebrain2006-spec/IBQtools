@@ -1032,41 +1032,154 @@ class CalibrationThread(QThread):
             else:
                 modes_to_run = [run_mode]
             
-            ch_status_map = {}
+            total_start_time = time.time()
+            ch_status_map = {ch: True for ch in self.channels}
             
-            # Phase 1: Pure Calibration Loop (Batch run across CH1 -> CH2 -> CH3)
+            # Phase 1: Interleaved Multi-Channel Pipeline Calibration Loop
+            self._log(f"--- Starting Interleaved Multi-Channel Calibration for Channels: {self.channels} ---")
+            
+            # 1. Pre-flight check & setup targets per channel
             for ch in self.channels:
-                if not self._running:
-                    break
+                if not self._running: break
                 self.ch = ch
                 if self.targets_per_ch and ch in self.targets_per_ch:
                     self.targets = self.targets_per_ch[ch]
-                ch_success = True
-                self._log(f"--- Processing Calibration for Channel {ch} ---")
-                ch_start_time = time.time()
-            
-                # Perform Serial Check first to wake up and verify BQ chip SBD communication
                 sn, date_str = self._read_mfg_info()
                 if sn != "Unknown" or date_str != "Unknown":
-                    self._log(f"    [Serial Check] SBD Check OK -> Serial: {sn}, Date: {date_str}")
+                    self._log(f"    [CH{ch} Serial Check] SBD Check OK -> Serial: {sn}, Date: {date_str}")
                 else:
-                    self._log(f"    [Serial Check] Warning: Could not read Mfg Info, proceeding anyway...")
-                
+                    self._log(f"    [CH{ch} Serial Check] Warning: Could not read Mfg Info, proceeding anyway...")
                 if not self.detect_firmware_and_config():
-                    self._log("Warning: Could not detect configuration, proceeding with defaults.")
+                    self._log(f"Warning: CH{ch} could not detect configuration, proceeding with defaults.")
+
+            # 2. Run Interleaved Script Pipeline per mode
+            for m in modes_to_run:
+                if not self._running: break
+                script_path = os.path.join(self.script_dir, f"{self.script_base}_{m}.calib")
+                if not os.path.exists(script_path):
+                    self._log(f"Script file not found: {script_path}")
+                    continue
                 
-                for m in modes_to_run:
-                    script_path = os.path.join(self.script_dir, f"{self.script_base}_{m}.calib")
-                    if not self.execute_script(script_path, m):
-                        ch_success = False
-                        break
+                with open(script_path, 'r') as f:
+                    script_lines = [line.split('#')[0].split(';')[0].strip() for line in f.readlines()]
+                script_lines = [line for line in script_lines if line]
+                
+                self._log(f"--- Running Interleaved Pipeline [{m.upper()}] across Channels: {self.channels} ---")
+                
+                # Execute line by line across all channels in parallel
+                for line_idx, line in enumerate(script_lines):
+                    if not self._running: break
+                    parts = line.split()
+                    cmd = parts[0].upper()
+                    
+                    self._log(f"[{line_idx+1:02d}] {line} (Pipeline CH: {self.channels})")
+                    
+                    if cmd == 'W':
+                        reg = self.parse_val(parts[1])
+                        val = self.parse_val(parts[2])
+                        for ch in self.channels:
+                            self.ch = ch
+                            self.smbus_write_word(reg, val)
+                    elif cmd == 'B':
+                        reg = self.parse_val(parts[1])
+                        data_bytes = [self.parse_val(x) for x in parts[2:]]
+                        for ch in self.channels:
+                            self.ch = ch
+                            self.smbus_write_block_raw(reg, data_bytes)
+                    elif cmd == 'X':
+                        delay_ms = self.parse_val(parts[1])
+                        # Shared single sleep across all channels
+                        time.sleep(delay_ms / 1000.0)
+                    elif cmd == 'RW':
+                        reg = self.parse_val(parts[1])
+                        for ch in self.channels:
+                            self.ch = ch
+                            data = self.smbus_read_word(reg)
+                            if data and len(data) >= 2:
+                                val = struct.unpack('<H', bytes(data))[0]
+                                if not hasattr(self, 'script_vars'): self.script_vars = {}
+                                self.script_vars[reg] = val
+                    elif cmd == 'R':
+                        reg = self.parse_val(parts[1])
+                        for ch in self.channels:
+                            self.ch = ch
+                            self.smbus_read_block(reg)
+                    elif cmd == 'CHK_CAL':
+                        expected = self.parse_val(parts[1])
+                        for ch in self.channels:
+                            self.ch = ch
+                            chk_ok = False
+                            for _ in range(10):
+                                self.smbus_write_block_raw(0x44, [0x57, 0x00])
+                                time.sleep(0.01)
+                                data = self.smbus_read_block(0x44)
+                                if data and len(data) >= 4:
+                                    cal_en = (data[3] & 0x80) != 0
+                                    if (cal_en and expected == 1) or (not cal_en and expected == 0):
+                                        chk_ok = True
+                                        break
+                                time.sleep(0.02)
+                            if not chk_ok:
+                                ch_status_map[ch] = False
+                    elif cmd == 'A':
+                        reg = self.parse_val(parts[1])
+                        interval_ms = self.parse_val(parts[2])
+                        count = self.parse_val(parts[3])
                         
-                ch_pure_cal_time = time.time() - ch_start_time
-                self._log(f"    [TIME] CH{ch} Pure Cal Execution Time: {ch_pure_cal_time:.3f} sec")
-                ch_status_map[ch] = ch_success
+                        # Round-Robin Interleaved ADC sampling
+                        ch_blocks = {ch: [] for ch in self.channels}
+                        for step in range(count):
+                            if not self._running: break
+                            step_start = time.time()
+                            for ch in self.channels:
+                                self.ch = ch
+                                b = self.smbus_read_block(reg)
+                                if b:
+                                    ch_blocks[ch].append(b)
+                            
+                            # Deduct elapsed read time from shared interval sleep
+                            elapsed_ms = (time.time() - step_start) * 1000.0
+                            rem_sleep = max(0.0, (interval_ms - elapsed_ms) / 1000.0)
+                            if rem_sleep > 0:
+                                time.sleep(rem_sleep)
+                                
+                        # Process ADC averages per channel
+                        for ch in self.channels:
+                            self.ch = ch
+                            if self.targets_per_ch and ch in self.targets_per_ch:
+                                self.targets = self.targets_per_ch[ch]
+                            blocks = ch_blocks.get(ch, [])
+                            if blocks:
+                                cell1_sum = pack_sum = batt_sum = valid_count = 0
+                                for blk in blocks:
+                                    if len(blk) >= 14:
+                                        cell1_sum += struct.unpack_from('<H', blk, 6)[0]
+                                        pack_sum += struct.unpack_from('<H', blk, 14)[0]
+                                        batt_sum += struct.unpack_from('<H', blk, 16)[0]
+                                        valid_count += 1
+                                if valid_count > 0:
+                                    cell1_avg = cell1_sum / float(valid_count)
+                                    batt_avg = batt_sum / float(valid_count)
+                                    pack_avg = pack_sum / float(valid_count)
+                                    if cell1_avg > 0:
+                                        g = int((self.targets.get('cell1mv', 3200) / cell1_avg) * 65536)
+                                        g = max(0, min(65535, g))
+                                        self.emit_result("Cell 1 Gain", "Cell 1 Gain", str(g), g, is_gain=True)
+                                    if pack_avg > 0:
+                                        g = int((self.targets.get('packmv', 12780) / pack_avg) * 65536)
+                                        g = max(0, min(65535, g))
+                                        self.emit_result("Pack Gain", "Pack Gain", str(g), g, is_gain=True)
+                                    if batt_avg > 0:
+                                        g = int((self.targets.get('batmv', 12780) / batt_avg) * 65536)
+                                        g = max(0, min(65535, g))
+                                        self.emit_result("Bat Gain", "Bat Gain", str(g), g, is_gain=True)
+                    elif cmd == 'S':
+                        for ch in self.channels:
+                            self.ch = ch
+                            self.save_4000_block()
 
             total_cal_time = time.time() - total_start_time
-            self._log(f"[TIME] Total Pure Calibration Time (All Channels): {total_cal_time:.3f} sec")
+            self._log(f"[TIME] Total Pure Pipeline Calibration Time (All Channels): {total_cal_time:.3f} sec")
 
             # Phase 2: Post Verification & CSV Logging Loop
             self._log("--- Running Post-Verification & Measurement Capture ---")
