@@ -104,13 +104,13 @@ static void run_calib_pipeline(void) {
     for (uint8_t ch = 1; ch <= 6; ch++) {
         if ((ch_mask & (1 << (ch - 1))) && !(calib_status.error_channels & (1 << (ch - 1)))) {
             if (sample_cnt[ch] > 0) {
-                float cell1_avg = (float)cell1_sum[ch] / sample_cnt[ch];
-                float pack_avg = (float)pack_sum[ch] / sample_cnt[ch];
-                float bat_avg = (float)bat_sum[ch] / sample_cnt[ch];
+                double cell1_avg = (double)cell1_sum[ch] / sample_cnt[ch];
+                double pack_avg = (double)pack_sum[ch] / sample_cnt[ch];
+                double bat_avg = (double)bat_sum[ch] / sample_cnt[ch];
 
-                uint16_t g_cell1 = (cell1_avg > 0) ? (uint16_t)((g_target_cell1_mv[ch] / cell1_avg) * 65536.0f) : 32768;
-                uint16_t g_pack = (pack_avg > 0) ? (uint16_t)((g_target_pack_mv[ch] / pack_avg) * 65536.0f) : 12800;
-                uint16_t g_bat = (bat_avg > 0) ? (uint16_t)((g_target_bat_mv[ch] / bat_avg) * 65536.0f) : 12800;
+                uint16_t g_cell1 = (cell1_avg > 0) ? (uint16_t)((((double)g_target_cell1_mv[ch] / cell1_avg) * 65536.0) + 0.5) : 32768;
+                uint16_t g_pack = (pack_avg > 0) ? (uint16_t)((((double)g_target_pack_mv[ch] / pack_avg) * 65536.0) + 0.5) : 12800;
+                uint16_t g_bat = (bat_avg > 0) ? (uint16_t)((((double)g_target_bat_mv[ch] / bat_avg) * 65536.0) + 0.5) : 12800;
 
                 calib_status.results[ch].cell1_gain = g_cell1;
                 calib_status.results[ch].pack_gain = g_pack;
