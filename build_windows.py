@@ -6,7 +6,51 @@ import shutil
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), 'gui')))
 from version import __version__
 
+def increment_gui_version():
+    version_file = os.path.join(os.path.dirname(__file__), 'gui', 'version.py')
+    if not os.path.exists(version_file):
+        return "1.4.00"
+    
+    with open(version_file, "r", encoding="utf-8") as f:
+        content = f.read()
+        
+    import re
+    match = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', content)
+    if not match:
+        return "1.4.00"
+        
+    old_ver = match.group(1)
+    parts = old_ver.split('.')
+    
+    if len(parts) == 2:
+        major_minor = f"{parts[0]}.{parts[1]}"
+        build_num = 1
+    elif len(parts) >= 3:
+        major_minor = f"{parts[0]}.{parts[1]}"
+        try:
+            build_num = int(parts[2]) + 1
+        except ValueError:
+            build_num = 1
+    else:
+        major_minor = "1.4"
+        build_num = 1
+        
+    new_ver = f"{major_minor}.{build_num:02d}"
+    
+    new_content = re.sub(
+        r'__version__\s*=\s*["\']([^"\']+)["\']',
+        f'__version__ = "{new_ver}"',
+        content
+    )
+    with open(version_file, "w", encoding="utf-8") as f:
+        f.write(new_content)
+        
+    print(f"[*] GUI Version incremented: {old_ver} -> {new_ver}")
+    return new_ver
+
 def build_app():
+    current_ver = increment_gui_version()
+    
     print("Cleaning previous builds...")
     for dir_name in ['build', 'dist']:
         if os.path.exists(dir_name):
@@ -40,7 +84,7 @@ def build_app():
     shutil.copytree('assets', dist_assets)
     
     print("Zipping the distribution folder...")
-    zip_name = f'IBQtools_Release_v{__version__}'
+    zip_name = f'IBQtools_Release_v{current_ver}'
     zip_file = f'{zip_name}.zip'
     if os.path.exists(zip_file):
         os.remove(zip_file)
