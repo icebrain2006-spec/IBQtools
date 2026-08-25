@@ -1078,15 +1078,18 @@ class CalibrationThread(QThread):
                     err_channels = st_resp[3]
                     if state == 2: # DONE
                         calib_done = True
+                        self._log(f"    [DEBUG RAW RESP] len={len(st_resp)}, hex={bytes(st_resp).hex(' ')}")
                         idx = 4
                         for ch in range(1, 7):
                             cell1_g = struct.unpack('<H', st_resp[idx:idx+2])[0]; idx += 2
                             pack_g = struct.unpack('<H', st_resp[idx:idx+2])[0]; idx += 2
                             bat_g = struct.unpack('<H', st_resp[idx:idx+2])[0]; idx += 2
-                            ch_succ = (st_resp[idx] == 1); idx += 1
+                            ch_succ_val = st_resp[idx]; idx += 1
+                            ch_succ = (ch_succ_val == 1)
                             if ch in self.channels:
                                 is_err = (err_channels & (1 << (ch - 1))) != 0
                                 ch_status_map[ch] = ch_succ and not is_err
+                                self._log(f"    [DEBUG CH{ch}] cell1_g={cell1_g}, pack_g={pack_g}, bat_g={bat_g}, ch_succ_val={ch_succ_val}, is_err={is_err}")
                                 if ch_status_map[ch]:
                                     self._log(f"    [CH{ch} RP2040 HW Result] PASS -> Cell1 Gain: {cell1_g}, Pack Gain: {pack_g}, Bat Gain: {bat_g}")
                                     self.emit_result("Cell 1 Gain", "Cell 1 Gain", str(cell1_g), cell1_g, is_gain=True)
