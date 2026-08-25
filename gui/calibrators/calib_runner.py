@@ -1046,6 +1046,8 @@ class CalibrationThread(QThread):
                 tpk = int(ch_t.get('packmv', 12780))
                 tbt = int(ch_t.get('batmv', 12780))
                 payload_bytes.extend(struct.pack(">HHH", tc1, tpk, tbt))
+                if ch in self.channels:
+                    self._log(f"    [DEBUG Target CH{ch}] Cell1={tc1}mV, Pack={tpk}mV, Bat={tbt}mV")
 
             self._log(f"--- Sending Hardware Calibration Command to RP2040 (Channels: {self.channels}) ---")
             
