@@ -1105,6 +1105,7 @@ class CalibrationThread(QThread):
                                 ch_status_map[ch] = ch_succ and not is_err
                                 self._log(f"    [DEBUG CH{ch}] cell1_g={cell1_g}, pack_g={pack_g}, bat_g={bat_g}, ch_succ_val={ch_succ_val}, is_err={is_err}")
                                 if ch_status_map[ch]:
+                                    self.ch = ch
                                     if run_mode == "current":
                                         # Read updated 0x4000 block to extract IEEE 754 CC Gain & Capacity Gain
                                         self.smbus_write_block_raw(0x44, [0x00, 0x40])
