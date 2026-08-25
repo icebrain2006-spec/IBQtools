@@ -53,6 +53,11 @@ def build_app():
     if os.path.exists(y_drive):
         try:
             dest_path = os.path.join(y_drive, zip_file)
+            if os.path.exists(dest_path):
+                try:
+                    os.remove(dest_path)
+                except Exception:
+                    pass
             shutil.copy2(zip_file, dest_path)
             print(f"[+] Automatically copied {zip_file} to network drive Y:\\ ({dest_path})")
         except Exception as e:
