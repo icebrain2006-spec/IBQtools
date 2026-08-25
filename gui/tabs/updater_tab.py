@@ -34,22 +34,27 @@ class PortComboBox(QComboBox):
         self.clear()
         
         active_ports = []
+        rp2040_port = None
         for p in serial.tools.list_ports.comports():
             hwid = str(p.hwid).upper()
             desc = str(p.description).upper()
-            # Filter out virtual/bluetooth ports
-            if "BTHENUM" in hwid or "BLUETOOTH" in desc or "BTHENUM" in desc:
-                continue
-            if "USB" not in hwid and "USB" not in desc:
+            if "BTHENUM" in hwid or "BLUETOOTH" in desc:
                 continue
             active_ports.append(p.device)
+            if "2E8A" in hwid or "RP2040" in desc or "PICO" in desc or "USB SERIAL" in desc:
+                if not rp2040_port:
+                    rp2040_port = p.device
             
         if not active_ports:
-            active_ports = ["None"]
+            active_ports = ["Select COM"]
             
         self.addItems(active_ports)
-        if current_text in active_ports:
+        if rp2040_port:
+            self.setCurrentText(rp2040_port)
+        elif current_text and current_text in active_ports and current_text != "COM1":
             self.setCurrentText(current_text)
+        elif active_ports and active_ports[0] != "Select COM":
+            self.setCurrentText(active_ports[0])
             
         super().showPopup()
 

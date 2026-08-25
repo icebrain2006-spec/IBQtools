@@ -358,8 +358,13 @@ class CalibrationTab(QWidget):
             self.combo_port.setCurrentText(current_text)
         elif last_port in active_ports and last_port != "COM1":
             self.combo_port.setCurrentText(last_port)
-        elif active_ports and active_ports[0] != "Select COM":
-            self.combo_port.setCurrentText(active_ports[0])
+        else:
+            # Filter out COM1 from initial auto-selection
+            non_com1 = [p for p in active_ports if p != "COM1" and p != "Select COM"]
+            if non_com1:
+                self.combo_port.setCurrentText(non_com1[0])
+            elif rp2040_port:
+                self.combo_port.setCurrentText(rp2040_port)
         
     def _save_current_channel_inputs(self):
         ic_name = self.combo_ic.currentText()
