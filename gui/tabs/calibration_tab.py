@@ -340,11 +340,9 @@ class CalibrationTab(QWidget):
             desc = str(p.description).upper()
             if "BTHENUM" in hwid or "BLUETOOTH" in desc:
                 continue
-            if "USB" not in hwid and "USB" not in desc:
-                continue
             active_ports.append(p.device)
-            # Identify RP2040 Pico USB Serial device
-            if "RP2040" in desc or "PICO" in desc or "2E8A" in hwid or ("USB" in desc and "SERIAL" in desc):
+            # Identify RP2040 Pico USB Serial device (VID 2E8A)
+            if "2E8A" in hwid or "RP2040" in desc or "PICO" in desc or "USB SERIAL" in desc:
                 if not rp2040_port:
                     rp2040_port = p.device
             
@@ -354,10 +352,10 @@ class CalibrationTab(QWidget):
         self.combo_port.addItems(active_ports)
         
         last_port = self.settings.value("calib_last_port", "")
-        if current_text and current_text in active_ports and current_text != "COM1":
-            self.combo_port.setCurrentText(current_text)
-        elif rp2040_port:
+        if rp2040_port:
             self.combo_port.setCurrentText(rp2040_port)
+        elif current_text and current_text in active_ports and current_text != "COM1":
+            self.combo_port.setCurrentText(current_text)
         elif last_port in active_ports and last_port != "COM1":
             self.combo_port.setCurrentText(last_port)
         elif active_ports and active_ports[0] != "Select COM":
