@@ -1055,7 +1055,8 @@ class CalibrationThread(QThread):
             rx = self._read_packet()
             cmd, resp = parse_response(rx)
             if not isinstance(resp, (bytes, bytearray)) or len(resp) == 0 or resp[0] != RESP_OK:
-                self._log("Error: RP2040 rejected hardware calibration start command.")
+                err_code = resp[0] if isinstance(resp, (bytes, bytearray)) and len(resp) > 0 else resp
+                self._log(f"Error: RP2040 rejected hardware calibration start command. (Resp Code: {err_code}, Cmd: {cmd}, RAW: {rx.hex(' ') if rx else 'Empty'})")
                 self.finished_signal.emit(False)
                 return
 
