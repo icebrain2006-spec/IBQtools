@@ -48,5 +48,17 @@ def build_app():
     shutil.make_archive(zip_name, 'zip', root_dir='dist', base_dir='IBQtools')
     print(f"Successfully created {zip_file}!")
 
+    # Network drive Y: auto copy
+    y_drive = 'Y:\\'
+    if os.path.exists(y_drive):
+        try:
+            dest_path = os.path.join(y_drive, zip_file)
+            shutil.copy2(zip_file, dest_path)
+            print(f"[+] Automatically copied {zip_file} to network drive Y:\\ ({dest_path})")
+        except Exception as e:
+            print(f"[!] Warning: Failed to copy zip to Y:\\ drive: {e}")
+    else:
+        print("[!] Note: Network drive Y:\\ was not detected. Skipping Y:\\ auto copy.")
+
 if __name__ == '__main__':
     build_app()
