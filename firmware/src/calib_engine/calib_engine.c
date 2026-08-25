@@ -145,9 +145,9 @@ static void run_calib_pipeline(void) {
                             sleep_ms(25);
                             smbus_read_block(ch, 0x0B, 0x44, df_block, &rx_len, false);
                         }
-                        if (rx_len >= 14) {
-                            memcpy(df_block + 6, &new_cc_gain, 4);
-                            memcpy(df_block + 10, &new_cap_gain, 4);
+                        if (rx_len >= 8) {
+                            memcpy(df_block + 0, &new_cc_gain, 4);
+                            memcpy(df_block + 4, &new_cap_gain, 4);
 
                             uint8_t wr_payload[38];
                             wr_payload[0] = 0x00;
