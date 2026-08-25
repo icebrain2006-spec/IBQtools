@@ -124,10 +124,10 @@ static void run_calib_pipeline(void) {
                 if (smbus_read_block(ch, 0x0B, 0x44, df_block, &rx_len, false) == SMBUS_OK && rx_len >= 6) {
                     df_block[0] = g_cell1 & 0xFF;
                     df_block[1] = (g_cell1 >> 8) & 0xFF;
-                    df_block[2] = g_pack & 0xFF;
-                    df_block[3] = (g_pack >> 8) & 0xFF;
-                    df_block[4] = g_bat & 0xFF;
-                    df_block[5] = (g_bat >> 8) & 0xFF;
+                    df_block[2] = g_bat & 0xFF;
+                    df_block[3] = (g_bat >> 8) & 0xFF;
+                    df_block[4] = g_pack & 0xFF;
+                    df_block[5] = (g_pack >> 8) & 0xFF;
 
                     uint8_t wr_payload[38];
                     wr_payload[0] = 0x00;
