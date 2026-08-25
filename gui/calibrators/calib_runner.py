@@ -1032,13 +1032,16 @@ class CalibrationThread(QThread):
                 modes_to_run = [run_mode]
             
             total_start_time = time.time()
+            ch_status_map = {}
+            
+            # Phase 1: Pure Calibration Loop (Batch run across CH1 -> CH2 -> CH3)
             for ch in self.channels:
                 if not self._running:
                     break
                 self.ch = ch
                 if self.targets_per_ch and ch in self.targets_per_ch:
                     self.targets = self.targets_per_ch[ch]
-                success = True
+                ch_success = True
                 self._log(f"--- Processing Calibration for Channel {ch} ---")
                 ch_start_time = time.time()
             
@@ -1055,21 +1058,29 @@ class CalibrationThread(QThread):
                 for m in modes_to_run:
                     script_path = os.path.join(self.script_dir, f"{self.script_base}_{m}.calib")
                     if not self.execute_script(script_path, m):
-                        success = False
+                        ch_success = False
                         break
                         
                 ch_pure_cal_time = time.time() - ch_start_time
                 self._log(f"    [TIME] CH{ch} Pure Cal Execution Time: {ch_pure_cal_time:.3f} sec")
+                ch_status_map[ch] = ch_success
 
-                # Capture final measurements into the buffer before writing log (even if failed)
-                self.post_verify()
-            
-                # Write to Cal Log CSV after each channel is processed
-                serial_num, mfg_date = self._read_mfg_info()
-                self._write_cal_log(self.ch, serial_num, mfg_date, success)
-                
             total_cal_time = time.time() - total_start_time
-            self._log(f"[TIME] Total Calibration Execution Time (All Channels): {total_cal_time:.3f} sec")
+            self._log(f"[TIME] Total Pure Calibration Time (All Channels): {total_cal_time:.3f} sec")
+
+            # Phase 2: Post Verification & CSV Logging Loop
+            self._log("--- Running Post-Verification & Measurement Capture ---")
+            success = all(ch_status_map.values()) if ch_status_map else False
+            for ch in self.channels:
+                if not self._running:
+                    break
+                self.ch = ch
+                if self.targets_per_ch and ch in self.targets_per_ch:
+                    self.targets = self.targets_per_ch[ch]
+                
+                self.post_verify()
+                serial_num, mfg_date = self._read_mfg_info()
+                self._write_cal_log(self.ch, serial_num, mfg_date, ch_status_map.get(ch, False))
                 
             # 3. Verification & Continuous Monitoring
             if success:
