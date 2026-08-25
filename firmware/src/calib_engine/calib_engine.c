@@ -114,8 +114,6 @@ static void run_calib_pipeline(void) {
                 calib_status.results[ch].cell1_gain = g_cell1;
                 calib_status.results[ch].pack_gain = g_pack;
                 calib_status.results[ch].bat_gain = g_bat;
-                calib_status.results[ch].success = true;
-
                 // Read cached 0x4000 block, update gains and write back
                 uint8_t df_block[36] = {0};
                 uint8_t rx_len = 0;
@@ -134,8 +132,16 @@ static void run_calib_pipeline(void) {
                     wr_payload[0] = 0x00;
                     wr_payload[1] = 0x40;
                     memcpy(wr_payload + 2, df_block, rx_len);
-                    smbus_write_block(ch, 0x0B, 0x44, wr_payload, 2 + rx_len, true); // true = use PEC (Checksum)
+                    if (smbus_write_block(ch, 0x0B, 0x44, wr_payload, 2 + rx_len, true) == SMBUS_OK) {
+                        calib_status.results[ch].success = true;
+                    } else {
+                        calib_status.error_channels |= (1 << (ch - 1));
+                    }
+                } else {
+                    calib_status.error_channels |= (1 << (ch - 1));
                 }
+            } else {
+                calib_status.error_channels |= (1 << (ch - 1));
             }
         }
     }
@@ -163,6 +169,7 @@ bool calib_engine_start(uint8_t channel_mask, uint8_t mode, uint16_t target_cell
     calib_status.error_channels = 0;
     calib_status.mode = mode;
     calib_status.state = 1; // RUNNING
+    memset((void*)calib_status.results, 0, sizeof(calib_status.results));
     g_target_cell1_mv = target_cell1_mv;
     g_target_pack_mv = target_pack_mv;
     g_target_bat_mv = target_bat_mv;
