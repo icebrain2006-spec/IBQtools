@@ -33,28 +33,42 @@ class PortComboBox(QComboBox):
         current_text = self.currentText()
         self.clear()
         
-        active_ports = []
-        rp2040_port = None
+        rp2040_ports = []
+        other_ports = []
+        
         for p in serial.tools.list_ports.comports():
             hwid = str(p.hwid).upper()
             desc = str(p.description).upper()
             if "BTHENUM" in hwid or "BLUETOOTH" in desc:
                 continue
-            active_ports.append(p.device)
+                
+            port_num = 9999
+            if p.device.upper().startswith("COM"):
+                try:
+                    port_num = int(p.device[3:])
+                except ValueError:
+                    pass
+                    
             if "2E8A" in hwid or "RP2040" in desc or "PICO" in desc or "USB SERIAL" in desc:
-                if not rp2040_port:
-                    rp2040_port = p.device
+                rp2040_ports.append((port_num, p.device))
+            else:
+                other_ports.append((port_num, p.device))
+                
+        rp2040_ports.sort(key=lambda x: x[0])
+        other_ports.sort(key=lambda x: x[0])
+        
+        sorted_ports = [dev for _, dev in rp2040_ports] + [dev for _, dev in other_ports]
             
-        if not active_ports:
-            active_ports = ["Select COM"]
+        if not sorted_ports:
+            sorted_ports = ["Select COM"]
             
-        self.addItems(active_ports)
-        if rp2040_port:
-            self.setCurrentText(rp2040_port)
-        elif current_text and current_text in active_ports:
+        self.addItems(sorted_ports)
+        if rp2040_ports:
+            self.setCurrentIndex(0)
+        elif current_text and current_text in sorted_ports:
             self.setCurrentText(current_text)
-        elif active_ports and active_ports[0] != "Select COM":
-            self.setCurrentText(active_ports[0])
+        elif sorted_ports and sorted_ports[0] != "Select COM":
+            self.setCurrentIndex(0)
             
         super().showPopup()
 

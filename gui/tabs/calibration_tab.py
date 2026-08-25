@@ -333,33 +333,47 @@ class CalibrationTab(QWidget):
         current_text = self.combo_port.currentText()
         self.combo_port.clear()
         
-        active_ports = []
-        rp2040_port = None
+        rp2040_ports = []
+        other_ports = []
+        
         for p in serial.tools.list_ports.comports():
             hwid = str(p.hwid).upper()
             desc = str(p.description).upper()
             if "BTHENUM" in hwid or "BLUETOOTH" in desc:
                 continue
-            active_ports.append(p.device)
+            
+            # Helper to extract port number for natural sorting (e.g. COM6 -> 6)
+            port_num = 9999
+            if p.device.upper().startswith("COM"):
+                try:
+                    port_num = int(p.device[3:])
+                except ValueError:
+                    pass
+                    
             # Identify RP2040 Pico USB Serial device (VID 2E8A)
             if "2E8A" in hwid or "RP2040" in desc or "PICO" in desc or "USB SERIAL" in desc:
-                if not rp2040_port:
-                    rp2040_port = p.device
-            
-        if not active_ports:
-            active_ports = ["Select COM"]
-            
-        self.combo_port.addItems(active_ports)
+                rp2040_ports.append((port_num, p.device))
+            else:
+                other_ports.append((port_num, p.device))
+                
+        # Sort RP2040 ports by smallest port number first (Index 0)
+        rp2040_ports.sort(key=lambda x: x[0])
+        other_ports.sort(key=lambda x: x[0])
         
-        last_port = self.settings.value("calib_last_port", "")
-        if rp2040_port:
-            self.combo_port.setCurrentText(rp2040_port)
-        elif current_text and current_text in active_ports:
+        sorted_ports = [dev for _, dev in rp2040_ports] + [dev for _, dev in other_ports]
+            
+        if not sorted_ports:
+            sorted_ports = ["Select COM"]
+            
+        self.combo_port.addItems(sorted_ports)
+        
+        # Always default to the smallest RP2040 port at Index 0 if present
+        if rp2040_ports:
+            self.combo_port.setCurrentIndex(0)
+        elif current_text and current_text in sorted_ports:
             self.combo_port.setCurrentText(current_text)
-        elif last_port in active_ports:
-            self.combo_port.setCurrentText(last_port)
-        elif active_ports and active_ports[0] != "Select COM":
-            self.combo_port.setCurrentText(active_ports[0])
+        elif sorted_ports and sorted_ports[0] != "Select COM":
+            self.combo_port.setCurrentIndex(0)
         
     def _save_current_channel_inputs(self):
         ic_name = self.combo_ic.currentText()
