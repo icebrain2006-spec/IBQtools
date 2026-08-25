@@ -25,6 +25,6 @@ typedef struct {
 extern volatile calib_status_t calib_status;
 
 void calib_engine_init(void);
-bool calib_engine_start(uint8_t channel_mask, uint8_t mode, uint16_t target_cell1_mv, uint16_t target_pack_mv, uint16_t target_bat_mv);
+bool calib_engine_start(uint8_t channel_mask, uint8_t mode, const uint16_t target_cell1_mv[7], const uint16_t target_pack_mv[7], const uint16_t target_bat_mv[7]);
 
 #endif // CALIB_ENGINE_H

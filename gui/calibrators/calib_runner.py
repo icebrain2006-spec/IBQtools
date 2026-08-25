@@ -763,7 +763,7 @@ class CalibrationThread(QThread):
                         pack_g = new_gains[1]
                         bat_g = new_gains[2]
                         
-                        struct.pack_into('<HHH', df_bytes, 0, cell1_g, pack_g, bat_g)
+                        struct.pack_into('<HHH', df_bytes, 0, cell1_g, bat_g, pack_g)
                         
                     full_payload = df_addr_bytes + list(df_bytes)
                     if self.smbus_write_block_raw(0x44, full_payload):
@@ -1039,15 +1039,18 @@ class CalibrationThread(QThread):
             for ch in self.channels:
                 ch_mask |= (1 << (ch - 1))
 
-            target_cell1 = int(self.targets.get('cell1mv', 3200))
-            target_pack = int(self.targets.get('packmv', 12780))
-            target_bat = int(self.targets.get('batmv', 12780))
+            payload_bytes = bytearray([ch_mask, mode_code])
+            for ch in range(1, 7):
+                ch_t = self.targets_per_ch.get(ch, self.targets)
+                tc1 = int(ch_t.get('cell1mv', 3200))
+                tpk = int(ch_t.get('packmv', 12780))
+                tbt = int(ch_t.get('batmv', 12780))
+                payload_bytes.extend(struct.pack(">HHH", tc1, tpk, tbt))
 
             self._log(f"--- Sending Hardware Calibration Command to RP2040 (Channels: {self.channels}) ---")
             
             # Send CMD_CALIB_RUN (0x60) packet
-            payload = struct.pack(">B B H H H", ch_mask, mode_code, target_cell1, target_pack, target_bat)
-            pkt = make_packet(0x60, payload)
+            pkt = make_packet(0x60, bytes(payload_bytes))
             self.ser.reset_input_buffer()
             self.ser.write(pkt)
             

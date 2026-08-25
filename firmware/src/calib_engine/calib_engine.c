@@ -11,9 +11,9 @@ volatile calib_status_t calib_status = {
     .mode = 0
 };
 
-static uint16_t g_target_cell1_mv = 3200;
-static uint16_t g_target_pack_mv = 12780;
-static uint16_t g_target_bat_mv = 12780;
+static uint16_t g_target_cell1_mv[7];
+static uint16_t g_target_pack_mv[7];
+static uint16_t g_target_bat_mv[7];
 
 // Execute BQ40Z50 Voltage/Current Calibration in parallel on active channels
 static void run_calib_pipeline(void) {
@@ -108,9 +108,9 @@ static void run_calib_pipeline(void) {
                 float pack_avg = (float)pack_sum[ch] / sample_cnt[ch];
                 float bat_avg = (float)bat_sum[ch] / sample_cnt[ch];
 
-                uint16_t g_cell1 = (cell1_avg > 0) ? (uint16_t)((g_target_cell1_mv / cell1_avg) * 65536.0f) : 32768;
-                uint16_t g_pack = (pack_avg > 0) ? (uint16_t)((g_target_pack_mv / pack_avg) * 65536.0f) : 12800;
-                uint16_t g_bat = (bat_avg > 0) ? (uint16_t)((g_target_bat_mv / bat_avg) * 65536.0f) : 12800;
+                uint16_t g_cell1 = (cell1_avg > 0) ? (uint16_t)((g_target_cell1_mv[ch] / cell1_avg) * 65536.0f) : 32768;
+                uint16_t g_pack = (pack_avg > 0) ? (uint16_t)((g_target_pack_mv[ch] / pack_avg) * 65536.0f) : 12800;
+                uint16_t g_bat = (bat_avg > 0) ? (uint16_t)((g_target_bat_mv[ch] / bat_avg) * 65536.0f) : 12800;
 
                 calib_status.results[ch].cell1_gain = g_cell1;
                 calib_status.results[ch].pack_gain = g_pack;
@@ -161,16 +161,18 @@ static void calib_worker_entry(void) {
     run_calib_pipeline();
 }
 
-bool calib_engine_start(uint8_t channel_mask, uint8_t mode, uint16_t target_cell1_mv, uint16_t target_pack_mv, uint16_t target_bat_mv) {
+bool calib_engine_start(uint8_t channel_mask, uint8_t mode, const uint16_t target_cell1_mv[7], const uint16_t target_pack_mv[7], const uint16_t target_bat_mv[7]) {
     if (calib_status.state == 1) return false;
     calib_status.active_channels = channel_mask;
     calib_status.error_channels = 0;
     calib_status.mode = mode;
     calib_status.state = 1; // RUNNING
     memset((void*)calib_status.results, 0, sizeof(calib_status.results));
-    g_target_cell1_mv = target_cell1_mv;
-    g_target_pack_mv = target_pack_mv;
-    g_target_bat_mv = target_bat_mv;
+    for (uint8_t ch = 1; ch <= 6; ch++) {
+        g_target_cell1_mv[ch] = target_cell1_mv[ch];
+        g_target_pack_mv[ch] = target_pack_mv[ch];
+        g_target_bat_mv[ch] = target_bat_mv[ch];
+    }
 
     multicore_reset_core1();
     multicore_launch_core1(calib_worker_entry);

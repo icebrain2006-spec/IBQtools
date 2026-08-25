@@ -37,7 +37,7 @@ static void handle_packet(const rx_packet_t *pkt) {
 
   switch (pkt->cmd) {
   case CMD_GET_VERSION: {
-    const char *version = "v1.0.64";
+    const char *version = "v1.0.65";
     resp_payload[0] = RESP_OK;
     strcpy((char *)(resp_payload + 1), version);
     protocol_send_packet(CMD_GET_VERSION, resp_payload, 1 + strlen(version));
@@ -369,11 +369,29 @@ static void handle_packet(const rx_packet_t *pkt) {
     }
     uint8_t ch_mask = pkt->payload[0];
     uint8_t mode = pkt->payload[1];
-    uint16_t target_cell1 = read_u16_be(pkt->payload + 2);
-    uint16_t target_pack = read_u16_be(pkt->payload + 4);
-    uint16_t target_bat = read_u16_be(pkt->payload + 6);
+    uint16_t t_cell1[7] = {0};
+    uint16_t t_pack[7] = {0};
+    uint16_t t_bat[7] = {0};
 
-    bool ok = calib_engine_start(ch_mask, mode, target_cell1, target_pack, target_bat);
+    if (pkt->length >= 2 + (6 * 6)) { // 2 + 36 = 38 bytes payload for per-channel targets
+      uint16_t idx = 2;
+      for (uint8_t ch = 1; ch <= 6; ch++) {
+        t_cell1[ch] = read_u16_be(pkt->payload + idx); idx += 2;
+        t_pack[ch] = read_u16_be(pkt->payload + idx); idx += 2;
+        t_bat[ch] = read_u16_be(pkt->payload + idx); idx += 2;
+      }
+    } else {
+      uint16_t target_cell1 = read_u16_be(pkt->payload + 2);
+      uint16_t target_pack = read_u16_be(pkt->payload + 4);
+      uint16_t target_bat = read_u16_be(pkt->payload + 6);
+      for (uint8_t ch = 1; ch <= 6; ch++) {
+        t_cell1[ch] = target_cell1;
+        t_pack[ch] = target_pack;
+        t_bat[ch] = target_bat;
+      }
+    }
+
+    bool ok = calib_engine_start(ch_mask, mode, t_cell1, t_pack, t_bat);
     resp_payload[0] = ok ? RESP_OK : RESP_ERR_BUSY;
     protocol_send_packet(CMD_CALIB_RUN, resp_payload, 1);
     break;
