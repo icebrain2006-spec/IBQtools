@@ -72,10 +72,10 @@ static void run_calib_pipeline(void) {
             if ((ch_mask & (1 << (ch - 1))) && !(calib_status.error_channels & (1 << (ch - 1)))) {
                 uint8_t rx_buf[32];
                 uint8_t rx_len = 0;
-                if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK && rx_len >= 12) {
-                    uint16_t cell1 = rx_buf[0] | (rx_buf[1] << 8);
-                    uint16_t pack = rx_buf[8] | (rx_buf[9] << 8);
-                    uint16_t bat = rx_buf[10] | (rx_buf[11] << 8);
+                if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK && rx_len >= 18) {
+                    uint16_t cell1 = rx_buf[6] | (rx_buf[7] << 8);
+                    uint16_t pack = rx_buf[14] | (rx_buf[15] << 8);
+                    uint16_t bat = rx_buf[16] | (rx_buf[17] << 8);
                     
                     cell1_sum[ch] += cell1;
                     pack_sum[ch] += pack;
@@ -134,7 +134,7 @@ static void run_calib_pipeline(void) {
                     wr_payload[0] = 0x00;
                     wr_payload[1] = 0x40;
                     memcpy(wr_payload + 2, df_block, rx_len);
-                    smbus_write_block(ch, 0x0B, 0x44, wr_payload, 2 + rx_len, false);
+                    smbus_write_block(ch, 0x0B, 0x44, wr_payload, 2 + rx_len, true); // true = use PEC (Checksum)
                 }
             }
         }
