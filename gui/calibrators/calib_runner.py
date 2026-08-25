@@ -1079,20 +1079,26 @@ class CalibrationThread(QThread):
                         calib_done = True
                         idx = 4
                         for ch in range(1, 7):
-                            cell1_g = struct.unpack('>H', st_resp[idx:idx+2])[0]; idx += 2
-                            pack_g = struct.unpack('>H', st_resp[idx:idx+2])[0]; idx += 2
-                            bat_g = struct.unpack('>H', st_resp[idx:idx+2])[0]; idx += 2
+                            cell1_g = struct.unpack('<H', st_resp[idx:idx+2])[0]; idx += 2
+                            pack_g = struct.unpack('<H', st_resp[idx:idx+2])[0]; idx += 2
+                            bat_g = struct.unpack('<H', st_resp[idx:idx+2])[0]; idx += 2
                             ch_succ = (st_resp[idx] == 1); idx += 1
                             if ch in self.channels:
-                                ch_status_map[ch] = ch_succ and not (err_channels & (1 << (ch - 1)))
+                                is_err = (err_channels & (1 << (ch - 1))) != 0
+                                ch_status_map[ch] = ch_succ and not is_err
                                 if ch_status_map[ch]:
                                     self._log(f"    [CH{ch} RP2040 HW Result] PASS -> Cell1 Gain: {cell1_g}, Pack Gain: {pack_g}, Bat Gain: {bat_g}")
                                     self.emit_result("Cell 1 Gain", "Cell 1 Gain", str(cell1_g), cell1_g, is_gain=True)
                                     self.emit_result("Pack Gain", "Pack Gain", str(pack_g), pack_g, is_gain=True)
                                     self.emit_result("Bat Gain", "Bat Gain", str(bat_g), bat_g, is_gain=True)
                                 else:
-                                    self._log(f"    [CH{ch} RP2040 HW Result] FAIL (err_mask: {bin(err_channels)})")
+                                    self._log(f"    [CH{ch} RP2040 HW Result] FAIL (ch_succ={ch_succ}, err_mask={bin(err_channels)})")
                         break
+                    elif state == 3: # ERROR state from RP2040
+                        self._log(f"    [RP2040 HW Result] RP2040 returned ERROR state (err_mask={bin(err_channels)})")
+                        break
+                else:
+                    self._log(f"    [DEBUG] Poll status response: cmd={st_cmd}, resp={st_resp}")
 
             total_cal_time = time.time() - total_start_time
             self._log(f"[TIME] Total Pure RP2040 Hardware Calibration Time (All Channels): {total_cal_time:.3f} sec")
