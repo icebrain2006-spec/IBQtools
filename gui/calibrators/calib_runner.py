@@ -1100,34 +1100,33 @@ class CalibrationThread(QThread):
                             ch_succ_val = st_resp[idx]; idx += 1
                             ch_succ = (ch_succ_val == 1)
                             if ch in self.channels:
-                                self.ch = ch
                                 is_err = (err_channels & (1 << (ch - 1))) != 0
                                 ch_status_map[ch] = ch_succ and not is_err
                                 self._log(f"    [DEBUG CH{ch}] cell1_g={cell1_g}, pack_g={pack_g}, bat_g={bat_g}, ch_succ_val={ch_succ_val}, is_err={is_err}")
-                                if ch_status_map[ch]:
+                                if ch_status_map[ch] and run_mode != "current":
                                     self.ch = ch
-                                    if run_mode == "current":
-                                        # Read updated 0x4000 block to extract IEEE 754 CC Gain & Capacity Gain
-                                        self.smbus_write_block_raw(0x44, [0x00, 0x40])
-                                        time.sleep(0.05)
-                                        df_b = self.smbus_read_block(0x44)
-                                        if df_b and len(df_b) >= 16:
-                                            # Header in df_b is [0x00, 0x40], payload starts at index 2
-                                            # CC Gain is at offset 6 in block -> index 2 + 6 = 8
-                                            # Capacity Gain is at offset 10 in block -> index 2 + 10 = 12
-                                            cc_gain = struct.unpack_from('<f', df_b, 8)[0]
-                                            cap_gain = struct.unpack_from('<f', df_b, 12)[0]
-                                            mohm = 3.714528 / cc_gain if cc_gain != 0 else 0
-                                            self._log(f"    [CH{ch} RP2040 HW Result] PASS -> CC Gain: {cc_gain:.6f}, Shunt Resistor: {mohm:.3f} mOhm")
-                                            self.emit_result("CC Gain", "CC Gain (mOhm)", f"{mohm:.3f}", mohm, is_gain=True)
-                                            self.emit_result("Capacity Gain", "Capacity Gain (mOhm)", f"{mohm:.3f}", mohm, is_gain=True)
-                                    else:
-                                        self._log(f"    [CH{ch} RP2040 HW Result] PASS -> Cell1 Gain: {cell1_g}, Pack Gain: {pack_g}, Bat Gain: {bat_g}")
-                                        self.emit_result("Cell 1 Gain", "Cell 1 Gain", str(cell1_g), cell1_g, is_gain=True)
-                                        self.emit_result("Pack Gain", "Pack Gain", str(pack_g), pack_g, is_gain=True)
-                                        self.emit_result("Bat Gain", "Bat Gain", str(bat_g), bat_g, is_gain=True)
-                                else:
+                                    self._log(f"    [CH{ch} RP2040 HW Result] PASS -> Cell1 Gain: {cell1_g}, Pack Gain: {pack_g}, Bat Gain: {bat_g}")
+                                    self.emit_result("Cell 1 Gain", "Cell 1 Gain", str(cell1_g), cell1_g, is_gain=True)
+                                    self.emit_result("Pack Gain", "Pack Gain", str(pack_g), pack_g, is_gain=True)
+                                    self.emit_result("Bat Gain", "Bat Gain", str(bat_g), bat_g, is_gain=True)
+                                elif not ch_status_map[ch]:
                                     self._log(f"    [CH{ch} RP2040 HW Result] FAIL (ch_succ={ch_succ}, err_mask={bin(err_channels)})")
+                        
+                        if run_mode == "current":
+                            for ch in self.channels:
+                                if ch_status_map.get(ch, False):
+                                    self.ch = ch
+                                    # Read updated 0x4000 block for THIS channel to extract IEEE 754 CC Gain & Capacity Gain
+                                    self.smbus_write_block_raw(0x44, [0x00, 0x40])
+                                    time.sleep(0.05)
+                                    df_b = self.smbus_read_block(0x44)
+                                    if df_b and len(df_b) >= 16:
+                                        cc_gain = struct.unpack_from('<f', df_b, 8)[0]
+                                        cap_gain = struct.unpack_from('<f', df_b, 12)[0]
+                                        mohm = 3.714528 / cc_gain if cc_gain != 0 else 0
+                                        self._log(f"    [CH{ch} RP2040 HW Result] PASS -> CC Gain: {cc_gain:.6f}, Shunt Resistor: {mohm:.3f} mOhm")
+                                        self.emit_result("CC Gain", "CC Gain (mOhm)", f"{mohm:.3f}", mohm, is_gain=True)
+                                        self.emit_result("Capacity Gain", "Capacity Gain (mOhm)", f"{mohm:.3f}", mohm, is_gain=True)
                         break
                     elif state == 3: # ERROR state from RP2040
                         self._log(f"    [RP2040 HW Result] RP2040 returned ERROR state (err_mask={bin(err_channels)})")
