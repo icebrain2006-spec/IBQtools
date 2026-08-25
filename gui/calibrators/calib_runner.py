@@ -1094,6 +1094,7 @@ class CalibrationThread(QThread):
                         self._log(f"    [DEBUG RAW RESP] len={len(st_resp)}, hex={bytes(st_resp).hex(' ')}")
                         idx = 4
                         cc_adc_map = {}
+                        cc_calc_map = {}
                         for ch in range(1, 7):
                             cell1_g = struct.unpack('<H', st_resp[idx:idx+2])[0]; idx += 2
                             pack_g = struct.unpack('<H', st_resp[idx:idx+2])[0]; idx += 2
@@ -1104,6 +1105,7 @@ class CalibrationThread(QThread):
                                 is_err = (err_channels & (1 << (ch - 1))) != 0
                                 ch_status_map[ch] = ch_succ and not is_err
                                 cc_adc_map[ch] = struct.unpack('<h', struct.pack('<H', cell1_g))[0]
+                                cc_calc_map[ch] = pack_g / 1000.0
                                 self._log(f"    [DEBUG CH{ch}] cell1_g={cell1_g}, pack_g={pack_g}, bat_g={bat_g}, ch_succ_val={ch_succ_val}, is_err={is_err}")
                                 if ch_status_map[ch] and run_mode != "current":
                                     self.ch = ch
@@ -1126,14 +1128,19 @@ class CalibrationThread(QThread):
                                         # Header in df_b is [0x00, 0x40], payload starts at index 2
                                         # CC Gain is at offset 6 in block -> index 2 + 6 = 8
                                         # Capacity Gain is at offset 10 in block -> index 2 + 10 = 12
-                                        cc_gain = struct.unpack_from('<f', df_b, 8)[0]
-                                        cap_gain = struct.unpack_from('<f', df_b, 12)[0]
-                                        mohm = 3.714528 / cc_gain if cc_gain != 0 else 0
+                                        cc_gain_read = struct.unpack_from('<f', df_b, 8)[0]
+                                        cap_gain_read = struct.unpack_from('<f', df_b, 12)[0]
+                                        mohm_read = 3.714528 / cc_gain_read if cc_gain_read != 0 else 0
+                                        
+                                        calc_gain = cc_calc_map.get(ch, 0.0)
+                                        calc_mohm = 3.714528 / calc_gain if calc_gain != 0 else 0
                                         avg_cc = cc_adc_map.get(ch, 0)
-                                        self._log(f"    [CH{ch} RP2040 HW Result] PASS -> Avg CC ADC: {avg_cc}, CC Gain: {cc_gain:.6f}, Shunt Resistor: {mohm:.3f} mOhm")
+                                        
+                                        self._log(f"    [CH{ch} RP2040 HW Result] PASS -> Avg CC ADC: {avg_cc}, CC Gain: {cc_gain_read:.6f}, Shunt Resistor: {mohm_read:.3f} mOhm")
                                         self._log(f"    [CH{ch} RAW 0x4000 Bytes]: {df_b[2:18].hex(' ')}")
-                                        self.emit_result("CC Gain", "CC Gain (mOhm)", f"{mohm:.3f}", mohm, is_gain=True)
-                                        self.emit_result("Capacity Gain", "Capacity Gain (mOhm)", f"{mohm:.3f}", mohm, is_gain=True)
+                                        
+                                        self.emit_result("CC Gain", "CC Gain (mOhm)", f"{mohm_read:.3f}", mohm_read, is_gain=True)
+                                        self.emit_result("Capacity Gain", "Capacity Gain (mOhm)", f"{mohm_read:.3f}", mohm_read, is_gain=True)
                         break
                     elif state == 3: # ERROR state from RP2040
                         self._log(f"    [RP2040 HW Result] RP2040 returned ERROR state (err_mask={bin(err_channels)})")
