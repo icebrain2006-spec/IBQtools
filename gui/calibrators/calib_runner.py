@@ -1010,6 +1010,7 @@ class CalibrationThread(QThread):
             return False
 
     def run(self):
+        total_start_time = time.time()
         import serial
         self._log(f"[INFO] Connecting to {self.port} for Calibration...")
         self.ser = None
@@ -1031,7 +1032,6 @@ class CalibrationThread(QThread):
             else:
                 modes_to_run = [run_mode]
             
-            total_start_time = time.time()
             ch_status_map = {}
             
             # Phase 1: Pure Calibration Loop (Batch run across CH1 -> CH2 -> CH3)
