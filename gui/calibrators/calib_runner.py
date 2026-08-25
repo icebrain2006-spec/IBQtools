@@ -1087,6 +1087,7 @@ class CalibrationThread(QThread):
                             ch_succ_val = st_resp[idx]; idx += 1
                             ch_succ = (ch_succ_val == 1)
                             if ch in self.channels:
+                                self.ch = ch
                                 is_err = (err_channels & (1 << (ch - 1))) != 0
                                 ch_status_map[ch] = ch_succ and not is_err
                                 self._log(f"    [DEBUG CH{ch}] cell1_g={cell1_g}, pack_g={pack_g}, bat_g={bat_g}, ch_succ_val={ch_succ_val}, is_err={is_err}")
