@@ -337,9 +337,6 @@ class CalibrationTab(QWidget):
         for p in serial.tools.list_ports.comports():
             hwid = str(p.hwid).upper()
             desc = str(p.description).upper()
-            # Strict filter: exclude virtual/bluetooth and non-USB ports
-            if "BTHENUM" in hwid or "BLUETOOTH" in desc or "BTHENUM" in desc:
-                continue
             if "USB" not in hwid and "USB" not in desc:
                 continue
             active_ports.append(p.device)
@@ -960,15 +957,12 @@ class CalibrationTab(QWidget):
         self.log_console.clear()
         ch_text = ", ".join([f"CH{ch}" for ch in selected_channels])
         self.log(f"Starting {ic} calibration ({mode} mode) on {port}, Channels: {ch_text}...")
-        self.table_data.clearContents()
         self.table_data.setRowCount(0)
         
-        # Clear Overall Result table cells
+        # Clear Overall Result table
         for c in range(1, 7):
             item = self.table_overall.item(0, c)
-            if item:
-                item.setText("")
-                item.setBackground(QColor("#2b2b2b"))
+            if item: item.setText("")
             
         self.param_statuses = {}
         
@@ -1122,3 +1116,19 @@ class CalibrationTab(QWidget):
             self.log("Calibration Sequence Fully Completed.")
         else:
             self.log("Calibration failed or was aborted.")
+
+    def refresh_ports(self):
+        self.combo_port.clear()
+        ports = serial.tools.list_ports.comports()
+        if not ports:
+            self.combo_port.addItem("Select Port")
+        else:
+            for p in ports:
+                self.combo_port.addItem(p.device)
+                
+            last_port = self.settings.value("calib_last_port", "")
+            if last_port:
+                # Find index of last_port
+                idx = self.combo_port.findText(last_port)
+                if idx >= 0:
+                    self.combo_port.setCurrentIndex(idx)
