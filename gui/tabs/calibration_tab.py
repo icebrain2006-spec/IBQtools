@@ -1137,19 +1137,3 @@ class CalibrationTab(QWidget):
             self.log("Calibration Sequence Fully Completed.")
         else:
             self.log("Calibration failed or was aborted.")
-
-    def refresh_ports(self):
-        self.combo_port.clear()
-        ports = serial.tools.list_ports.comports()
-        if not ports:
-            self.combo_port.addItem("Select Port")
-        else:
-            for p in ports:
-                self.combo_port.addItem(p.device)
-                
-            last_port = self.settings.value("calib_last_port", "")
-            if last_port:
-                # Find index of last_port
-                idx = self.combo_port.findText(last_port)
-                if idx >= 0:
-                    self.combo_port.setCurrentIndex(idx)
