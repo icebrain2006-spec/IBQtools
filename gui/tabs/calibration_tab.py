@@ -327,6 +327,7 @@ class CalibrationTab(QWidget):
         splitter.setSizes([400, 600]) # Initial sizes
         
         main_layout.addWidget(splitter)
+        self.refresh_ports()
 
     def refresh_ports(self):
         current_text = self.combo_port.currentText()
