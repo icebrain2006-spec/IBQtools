@@ -1,4 +1,5 @@
 #include "bq_updater.h"
+#include "calib_engine.h"
 #include "flash_store.h"
 #include "pico/bootrom.h"
 #include "pico/stdlib.h"
@@ -357,6 +358,42 @@ static void handle_packet(const rx_packet_t *pkt) {
     bq_updater_stop();
     resp_payload[0] = RESP_OK;
     protocol_send_packet(CMD_FW_UPDATE_STOP, resp_payload, 1);
+    break;
+  }
+
+  case CMD_CALIB_RUN: {
+    if (pkt->length < 8) {
+      resp_payload[0] = RESP_ERR_PARAM;
+      protocol_send_packet(CMD_CALIB_RUN, resp_payload, 1);
+      break;
+    }
+    uint8_t ch_mask = pkt->payload[0];
+    uint8_t mode = pkt->payload[1];
+    uint16_t target_cell1 = read_u16_be(pkt->payload + 2);
+    uint16_t target_pack = read_u16_be(pkt->payload + 4);
+    uint16_t target_bat = read_u16_be(pkt->payload + 6);
+
+    bool ok = calib_engine_start(ch_mask, mode, target_cell1, target_pack, target_bat);
+    resp_payload[0] = ok ? RESP_OK : RESP_ERR_BUSY;
+    protocol_send_packet(CMD_CALIB_RUN, resp_payload, 1);
+    break;
+  }
+
+  case CMD_CALIB_STATUS: {
+    resp_payload[0] = RESP_OK;
+    resp_payload[1] = calib_status.state;
+    resp_payload[2] = calib_status.active_channels;
+    resp_payload[3] = calib_status.error_channels;
+    
+    // Fill channel 1..6 results (6 * 7 = 42 bytes)
+    uint16_t idx = 4;
+    for (uint8_t ch = 1; ch <= 6; ch++) {
+      write_u16_be(resp_payload + idx, calib_status.results[ch].cell1_gain); idx += 2;
+      write_u16_be(resp_payload + idx, calib_status.results[ch].pack_gain); idx += 2;
+      write_u16_be(resp_payload + idx, calib_status.results[ch].bat_gain); idx += 2;
+      resp_payload[idx++] = calib_status.results[ch].success ? 1 : 0;
+    }
+    protocol_send_packet(CMD_CALIB_STATUS, resp_payload, idx);
     break;
   }
 

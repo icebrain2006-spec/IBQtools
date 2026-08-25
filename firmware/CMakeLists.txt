@@ -20,6 +20,7 @@ add_executable(firmware
     src/flash/flash_store.c
     src/protocol/protocol.c
     src/bq_updater/bq_updater.c
+    src/calib_engine/calib_engine.c
     src/led/ws2812_control.c
 )
 
@@ -34,6 +35,7 @@ target_include_directories(firmware PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/flash
     ${CMAKE_CURRENT_SOURCE_DIR}/src/protocol
     ${CMAKE_CURRENT_SOURCE_DIR}/src/bq_updater
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/calib_engine
     ${CMAKE_CURRENT_SOURCE_DIR}/src/led
 )
 

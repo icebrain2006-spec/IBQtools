@@ -26,6 +26,8 @@
 #define CMD_FW_UPDATE_STATUS 0x41
 #define CMD_FW_UPDATE_STOP   0x42
 #define CMD_SET_LED_STATE    0x50
+#define CMD_CALIB_RUN        0x60
+#define CMD_CALIB_STATUS     0x61
 
 // Command execution status response codes
 #define RESP_OK              0x00

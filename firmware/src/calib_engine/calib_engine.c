@@ -1,0 +1,163 @@
+#include "calib_engine.h"
+#include "smbus.h"
+#include "pico/stdlib.h"
+#include "pico/multicore.h"
+#include <string.h>
+
+volatile calib_status_t calib_status = {
+    .state = 0,
+    .active_channels = 0,
+    .error_channels = 0,
+    .mode = 0
+};
+
+static uint16_t g_target_cell1_mv = 3200;
+static uint16_t g_target_pack_mv = 12780;
+static uint16_t g_target_bat_mv = 12780;
+
+// Execute BQ40Z50 Voltage/Current Calibration in parallel on active channels
+static void run_calib_pipeline(void) {
+    uint8_t ch_mask = calib_status.active_channels;
+    
+    // 1. Enter CAL mode (MAC 0x002D) for all active channels in parallel
+    for (uint8_t ch = 1; ch <= 6; ch++) {
+        if (ch_mask & (1 << (ch - 1))) {
+            smbus_write_word(ch, 0x0B, 0x00, 0x002D, false);
+        }
+    }
+    sleep_ms(170); // Shared wait for all channels
+
+    // 2. Check CAL_EN == 1 for all channels
+    for (uint8_t ch = 1; ch <= 6; ch++) {
+        if (ch_mask & (1 << (ch - 1))) {
+            bool chk_ok = false;
+            for (int r = 0; r < 10; r++) {
+                smbus_write_word(ch, 0x0B, 0x44, 0x0057, false);
+                sleep_ms(20);
+                uint8_t rx_buf[32];
+                uint8_t rx_len = 0;
+                if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK && rx_len >= 4) {
+                    if (rx_buf[3] & 0x80) { // CAL_EN bit
+                        chk_ok = true;
+                        break;
+                    }
+                }
+                sleep_ms(20);
+            }
+            if (!chk_ok) {
+                calib_status.error_channels |= (1 << (ch - 1));
+            }
+        }
+    }
+
+    // 3. Raw ADC Mode Start (0xF081)
+    for (uint8_t ch = 1; ch <= 6; ch++) {
+        if ((ch_mask & (1 << (ch - 1))) && !(calib_status.error_channels & (1 << (ch - 1)))) {
+            smbus_write_word(ch, 0x0B, 0x00, 0xF081, false);
+        }
+    }
+    sleep_ms(230); // Shared wait
+
+    // 4. Interleaved Round-Robin Raw ADC Sampling (6 samples, 200ms apart)
+    uint32_t cell1_sum[7] = {0};
+    uint32_t pack_sum[7] = {0};
+    uint32_t bat_sum[7] = {0};
+    uint8_t sample_cnt[7] = {0};
+
+    for (int sample = 0; sample < 6; sample++) {
+        uint32_t start_ms = to_ms_since_boot(get_absolute_time());
+        for (uint8_t ch = 1; ch <= 6; ch++) {
+            if ((ch_mask & (1 << (ch - 1))) && !(calib_status.error_channels & (1 << (ch - 1)))) {
+                uint8_t rx_buf[32];
+                uint8_t rx_len = 0;
+                if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK && rx_len >= 14) {
+                    uint16_t cell1 = rx_buf[6] | (rx_buf[7] << 8);
+                    uint16_t pack = rx_buf[14] | (rx_buf[15] << 8);
+                    uint16_t bat = rx_buf[16] | (rx_buf[17] << 8);
+                    
+                    cell1_sum[ch] += cell1;
+                    pack_sum[ch] += pack;
+                    bat_sum[ch] += bat;
+                    sample_cnt[ch]++;
+                }
+            }
+        }
+        uint32_t elapsed = to_ms_since_boot(get_absolute_time()) - start_ms;
+        if (elapsed < 200) {
+            sleep_ms(200 - elapsed);
+        }
+    }
+
+    // 5. Raw ADC Mode Stop (0xF080)
+    for (uint8_t ch = 1; ch <= 6; ch++) {
+        if (ch_mask & (1 << (ch - 1))) {
+            smbus_write_word(ch, 0x0B, 0x00, 0xF080, false);
+        }
+    }
+    sleep_ms(160);
+
+    // 6. Calculate Gain & Write 0x4000 block per channel
+    for (uint8_t ch = 1; ch <= 6; ch++) {
+        if ((ch_mask & (1 << (ch - 1))) && !(calib_status.error_channels & (1 << (ch - 1)))) {
+            if (sample_cnt[ch] > 0) {
+                float cell1_avg = (float)cell1_sum[ch] / sample_cnt[ch];
+                float pack_avg = (float)pack_sum[ch] / sample_cnt[ch];
+                float bat_avg = (float)bat_sum[ch] / sample_cnt[ch];
+
+                uint16_t g_cell1 = (cell1_avg > 0) ? (uint16_t)((g_target_cell1_mv / cell1_avg) * 65536.0f) : 32768;
+                uint16_t g_pack = (pack_avg > 0) ? (uint16_t)((g_target_pack_mv / pack_avg) * 65536.0f) : 12800;
+                uint16_t g_bat = (bat_avg > 0) ? (uint16_t)((g_target_bat_mv / bat_avg) * 65536.0f) : 12800;
+
+                calib_status.results[ch].cell1_gain = g_cell1;
+                calib_status.results[ch].pack_gain = g_pack;
+                calib_status.results[ch].bat_gain = g_bat;
+                calib_status.results[ch].success = true;
+
+                // Read cached 0x4000 block, update gains and write back
+                uint8_t df_block[36] = {0};
+                uint8_t rx_len = 0;
+                smbus_write_word(ch, 0x0B, 0x44, 0x4000, false);
+                sleep_ms(25);
+                if (smbus_read_block(ch, 0x0B, 0x44, df_block, &rx_len, false) == SMBUS_OK && rx_len >= 6) {
+                    df_block[0] = g_cell1 & 0xFF;
+                    df_block[1] = (g_cell1 >> 8) & 0xFF;
+                    df_block[2] = g_pack & 0xFF;
+                    df_block[3] = (g_pack >> 8) & 0xFF;
+                    df_block[4] = g_bat & 0xFF;
+                    df_block[5] = (g_bat >> 8) & 0xFF;
+
+                    uint8_t wr_payload[38];
+                    wr_payload[0] = 0x00;
+                    wr_payload[1] = 0x40;
+                    memcpy(wr_payload + 2, df_block, rx_len);
+                    smbus_write_block(ch, 0x0B, 0x44, wr_payload, 2 + rx_len, false);
+                }
+            }
+        }
+    }
+    sleep_ms(250);
+
+    // 7. Disable CAL Mode (0x002D) & verify CHK_CAL 0
+    for (uint8_t ch = 1; ch <= 6; ch++) {
+        if (ch_mask & (1 << (ch - 1))) {
+            smbus_write_word(ch, 0x0B, 0x00, 0x002D, false);
+        }
+    }
+    sleep_ms(60);
+
+    calib_status.state = 2; // DONE
+}
+
+bool calib_engine_start(uint8_t channel_mask, uint8_t mode, uint16_t target_cell1_mv, uint16_t target_pack_mv, uint16_t target_bat_mv) {
+    if (calib_status.state == 1) return false;
+    calib_status.active_channels = channel_mask;
+    calib_status.error_channels = 0;
+    calib_status.mode = mode;
+    calib_status.state = 1; // RUNNING
+    g_target_cell1_mv = target_cell1_mv;
+    g_target_pack_mv = target_pack_mv;
+    g_target_bat_mv = target_bat_mv;
+
+    run_calib_pipeline();
+    return true;
+}
