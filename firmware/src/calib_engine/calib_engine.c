@@ -151,17 +151,18 @@ static void run_calib_pipeline(void) {
                             memcpy(df_block + 6, &new_cc_gain, 4);
                             memcpy(df_block + 10, &new_cap_gain, 4);
 
-                            // Exit CAL mode first so BQ40Z50 unblocks DataFlash writing
-                            uint8_t cal_exit_cmd[2] = {0x2D, 0x00};
-                            smbus_write_block(ch, 0x0B, 0x44, cal_exit_cmd, 2, false);
-                            sleep_ms(50);
-
+                            // 6. Save Current Calibration Data (updates 0x4000 block)
                             uint8_t wr_payload[38];
                             wr_payload[0] = 0x00;
                             wr_payload[1] = 0x40;
                             memcpy(wr_payload + 2, df_block, rx_len);
                             smbus_write_block(ch, 0x0B, 0x44, wr_payload, 2 + rx_len, true);
-                            sleep_ms(50);
+                            sleep_ms(250); // X 250 from script
+
+                            // 7. Raw ADC MODE stop (again)
+                            uint8_t raw_stop_cmd2[2] = {0x80, 0xF0};
+                            smbus_write_block(ch, 0x0B, 0x44, raw_stop_cmd2, 2, false);
+                            sleep_ms(60); // X 60 from script
 
                             calib_status.results[ch].cell1_gain = (uint16_t)(int16_t)cc_avg;
                             calib_status.results[ch].pack_gain = (uint16_t)(new_cc_gain * 1000.0f);
