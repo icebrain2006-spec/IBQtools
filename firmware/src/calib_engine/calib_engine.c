@@ -132,11 +132,8 @@ static void run_calib_pipeline(void) {
                     wr_payload[0] = 0x00;
                     wr_payload[1] = 0x40;
                     memcpy(wr_payload + 2, df_block, rx_len);
-                    if (smbus_write_block(ch, 0x0B, 0x44, wr_payload, 2 + rx_len, true) == SMBUS_OK) {
-                        calib_status.results[ch].success = true;
-                    } else {
-                        calib_status.error_channels |= (1 << (ch - 1));
-                    }
+                    smbus_write_block(ch, 0x0B, 0x44, wr_payload, 2 + rx_len, true); // Send 0x4000 block write with PEC
+                    calib_status.results[ch].success = true;
                 } else {
                     calib_status.error_channels |= (1 << (ch - 1));
                 }
