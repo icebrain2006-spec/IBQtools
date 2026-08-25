@@ -1123,16 +1123,13 @@ class CalibrationThread(QThread):
                                     time.sleep(0.05)
                                     df_b = self.smbus_read_block(0x44)
                                     if df_b and len(df_b) >= 16:
+                                        # Header in df_b is [0x00, 0x40], payload starts at index 2
+                                        # CC Gain is at offset 6 in block -> index 2 + 6 = 8
+                                        # Capacity Gain is at offset 10 in block -> index 2 + 10 = 12
                                         cc_gain = struct.unpack_from('<f', df_b, 8)[0]
                                         cap_gain = struct.unpack_from('<f', df_b, 12)[0]
+                                        mohm = 3.714528 / cc_gain if cc_gain != 0 else 0
                                         avg_cc = cc_adc_map.get(ch, 0)
-                                        target_ma = abs(self.targets.get('currentma', -2000))
-                                        if avg_cc != 0:
-                                            # new_cc_gain = abs(target_ma / avg_cc)
-                                            # mohm = 3.714528 / new_cc_gain
-                                            mohm = abs((float(avg_cc) / float(target_ma)) * 3.714528)
-                                        else:
-                                            mohm = 0.966
                                         self._log(f"    [CH{ch} RP2040 HW Result] PASS -> Avg CC ADC: {avg_cc}, CC Gain: {cc_gain:.6f}, Shunt Resistor: {mohm:.3f} mOhm")
                                         self._log(f"    [CH{ch} RAW 0x4000 Bytes]: {df_b[2:18].hex(' ')}")
                                         self.emit_result("CC Gain", "CC Gain (mOhm)", f"{mohm:.3f}", mohm, is_gain=True)
