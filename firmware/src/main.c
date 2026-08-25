@@ -37,7 +37,7 @@ static void handle_packet(const rx_packet_t *pkt) {
 
   switch (pkt->cmd) {
   case CMD_GET_VERSION: {
-    const char *version = "v1.0.88";
+    const char *version = "v1.0.90";
     resp_payload[0] = RESP_OK;
     strcpy((char *)(resp_payload + 1), version);
     protocol_send_packet(CMD_GET_VERSION, resp_payload, 1 + strlen(version));

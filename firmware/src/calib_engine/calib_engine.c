@@ -21,10 +21,12 @@ static uint16_t g_target_bat_mv[7];
 static void run_calib_pipeline(void) {
     uint8_t ch_mask = calib_status.active_channels;
     
-    // If mode == 1 (CURRENT mode), turn ON relays for active channels
+    // Ensure relays are completely OFF for non-current modes
     if (calib_status.mode == 1) {
         relay_set_mask(ch_mask);
         sleep_ms(1000); // Wait 1s for load current to stabilize
+    } else {
+        relay_set_mask(0); // Explicitly ensure relays OFF for Voltage Mode
     }
 
     // 0. Cache 0x4000 DataFlash block BEFORE CAL mode entry (CAL mode blocks reading)
@@ -212,17 +214,15 @@ static void run_calib_pipeline(void) {
                         df_block[4] = g_pack & 0xFF;
                         df_block[5] = (g_pack >> 8) & 0xFF;
 
-                        // Exit CAL mode first so BQ40Z50 unblocks DataFlash writing
-                        uint8_t cal_exit_cmd[2] = {0x2D, 0x00};
-                        smbus_write_block(ch, 0x0B, 0x44, cal_exit_cmd, 2, false);
-                        sleep_ms(50);
-
-                        uint8_t wr_payload[38];
+                        // 6. Save Voltage Calibration Data (updates 0x4000 block: Cell1Gain, BatGain, PackGain)
+                        uint8_t wr_payload[36];
                         wr_payload[0] = 0x00;
                         wr_payload[1] = 0x40;
-                        memcpy(wr_payload + 2, df_block, rx_len);
-                        smbus_write_block(ch, 0x0B, 0x44, wr_payload, 2 + rx_len, true); // Send 0x4000 block write with PEC
-                        sleep_ms(50);
+                        uint8_t copy_len = (rx_len > 32) ? 32 : rx_len;
+                        memcpy(wr_payload + 2, df_block, copy_len);
+                        
+                        smbus_write_block(ch, 0x0B, 0x44, wr_payload, 2 + copy_len, true); // Send 0x4000 block write with PEC
+                        sleep_ms(250);
                         calib_status.results[ch].success = true;
                     } else {
                         calib_status.error_channels |= (1 << (ch - 1));
@@ -244,10 +244,8 @@ static void run_calib_pipeline(void) {
     }
     sleep_ms(60);
 
-    // If mode == 1 (CURRENT mode), turn OFF relays
-    if (calib_status.mode == 1) {
-        relay_set_mask(0);
-    }
+    // Always turn OFF relays upon calibration pipeline completion
+    relay_set_mask(0);
 
     calib_status.state = 2; // DONE
 }
