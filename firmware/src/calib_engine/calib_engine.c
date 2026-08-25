@@ -152,11 +152,18 @@ static void run_calib_pipeline(void) {
                             memcpy(df_block + 10, &new_cap_gain, 4);
 
                             // 6. Save Current Calibration Data (updates 0x4000 block)
-                            uint8_t wr_payload[38];
+                            // BQ40Z50 DataFlash 0x4000 block write payload format:
+                            // MAC Subcommand (0x00 0x40) + Data Flash 32-byte Block Data
+                            // Payload length for SMBus Write Block is 34 bytes (Subcommand 2B + Data 32B)
+                            // But standard SMBus Block Write max len is 32. BQ40Z50 ManufacturerAccess() 0x44 Block Write accepts 34 bytes!
+                            uint8_t wr_payload[36];
                             wr_payload[0] = 0x00;
                             wr_payload[1] = 0x40;
-                            memcpy(wr_payload + 2, df_block, rx_len);
-                            smbus_write_block(ch, 0x0B, 0x44, wr_payload, 2 + rx_len, true);
+                            uint8_t copy_len = (rx_len > 32) ? 32 : rx_len;
+                            memcpy(wr_payload + 2, df_block, copy_len);
+                            
+                            // Send direct Block Write with 2 + copy_len
+                            smbus_write_block(ch, 0x0B, 0x44, wr_payload, 2 + copy_len, true);
                             sleep_ms(250); // X 250 from script
 
                             // 7. Raw ADC MODE stop (again)

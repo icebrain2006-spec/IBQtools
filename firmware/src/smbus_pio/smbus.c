@@ -370,7 +370,7 @@ error:
 // SMBus Block Write
 int smbus_write_block(uint8_t ch, uint8_t addr, uint8_t cmd, const uint8_t *data, uint8_t len, bool use_pec) {
     if (ch < 1 || ch > 6) return SMBUS_ERR_INVALID;
-    if (len > 32) return SMBUS_ERR_INVALID;
+    if (len > 40) return SMBUS_ERR_INVALID;
     uint8_t idx = ch - 1;
     uint sda = SMBUS_SDA_PINS[idx];
     uint scl = SMBUS_SCL_PINS[idx];
