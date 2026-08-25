@@ -1033,40 +1033,68 @@ class CalibrationThread(QThread):
                 modes_to_run = [run_mode]
             
             ch_status_map = {}
+            mode_code = 0 if run_mode == "voltage" else (1 if run_mode == "current" else 2)
             
-            # Phase 1: Pure Calibration Loop (Batch run across CH1 -> CH2 -> CH3)
+            ch_mask = 0
             for ch in self.channels:
-                if not self._running:
-                    break
-                self.ch = ch
-                if self.targets_per_ch and ch in self.targets_per_ch:
-                    self.targets = self.targets_per_ch[ch]
-                ch_success = True
-                self._log(f"--- Processing Calibration for Channel {ch} ---")
-                ch_start_time = time.time()
+                ch_mask |= (1 << (ch - 1))
+
+            target_cell1 = int(self.targets.get('cell1mv', 3200))
+            target_pack = int(self.targets.get('packmv', 12780))
+            target_bat = int(self.targets.get('batmv', 12780))
+
+            self._log(f"--- Sending Hardware Calibration Command to RP2040 (Channels: {self.channels}) ---")
             
-                # Perform Serial Check first to wake up and verify BQ chip SBD communication
-                sn, date_str = self._read_mfg_info()
-                if sn != "Unknown" or date_str != "Unknown":
-                    self._log(f"    [Serial Check] SBD Check OK -> Serial: {sn}, Date: {date_str}")
-                else:
-                    self._log(f"    [Serial Check] Warning: Could not read Mfg Info, proceeding anyway...")
+            # Send CMD_CALIB_RUN (0x60) packet
+            payload = struct.pack(">B B H H H", ch_mask, mode_code, target_cell1, target_pack, target_bat)
+            pkt = make_packet(0x60, payload)
+            self.ser.reset_input_buffer()
+            self.ser.write(pkt)
+            
+            # Read ACK response
+            rx = self._read_packet()
+            cmd, resp = parse_response(rx)
+            if not isinstance(resp, (bytes, bytearray)) or len(resp) == 0 or resp[0] != RESP_OK:
+                self._log("Error: RP2040 rejected hardware calibration start command.")
+                self.finished_signal.emit(False)
+                return
+
+            # Poll CMD_CALIB_STATUS (0x61) until state becomes 2 (DONE) or 3 (ERROR)
+            calib_done = False
+            for _ in range(60): # Max 6 seconds poll timeout
+                if not self._running: break
+                time.sleep(0.1)
                 
-                if not self.detect_firmware_and_config():
-                    self._log("Warning: Could not detect configuration, proceeding with defaults.")
+                pkt_status = make_packet(0x61, b"")
+                self.ser.reset_input_buffer()
+                self.ser.write(pkt_status)
                 
-                for m in modes_to_run:
-                    script_path = os.path.join(self.script_dir, f"{self.script_base}_{m}.calib")
-                    if not self.execute_script(script_path, m):
-                        ch_success = False
+                rx_st = self._read_packet()
+                st_cmd, st_resp = parse_response(rx_st)
+                if isinstance(st_resp, (bytes, bytearray)) and len(st_resp) >= 46 and st_resp[0] == RESP_OK:
+                    state = st_resp[1]
+                    err_channels = st_resp[3]
+                    if state == 2: # DONE
+                        calib_done = True
+                        idx = 4
+                        for ch in range(1, 7):
+                            cell1_g = struct.unpack('>H', st_resp[idx:idx+2])[0]; idx += 2
+                            pack_g = struct.unpack('>H', st_resp[idx:idx+2])[0]; idx += 2
+                            bat_g = struct.unpack('>H', st_resp[idx:idx+2])[0]; idx += 2
+                            ch_succ = (st_resp[idx] == 1); idx += 1
+                            if ch in self.channels:
+                                ch_status_map[ch] = ch_succ and not (err_channels & (1 << (ch - 1)))
+                                if ch_status_map[ch]:
+                                    self._log(f"    [CH{ch} RP2040 HW Result] PASS -> Cell1 Gain: {cell1_g}, Pack Gain: {pack_g}, Bat Gain: {bat_g}")
+                                    self.emit_result("Cell 1 Gain", "Cell 1 Gain", str(cell1_g), cell1_g, is_gain=True)
+                                    self.emit_result("Pack Gain", "Pack Gain", str(pack_g), pack_g, is_gain=True)
+                                    self.emit_result("Bat Gain", "Bat Gain", str(bat_g), bat_g, is_gain=True)
+                                else:
+                                    self._log(f"    [CH{ch} RP2040 HW Result] FAIL")
                         break
-                        
-                ch_pure_cal_time = time.time() - ch_start_time
-                self._log(f"    [TIME] CH{ch} Pure Cal Execution Time: {ch_pure_cal_time:.3f} sec")
-                ch_status_map[ch] = ch_success
 
             total_cal_time = time.time() - total_start_time
-            self._log(f"[TIME] Total Pure Calibration Time (All Channels): {total_cal_time:.3f} sec")
+            self._log(f"[TIME] Total Pure RP2040 Hardware Calibration Time (All Channels): {total_cal_time:.3f} sec")
 
             # Phase 2: Post Verification & CSV Logging Loop
             self._log("--- Running Post-Verification & Measurement Capture ---")
