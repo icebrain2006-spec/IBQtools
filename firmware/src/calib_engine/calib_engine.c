@@ -19,10 +19,11 @@ static uint16_t g_target_bat_mv = 12780;
 static void run_calib_pipeline(void) {
     uint8_t ch_mask = calib_status.active_channels;
     
-    // 1. Enter CAL mode (MAC 0x002D) for all active channels in parallel
+    // 1. Enter CAL mode (MAC 0x002D: Block Write [0x2D, 0x00] to 0x00/0x44) for all active channels in parallel
+    uint8_t cal_enter_cmd[2] = {0x2D, 0x00};
     for (uint8_t ch = 1; ch <= 6; ch++) {
         if (ch_mask & (1 << (ch - 1))) {
-            smbus_write_word(ch, 0x0B, 0x00, 0x002D, false);
+            smbus_write_block(ch, 0x0B, 0x44, cal_enter_cmd, 2, false);
         }
     }
     sleep_ms(170); // Shared wait for all channels
@@ -51,10 +52,11 @@ static void run_calib_pipeline(void) {
         }
     }
 
-    // 3. Raw ADC Mode Start (0xF081)
+    // 3. Raw ADC Mode Start (MAC 0xF081: Block Write [0x81, 0xF0] to 0x00/0x44)
+    uint8_t raw_start_cmd[2] = {0x81, 0xF0};
     for (uint8_t ch = 1; ch <= 6; ch++) {
         if ((ch_mask & (1 << (ch - 1))) && !(calib_status.error_channels & (1 << (ch - 1)))) {
-            smbus_write_word(ch, 0x0B, 0x00, 0xF081, false);
+            smbus_write_block(ch, 0x0B, 0x44, raw_start_cmd, 2, false);
         }
     }
     sleep_ms(230); // Shared wait
@@ -89,10 +91,11 @@ static void run_calib_pipeline(void) {
         }
     }
 
-    // 5. Raw ADC Mode Stop (0xF080)
+    // 5. Raw ADC Mode Stop (MAC 0xF080: Block Write [0x80, 0xF0] to 0x00/0x44)
+    uint8_t raw_stop_cmd[2] = {0x80, 0xF0};
     for (uint8_t ch = 1; ch <= 6; ch++) {
         if (ch_mask & (1 << (ch - 1))) {
-            smbus_write_word(ch, 0x0B, 0x00, 0xF080, false);
+            smbus_write_block(ch, 0x0B, 0x44, raw_stop_cmd, 2, false);
         }
     }
     sleep_ms(160);
@@ -117,7 +120,8 @@ static void run_calib_pipeline(void) {
                 // Read cached 0x4000 block, update gains and write back
                 uint8_t df_block[36] = {0};
                 uint8_t rx_len = 0;
-                smbus_write_word(ch, 0x0B, 0x44, 0x4000, false);
+                uint8_t df_cmd[2] = {0x00, 0x40};
+                smbus_write_block(ch, 0x0B, 0x44, df_cmd, 2, false);
                 sleep_ms(25);
                 if (smbus_read_block(ch, 0x0B, 0x44, df_block, &rx_len, false) == SMBUS_OK && rx_len >= 6) {
                     df_block[0] = g_cell1 & 0xFF;
@@ -138,10 +142,11 @@ static void run_calib_pipeline(void) {
     }
     sleep_ms(250);
 
-    // 7. Disable CAL Mode (0x002D) & verify CHK_CAL 0
+    // 7. Disable CAL Mode (MAC 0x002D: Block Write [0x2D, 0x00]) & verify CHK_CAL 0
+    uint8_t cal_toggle_cmd[2] = {0x2D, 0x00};
     for (uint8_t ch = 1; ch <= 6; ch++) {
         if (ch_mask & (1 << (ch - 1))) {
-            smbus_write_word(ch, 0x0B, 0x00, 0x002D, false);
+            smbus_write_block(ch, 0x0B, 0x44, cal_toggle_cmd, 2, false);
         }
     }
     sleep_ms(60);
