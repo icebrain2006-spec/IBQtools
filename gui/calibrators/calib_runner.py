@@ -969,8 +969,8 @@ class CalibrationThread(QThread):
                     cell2 = struct.unpack_from('<H', data, 4)[0]
                     cell3 = struct.unpack_from('<H', data, 6)[0]
                     cell4 = struct.unpack_from('<H', data, 8)[0]
-                    bat = struct.unpack_from('<H', data, 10)[0]
-                    pack = struct.unpack_from('<H', data, 12)[0]
+                    bat = struct.unpack_from('<H', data, 12)[0]
+                    pack = struct.unpack_from('<H', data, 10)[0]
                     
                     cells = [cell1, cell2, cell3, cell4]
                     if show_voltage:
