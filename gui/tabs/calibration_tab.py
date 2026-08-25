@@ -1070,6 +1070,7 @@ class CalibrationTab(QWidget):
                             if key == "Shunt Resistor":
                                 ch_limits["CC Gain"] = (base_target + v_min, base_target + v_max)
                                 ch_limits["Capacity Gain"] = (base_target + v_min, base_target + v_max)
+                                ch_limits["Shunt Resistor"] = (base_target + v_min, base_target + v_max)
                             else:
                                 ch_limits[key] = (base_target + v_min, base_target + v_max)
                         else:
