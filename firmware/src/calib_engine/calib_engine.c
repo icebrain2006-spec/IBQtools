@@ -27,6 +27,18 @@ static void run_calib_pipeline(void) {
         sleep_ms(1000); // Wait 1s for load current to stabilize
     }
 
+    // 0. Cache 0x4000 DataFlash block BEFORE CAL mode entry (CAL mode blocks reading)
+    uint8_t cached_0x4000[7][36] = {0};
+    uint8_t cached_len[7] = {0};
+    uint8_t df_pre_cmd[2] = {0x00, 0x40};
+    for (uint8_t ch = 1; ch <= 6; ch++) {
+        if (ch_mask & (1 << (ch - 1))) {
+            smbus_write_block(ch, 0x0B, 0x44, df_pre_cmd, 2, false);
+            sleep_ms(25);
+            smbus_read_block(ch, 0x0B, 0x44, cached_0x4000[ch], &cached_len[ch], false);
+        }
+    }
+
     // 1. Enter CAL mode (MAC 0x002D: Block Write [0x2D, 0x00] to 0x00/0x44) for all active channels in parallel
     uint8_t cal_enter_cmd[2] = {0x2D, 0x00};
     for (uint8_t ch = 1; ch <= 6; ch++) {
@@ -124,11 +136,16 @@ static void run_calib_pipeline(void) {
                         float new_cap_gain = new_cc_gain * 298261.6178f;
 
                         uint8_t df_block[36] = {0};
-                        uint8_t rx_len = 0;
-                        uint8_t df_cmd[2] = {0x00, 0x40};
-                        smbus_write_block(ch, 0x0B, 0x44, df_cmd, 2, false);
-                        sleep_ms(25);
-                        if (smbus_read_block(ch, 0x0B, 0x44, df_block, &rx_len, false) == SMBUS_OK && rx_len >= 14) {
+                        uint8_t rx_len = cached_len[ch];
+                        if (rx_len >= 14) {
+                            memcpy(df_block, cached_0x4000[ch], rx_len);
+                        } else {
+                            uint8_t df_cmd[2] = {0x00, 0x40};
+                            smbus_write_block(ch, 0x0B, 0x44, df_cmd, 2, false);
+                            sleep_ms(25);
+                            smbus_read_block(ch, 0x0B, 0x44, df_block, &rx_len, false);
+                        }
+                        if (rx_len >= 14) {
                             memcpy(df_block + 6, &new_cc_gain, 4);
                             memcpy(df_block + 10, &new_cap_gain, 4);
 
@@ -157,13 +174,19 @@ static void run_calib_pipeline(void) {
                     calib_status.results[ch].cell1_gain = g_cell1;
                     calib_status.results[ch].pack_gain = g_pack;
                     calib_status.results[ch].bat_gain = g_bat;
-                    // Read cached 0x4000 block, update gains and write back
+
                     uint8_t df_block[36] = {0};
-                    uint8_t rx_len = 0;
-                    uint8_t df_cmd[2] = {0x00, 0x40};
-                    smbus_write_block(ch, 0x0B, 0x44, df_cmd, 2, false);
-                    sleep_ms(25);
-                    if (smbus_read_block(ch, 0x0B, 0x44, df_block, &rx_len, false) == SMBUS_OK && rx_len >= 6) {
+                    uint8_t rx_len = cached_len[ch];
+                    if (rx_len >= 6) {
+                        memcpy(df_block, cached_0x4000[ch], rx_len);
+                    } else {
+                        uint8_t df_cmd[2] = {0x00, 0x40};
+                        smbus_write_block(ch, 0x0B, 0x44, df_cmd, 2, false);
+                        sleep_ms(25);
+                        smbus_read_block(ch, 0x0B, 0x44, df_block, &rx_len, false);
+                    }
+
+                    if (rx_len >= 6) {
                         df_block[0] = g_cell1 & 0xFF;
                         df_block[1] = (g_cell1 >> 8) & 0xFF;
                         df_block[2] = g_bat & 0xFF;
