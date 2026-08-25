@@ -1144,6 +1144,7 @@ class CalibrationThread(QThread):
                                 time.sleep(rem_sleep)
                                 
                         # Process ADC averages per channel
+                        ch_gains = {ch: [] for ch in self.channels}
                         for ch in self.channels:
                             self.ch = ch
                             if self.targets_per_ch and ch in self.targets_per_ch:
@@ -1161,22 +1162,40 @@ class CalibrationThread(QThread):
                                     cell1_avg = cell1_sum / float(valid_count)
                                     batt_avg = batt_sum / float(valid_count)
                                     pack_avg = pack_sum / float(valid_count)
+                                    g_list = []
                                     if cell1_avg > 0:
                                         g = int((self.targets.get('cell1mv', 3200) / cell1_avg) * 65536)
                                         g = max(0, min(65535, g))
+                                        g_list.append(g)
                                         self.emit_result("Cell 1 Gain", "Cell 1 Gain", str(g), g, is_gain=True)
                                     if pack_avg > 0:
                                         g = int((self.targets.get('packmv', 12780) / pack_avg) * 65536)
                                         g = max(0, min(65535, g))
+                                        g_list.append(g)
                                         self.emit_result("Pack Gain", "Pack Gain", str(g), g, is_gain=True)
                                     if batt_avg > 0:
                                         g = int((self.targets.get('batmv', 12780) / batt_avg) * 65536)
                                         g = max(0, min(65535, g))
+                                        g_list.append(g)
                                         self.emit_result("Bat Gain", "Bat Gain", str(g), g, is_gain=True)
+                                    ch_gains[ch] = g_list
                     elif cmd == 'S':
+                        reg = self.parse_val(parts[1])
                         for ch in self.channels:
                             self.ch = ch
-                            self.save_4000_block()
+                            if self.targets_per_ch and ch in self.targets_per_ch:
+                                self.targets = self.targets_per_ch[ch]
+                            gains = ch_gains.get(ch, [])
+                            if gains and len(gains) >= 3:
+                                cell1_g, pack_g, bat_g = gains[0], gains[1], gains[2]
+                                df_base = list(getattr(self, 'cached_4000', b''))
+                                if len(df_base) >= 6:
+                                    struct.pack_into('<HHH', df_base, 0, cell1_g, pack_g, bat_g)
+                                    payload = [0x00, 0x40] + df_base
+                                    if self.smbus_write_block_raw(0x44, payload):
+                                        self._log(f"  => CH{ch} OK (Wrote 0x4000 Gain Block: Cell1={cell1_g}, Pack={pack_g}, Bat={bat_g})")
+                                    else:
+                                        self._log(f"  => CH{ch} FAIL writing 0x4000 block")
 
             total_cal_time = time.time() - total_start_time
             self._log(f"[TIME] Total Pure Pipeline Calibration Time (All Channels): {total_cal_time:.3f} sec")
