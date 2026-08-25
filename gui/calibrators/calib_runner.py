@@ -1074,6 +1074,7 @@ class CalibrationThread(QThread):
                 st_cmd, st_resp = parse_response(rx_st)
                 if isinstance(st_resp, (bytes, bytearray)) and st_resp[0] == RESP_OK:
                     state = st_resp[1]
+                    active_channels = st_resp[2]
                     err_channels = st_resp[3]
                     if state == 2: # DONE
                         calib_done = True
