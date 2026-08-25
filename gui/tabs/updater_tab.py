@@ -51,7 +51,7 @@ class PortComboBox(QComboBox):
         self.addItems(active_ports)
         if rp2040_port:
             self.setCurrentText(rp2040_port)
-        elif current_text and current_text in active_ports and current_text != "COM1":
+        elif current_text and current_text in active_ports:
             self.setCurrentText(current_text)
         elif active_ports and active_ports[0] != "Select COM":
             self.setCurrentText(active_ports[0])
