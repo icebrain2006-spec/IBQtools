@@ -1010,7 +1010,7 @@ class CalibrationTab(QWidget):
             ]
         else:
             limit_keys = [
-                "Cell 1 Gain", "Pack Gain", "Bat Gain",
+                "Cell 1 Gain", "Pack Gain", "Bat Gain", "CC Gain", "Capacity Gain",
                 "V_Cell 1", "V_Cell 2", "V_Cell 3", "V_Cell 4",
                 "V_Bat", "V_Pack",
                 "Int Temp", "TS1 Temp", "TS2 Temp", "TS3 Temp", "TS4 Temp",
@@ -1026,9 +1026,9 @@ class CalibrationTab(QWidget):
                 base_target = 0
                 is_offset = False
                 
-                if key in ["Cell 1 Gain", "Pack Gain", "Bat Gain"]:
+                if key in ["Cell 1 Gain", "Pack Gain", "Bat Gain", "CC Gain", "Capacity Gain"]:
                     default_min = "0"
-                    default_max = "65535"
+                    default_max = "1000000"
                 else:
                     is_offset = True
                     target_key = key.lower().replace(" ", "").replace("_", "")

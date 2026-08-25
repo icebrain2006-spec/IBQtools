@@ -1097,10 +1097,23 @@ class CalibrationThread(QThread):
                                 ch_status_map[ch] = ch_succ and not is_err
                                 self._log(f"    [DEBUG CH{ch}] cell1_g={cell1_g}, pack_g={pack_g}, bat_g={bat_g}, ch_succ_val={ch_succ_val}, is_err={is_err}")
                                 if ch_status_map[ch]:
-                                    self._log(f"    [CH{ch} RP2040 HW Result] PASS -> Cell1 Gain: {cell1_g}, Pack Gain: {pack_g}, Bat Gain: {bat_g}")
-                                    self.emit_result("Cell 1 Gain", "Cell 1 Gain", str(cell1_g), cell1_g, is_gain=True)
-                                    self.emit_result("Pack Gain", "Pack Gain", str(pack_g), pack_g, is_gain=True)
-                                    self.emit_result("Bat Gain", "Bat Gain", str(bat_g), bat_g, is_gain=True)
+                                    if run_mode == "current":
+                                        # Read updated 0x4000 block to extract IEEE 754 CC Gain & Capacity Gain
+                                        self.smbus_write_block_raw(0x44, [0x00, 0x40])
+                                        time.sleep(0.05)
+                                        df_b = self.smbus_read_block(0x44)
+                                        if df_b and len(df_b) >= 16:
+                                            cc_gain = struct.unpack_from('<f', df_b, 6)[0]
+                                            cap_gain = struct.unpack_from('<f', df_b, 10)[0]
+                                            mohm = 3.714528 / cc_gain if cc_gain != 0 else 0
+                                            self._log(f"    [CH{ch} RP2040 HW Result] PASS -> CC Gain: {cc_gain:.6f}, Shunt Resistor: {mohm:.3f} mOhm")
+                                            self.emit_result("CC Gain", "CC Gain (mOhm)", f"{mohm:.3f}", mohm, is_gain=True)
+                                            self.emit_result("Capacity Gain", "Capacity Gain (mOhm)", f"{mohm:.3f}", mohm, is_gain=True)
+                                    else:
+                                        self._log(f"    [CH{ch} RP2040 HW Result] PASS -> Cell1 Gain: {cell1_g}, Pack Gain: {pack_g}, Bat Gain: {bat_g}")
+                                        self.emit_result("Cell 1 Gain", "Cell 1 Gain", str(cell1_g), cell1_g, is_gain=True)
+                                        self.emit_result("Pack Gain", "Pack Gain", str(pack_g), pack_g, is_gain=True)
+                                        self.emit_result("Bat Gain", "Bat Gain", str(bat_g), bat_g, is_gain=True)
                                 else:
                                     self._log(f"    [CH{ch} RP2040 HW Result] FAIL (ch_succ={ch_succ}, err_mask={bin(err_channels)})")
                         break
