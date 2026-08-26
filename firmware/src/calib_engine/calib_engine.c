@@ -220,10 +220,9 @@ static void run_calib_pipeline(void) {
                             smbus_write_block(ch, 0x0B, 0x44, wr_payload, 2 + copy_len, true);
                             sleep_ms(250); // X 250 from script
 
-                            // 7. Raw ADC MODE stop (again) and turn OFF CAL_EN mode
+                            // 7. Raw ADC MODE stop (again)
                             smbus_write_word(ch, 0x0B, 0x00, 0xF080, false);
-                            smbus_write_word(ch, 0x0B, 0x00, 0x002D, false);
-                            sleep_ms(100);
+                            sleep_ms(60);
 
                             calib_status.results[ch].cell1_gain = (uint16_t)(int16_t)cc_avg;
                             calib_status.results[ch].pack_gain = (uint16_t)(new_cc_gain * 1000.0f);
