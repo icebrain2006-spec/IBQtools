@@ -1,4 +1,5 @@
 #include "calib_engine.h"
+#include "adc_offset_0xf081.h"
 #include "smbus.h"
 #include "relay/relay.h"
 #include "pico/stdlib.h"
@@ -134,11 +135,16 @@ static void run_calib_pipeline(void) {
                 uint8_t rx_buf[32];
                 uint8_t rx_len = 0;
                 // Raw ADC Block read (0x44) length is typically 14 or 16 bytes for BQ40Z50
-                if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK && rx_len >= 16) {
-                    uint16_t cell1 = rx_buf[4] | (rx_buf[5] << 8);   // Cell voltage 1 (bbBB)
-                    uint16_t pack  = rx_buf[12] | (rx_buf[13] << 8); // PACK voltage (ffFF)
-                    uint16_t bat   = rx_buf[14] | (rx_buf[15] << 8); // BAT voltage (ggGG)
-                    int16_t  cc    = (int16_t)(rx_buf[2] | (rx_buf[3] << 8)); // Current (aaAA)
+                if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK && rx_len >= BQ40Z50_ADC_OFFSETS.min_len) {
+                    uint8_t c1_off = BQ40Z50_ADC_OFFSETS.cell1;
+                    uint8_t pack_off = BQ40Z50_ADC_OFFSETS.pack;
+                    uint8_t bat_off = BQ40Z50_ADC_OFFSETS.bat;
+                    uint8_t cc_off = BQ40Z50_ADC_OFFSETS.current;
+
+                    uint16_t cell1 = rx_buf[c1_off] | (rx_buf[c1_off + 1] << 8);     // Cell voltage 1 (bbBB)
+                    uint16_t pack  = rx_buf[pack_off] | (rx_buf[pack_off + 1] << 8); // PACK voltage (ffFF)
+                    uint16_t bat   = rx_buf[bat_off] | (rx_buf[bat_off + 1] << 8);   // BAT voltage (ggGG)
+                    int16_t  cc    = (int16_t)(rx_buf[cc_off] | (rx_buf[cc_off + 1] << 8)); // Current (aaAA)
                     
                     cell1_sum[ch] += cell1;
                     pack_sum[ch] += pack;
