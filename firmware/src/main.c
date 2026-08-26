@@ -37,7 +37,7 @@ static void handle_packet(const rx_packet_t *pkt) {
 
   switch (pkt->cmd) {
   case CMD_GET_VERSION: {
-    const char *version = "v1.0.105";
+    const char *version = "v1.0.106";
     resp_payload[0] = RESP_OK;
     strcpy((char *)(resp_payload + 1), version);
     protocol_send_packet(CMD_GET_VERSION, resp_payload, 1 + strlen(version));
@@ -403,7 +403,7 @@ static void handle_packet(const rx_packet_t *pkt) {
     resp_payload[2] = calib_status.active_channels;
     resp_payload[3] = calib_status.error_channels;
     
-    // Fill channel 1..6 results (6 * 7 = 42 bytes)
+    // Fill channel 1..6 results (6 * 29 = 174 bytes)
     uint16_t idx = 4;
     for (uint8_t ch = 1; ch <= 6; ch++) {
       resp_payload[idx++] = calib_status.results[ch].cell1_gain & 0xFF;
@@ -413,6 +413,14 @@ static void handle_packet(const rx_packet_t *pkt) {
       resp_payload[idx++] = calib_status.results[ch].bat_gain & 0xFF;
       resp_payload[idx++] = (calib_status.results[ch].bat_gain >> 8) & 0xFF;
       resp_payload[idx++] = calib_status.results[ch].success ? 1 : 0;
+      resp_payload[idx++] = calib_status.results[ch].raw_cell1_adc & 0xFF;
+      resp_payload[idx++] = (calib_status.results[ch].raw_cell1_adc >> 8) & 0xFF;
+      resp_payload[idx++] = calib_status.results[ch].raw_pack_adc & 0xFF;
+      resp_payload[idx++] = (calib_status.results[ch].raw_pack_adc >> 8) & 0xFF;
+      resp_payload[idx++] = calib_status.results[ch].raw_bat_adc & 0xFF;
+      resp_payload[idx++] = (calib_status.results[ch].raw_bat_adc >> 8) & 0xFF;
+      memcpy(resp_payload + idx, calib_status.results[ch].raw_bytes, 16);
+      idx += 16;
     }
     protocol_send_packet(CMD_CALIB_STATUS, resp_payload, idx);
     break;

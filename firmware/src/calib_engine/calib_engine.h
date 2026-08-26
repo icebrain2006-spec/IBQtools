@@ -12,6 +12,10 @@ typedef struct {
     uint16_t pack_gain;
     uint16_t bat_gain;
     bool success;
+    uint16_t raw_cell1_adc;
+    uint16_t raw_pack_adc;
+    uint16_t raw_bat_adc;
+    uint8_t raw_bytes[16];
 } ch_calib_result_t;
 
 typedef struct {

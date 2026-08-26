@@ -146,6 +146,10 @@ static void run_calib_pipeline(void) {
                     uint16_t bat   = rx_buf[bat_off] | (rx_buf[bat_off + 1] << 8);   // BAT voltage (ggGG)
                     int16_t  cc    = (int16_t)(rx_buf[cc_off] | (rx_buf[cc_off + 1] << 8)); // Current (aaAA)
                     
+                    if (sample_cnt[ch] == 0) {
+                        uint8_t c_len = (rx_len > 16) ? 16 : rx_len;
+                        memcpy(calib_status.results[ch].raw_bytes, rx_buf, c_len);
+                    }
                     cell1_sum[ch] += cell1;
                     pack_sum[ch] += pack;
                     bat_sum[ch] += bat;
@@ -244,6 +248,9 @@ static void run_calib_pipeline(void) {
                     calib_status.results[ch].cell1_gain = g_cell1;
                     calib_status.results[ch].pack_gain = g_pack;
                     calib_status.results[ch].bat_gain = g_bat;
+                    calib_status.results[ch].raw_cell1_adc = (uint16_t)cell1_avg;
+                    calib_status.results[ch].raw_pack_adc = (uint16_t)pack_avg;
+                    calib_status.results[ch].raw_bat_adc = (uint16_t)bat_avg;
 
                     uint8_t df_block[36] = {0};
                     uint8_t rx_len = cached_len[ch];
