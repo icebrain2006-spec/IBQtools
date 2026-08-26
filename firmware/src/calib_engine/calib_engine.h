@@ -30,5 +30,6 @@ extern volatile calib_status_t calib_status;
 
 void calib_engine_init(void);
 bool calib_engine_start(uint8_t channel_mask, uint8_t mode, const uint16_t target_cell1_mv[7], const uint16_t target_pack_mv[7], const uint16_t target_bat_mv[7]);
+bool bq40z50_set_cal_en(uint8_t ch, bool enable);
 
 #endif // CALIB_ENGINE_H

@@ -19,7 +19,7 @@ static uint16_t g_target_pack_mv[7];
 static uint16_t g_target_bat_mv[7];
 
 // Helper function to set CAL_EN state on BQ40Z50 with 0x0057 check and up to 3 retries
-static bool bq40z50_set_cal_en(uint8_t ch, bool enable) {
+bool bq40z50_set_cal_en(uint8_t ch, bool enable) {
     uint8_t mfg_cmd[2] = {0x57, 0x00};
     uint8_t cal_toggle_cmd[2] = {0x2D, 0x00};
 

@@ -28,6 +28,7 @@
 #define CMD_SET_LED_STATE    0x50
 #define CMD_CALIB_RUN        0x60
 #define CMD_CALIB_STATUS     0x61
+#define CMD_CAL_EN_SET       0x62
 
 // Command execution status response codes
 #define RESP_OK              0x00

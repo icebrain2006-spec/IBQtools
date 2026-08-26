@@ -37,7 +37,7 @@ static void handle_packet(const rx_packet_t *pkt) {
 
   switch (pkt->cmd) {
   case CMD_GET_VERSION: {
-    const char *version = "v1.0.119";
+    const char *version = "v1.0.120";
     resp_payload[0] = RESP_OK;
     strcpy((char *)(resp_payload + 1), version);
     protocol_send_packet(CMD_GET_VERSION, resp_payload, 1 + strlen(version));
@@ -423,6 +423,29 @@ static void handle_packet(const rx_packet_t *pkt) {
       idx += 18;
     }
     protocol_send_packet(CMD_CALIB_STATUS, resp_payload, idx);
+    break;
+  }
+
+  case CMD_CAL_EN_SET: {
+    if (pkt->length < 2) {
+      resp_payload[0] = RESP_ERR_PARAM;
+      protocol_send_packet(CMD_CAL_EN_SET, resp_payload, 1);
+      break;
+    }
+    uint8_t ch_mask = pkt->payload[0];
+    bool enable = (pkt->payload[1] != 0);
+    bool all_ok = true;
+
+    for (uint8_t ch = 1; ch <= 6; ch++) {
+      if (ch_mask & (1 << (ch - 1))) {
+        if (!bq40z50_set_cal_en(ch, enable)) {
+          all_ok = false;
+        }
+      }
+    }
+
+    resp_payload[0] = all_ok ? RESP_OK : RESP_ERR_HW;
+    protocol_send_packet(CMD_CAL_EN_SET, resp_payload, 1);
     break;
   }
 
