@@ -147,7 +147,7 @@ static void run_calib_pipeline(void) {
                     int16_t  cc    = (int16_t)(rx_buf[cc_off] | (rx_buf[cc_off + 1] << 8)); // Current (aaAA)
                     
                     if (sample_cnt[ch] == 0) {
-                        uint8_t c_len = (rx_len > 16) ? 16 : rx_len;
+                        uint8_t c_len = (rx_len > 18) ? 18 : rx_len;
                         memcpy((void*)calib_status.results[ch].raw_bytes, rx_buf, c_len);
                     }
                     cell1_sum[ch] += cell1;
