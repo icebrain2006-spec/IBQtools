@@ -7,7 +7,7 @@ from PySide6.QtCore import QThread, Signal, Slot
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from updater_thread import make_packet, parse_response, RESP_OK, CMD_I2C_RAW, CMD_SMBUS_CMD, CMD_SMBUS_POLL_BLOCK, CMD_RELAY_SET, PROTOCOL_STX
-from calibrators.utils import detect_dataflash_offset, load_calibration_offsets, load_adc_offset_0xf081
+from calibrators.utils import detect_dataflash_offset, load_calibration_offsets, load_adc_offset_0xf081, load_dastatus1_offset_0x0071, load_dastatus2_offset_0x0072
 
 def crc8_smbus_byte(crc, data):
     crc ^= data
@@ -148,6 +148,23 @@ class CalibrationThread(QThread):
     def _log(self, msg):
         self.log_signal.emit(f"[CH{self.ch}] {msg}")
 
+    def set_cal_en(self, ch_mask: int, enable: bool) -> bool:
+        """
+        Sends CMD_CAL_EN_SET (0x62) to RP2040 firmware to set CAL_EN state with 0x0057 check & 3 retries.
+        """
+        payload = bytes([ch_mask, 1 if enable else 0])
+        packet = make_packet(0x62, payload)
+        self.ser.reset_input_buffer()
+        self.ser.write(packet)
+        rx = self._read_packet()
+        cmd, resp = parse_response(rx)
+        if isinstance(resp, (bytes, bytearray)) and len(resp) > 0 and resp[0] == RESP_OK:
+            self._log(f"    [CAL_EN] Set CAL_EN {'ENABLE' if enable else 'DISABLE'} (mask 0x{ch_mask:02X}) -> PASS")
+            return True
+        else:
+            self._log(f"    [CAL_EN] Set CAL_EN {'ENABLE' if enable else 'DISABLE'} (mask 0x{ch_mask:02X}) -> FAIL")
+            return False
+
     def enqueue_relay(self, ch, on):
         self.relay_queue.append((ch, on))
         
@@ -213,7 +230,6 @@ class CalibrationThread(QThread):
                 rx = self.ser.read(128)
                 if rx:
                     buf += rx
-                    buf = buf.replace(b'\r\n', b'\n')
                 
                 stx_idx = buf.find(PROTOCOL_STX)
                 if stx_idx != -1 and len(buf) >= stx_idx + 7:
@@ -657,12 +673,19 @@ class CalibrationThread(QThread):
                                         int_sum += struct.unpack_from('<H', blk, 24)[0]
                                         valid_count += 1
                                 else:
-                                    if len(blk) >= 28:
-                                        int_sum += struct.unpack_from('<H', blk, 18)[0]
-                                        ts1_sum += struct.unpack_from('<H', blk, 20)[0]
-                                        ts2_sum += struct.unpack_from('<H', blk, 22)[0]
-                                        ts3_sum += struct.unpack_from('<H', blk, 24)[0]
-                                        ts4_sum += struct.unpack_from('<H', blk, 26)[0]
+                                    d2_cfg = load_dastatus2_offset_0x0072("BQ40Z50")
+                                    min_len = d2_cfg.get("min_len", 30)
+                                    int_off = d2_cfg.get("int_temp", 2)
+                                    ts1_off = d2_cfg.get("ts1_temp", 4)
+                                    ts2_off = d2_cfg.get("ts2_temp", 6)
+                                    ts3_off = d2_cfg.get("ts3_temp", 8)
+                                    ts4_off = d2_cfg.get("ts4_temp", 10)
+                                    if len(blk) >= min_len:
+                                        int_sum += struct.unpack_from('<H', blk, int_off)[0]
+                                        ts1_sum += struct.unpack_from('<H', blk, ts1_off)[0]
+                                        ts2_sum += struct.unpack_from('<H', blk, ts2_off)[0]
+                                        ts3_sum += struct.unpack_from('<H', blk, ts3_off)[0]
+                                        ts4_sum += struct.unpack_from('<H', blk, ts4_off)[0]
                                         valid_count += 1
                             if valid_count > 0:
                                 int_avg = (int_sum / float(valid_count)) - 2732
@@ -968,26 +991,24 @@ class CalibrationThread(QThread):
                                 self.emit_result(f"{name} Temp", f"{name} Temp (0x{cmd:02X})", "-", temp_c, suffix=" °C")
                 return True
             else:
-                # Read DAStatus1 (0x0071) for BQ40Z50
-                self.smbus_write_block_raw(0x44, [0x71, 0x00])
-                time.sleep(0.05)
-                data = self.smbus_read_block(0x44)
-                if data and len(data) >= 34:
-                    # 0: 0x71, 1: 0x00
-                    cell1 = struct.unpack_from('<H', data, 2)[0]
-                    cell2 = struct.unpack_from('<H', data, 4)[0]
-                    cell3 = struct.unpack_from('<H', data, 6)[0]
-                    cell4 = struct.unpack_from('<H', data, 8)[0]
-                    bat = struct.unpack_from('<H', data, 12)[0]
-                    pack = struct.unpack_from('<H', data, 10)[0]
+                # Read standard SBS SMBus Voltage Commands for BQ40Z50
+                # 0x3F: Cell1, 0x3E: Cell2, 0x3D: Cell3, 0x3C: Cell4, 0x09: Voltage (Pack/Bat)
+                data_ok = False
+                if show_voltage:
+                    for i in range(self.active_cells):
+                        cmd = 0x3F - i
+                        val = self.smbus_read_word(cmd)
+                        if val:
+                            data_ok = True
+                            v_cell = struct.unpack('<H', bytes(val))[0]
+                            self.emit_result(f"V_Cell {i+1}", f"V_Cell {i+1}", "-", v_cell, suffix=" mV")
                     
-                    cells = [cell1, cell2, cell3, cell4]
-                    if show_voltage:
-                        for i in range(self.active_cells):
-                            self.emit_result(f"V_Cell {i+1}", f"V_Cell {i+1} (0x0071)", "-", cells[i], suffix=" mV")
-                            
-                        self.emit_result("V_Bat", "V_Bat (0x0071)", "-", bat, suffix=" mV")
-                        self.emit_result("V_Pack", "V_Pack (0x0071)", "-", pack, suffix=" mV")
+                    val_pack = self.smbus_read_word(0x09)
+                    if val_pack:
+                        data_ok = True
+                        v_p = struct.unpack('<H', bytes(val_pack))[0]
+                        self.emit_result("V_Pack", "V_Pack", "-", v_p, suffix=" mV")
+                        self.emit_result("V_Bat", "V_Bat", "-", v_p, suffix=" mV")
                 
                 self.smbus_write_block_raw(0x44, [0x72, 0x00])
                 time.sleep(0.05)
@@ -1011,7 +1032,22 @@ class CalibrationThread(QThread):
                         if self.targets.get("ts4tempc_en", False):
                             self.emit_result("TS4 Temp", "TS4 Temp (0x0072)", "-", ts4, suffix=" °C")
                         
-                if not data and not data2:
+                # Read and Dump 0x4000 DataFlash Block Content
+                self.smbus_write_block_raw(0x44, [0x00, 0x40])
+                time.sleep(0.05)
+                df_4000 = self.smbus_read_block(0x44)
+                if df_4000:
+                    hex_str = bytes(df_4000).hex(' ')
+                    self._log(f"    [0x4000 DF DUMP] len={len(df_4000)}, hex={hex_str}")
+                    if len(df_4000) >= 14:
+                        c1_g = struct.unpack_from('<H', df_4000, 0)[0]
+                        bat_g = struct.unpack_from('<H', df_4000, 2)[0]
+                        pack_g = struct.unpack_from('<H', df_4000, 4)[0]
+                        cc_g = struct.unpack_from('<f', df_4000, 6)[0]
+                        cap_g = struct.unpack_from('<f', df_4000, 10)[0]
+                        self._log(f"    [0x4000 PARSED] Cell1Gain={c1_g}, BatGain={bat_g}, PackGain={pack_g}, CCGain={cc_g:.6f}, CapGain={cap_g:.6f}")
+
+                if not data_ok and not data2:
                     return False
                 return True
         except Exception as e:
@@ -1037,148 +1073,169 @@ class CalibrationThread(QThread):
             # 1. Detect Firmware and Configuration & 2. Run requested modes
             modes_to_run = []
             if run_mode == "all":
-                modes_to_run = ["voltage", "temp", "current"]
+                modes_to_run = ["voltage", "current"]
             else:
                 modes_to_run = [run_mode]
             
             ch_status_map = {}
-            mode_code = 0 if run_mode == "voltage" else (1 if run_mode == "current" else 2)
             
             ch_mask = 0
             for ch in self.channels:
                 ch_mask |= (1 << (ch - 1))
 
-            payload_bytes = bytearray([ch_mask, mode_code])
-            for ch in range(1, 7):
-                ch_t = self.targets_per_ch.get(ch, self.targets)
-                if run_mode == "current":
-                    tc1 = int(abs(ch_t.get('currentma', -2000)))
-                    tpk = 0
-                    tbt = 0
-                else:
-                    tc1 = int(ch_t.get('cell1mv', 3200))
-                    tpk = int(ch_t.get('packmv', 12780))
-                    tbt = int(ch_t.get('batmv', 12780))
-                payload_bytes.extend(struct.pack(">HHH", tc1, tpk, tbt))
-                if ch in self.channels:
-                    if run_mode == "current":
-                        self._log(f"    [DEBUG Target CH{ch}] Current={tc1}mA")
-                    else:
-                        self._log(f"    [DEBUG Target CH{ch}] Cell1={tc1}mV, Pack={tpk}mV, Bat={tbt}mV")
+            for mode_name in modes_to_run:
+                self._log(f"\n--- Executing Hardware Calibration Mode: {mode_name.upper()} ---")
+                mode_code = 0 if mode_name == "voltage" else (1 if mode_name == "current" else 2)
 
-            self._log(f"--- Sending Hardware Calibration Command to RP2040 (Channels: {self.channels}) ---")
-            
-            # Send CMD_CALIB_RUN (0x60) packet
-            pkt = make_packet(0x60, bytes(payload_bytes))
-            self.ser.reset_input_buffer()
-            self.ser.write(pkt)
-            
-            # Read ACK response
-            rx = self._read_packet()
-            cmd, resp = parse_response(rx)
-            if not isinstance(resp, (bytes, bytearray)) or len(resp) == 0 or resp[0] != RESP_OK:
-                err_code = resp[0] if isinstance(resp, (bytes, bytearray)) and len(resp) > 0 else resp
-                self._log(f"Error: RP2040 rejected hardware calibration start command. (Resp Code: {err_code}, Cmd: {cmd}, RAW: {rx.hex(' ') if rx else 'Empty'})")
-                self.finished_signal.emit(False)
-                return
-
-            # Poll CMD_CALIB_STATUS (0x61) until state becomes 2 (DONE) or 3 (ERROR)
-            calib_done = False
-            for _ in range(60): # Max 6 seconds poll timeout
-                if not self._running: break
-                time.sleep(0.1)
-                
-                pkt_status = make_packet(0x61, b"")
+                # Set Relay state: OFF for Voltage mode, ON for Current mode
+                relay_mask = ch_mask if mode_name == "current" else 0
+                pkt_relay = make_packet(CMD_RELAY_SET, bytes([relay_mask]))
                 self.ser.reset_input_buffer()
-                self.ser.write(pkt_status)
-                
-                rx_st = self._read_packet()
-                st_cmd, st_resp = parse_response(rx_st)
-                if isinstance(st_resp, (bytes, bytearray)) and st_resp[0] == RESP_OK:
-                    state = st_resp[1]
-                    active_channels = st_resp[2]
-                    err_channels = st_resp[3]
-                    if state == 2: # DONE
-                        calib_done = True
-                        self._log(f"    [DEBUG RAW RESP] len={len(st_resp)}, hex={bytes(st_resp).hex(' ')}")
-                        idx = 4
-                        cc_adc_map = {}
-                        cc_calc_map = {}
-                        for ch in range(1, 7):
-                            cell1_g = struct.unpack('<H', st_resp[idx:idx+2])[0]; idx += 2
-                            pack_g = struct.unpack('<H', st_resp[idx:idx+2])[0]; idx += 2
-                            bat_g = struct.unpack('<H', st_resp[idx:idx+2])[0]; idx += 2
-                            ch_succ_val = st_resp[idx]; idx += 1
-                            
-                            raw_c1_adc = struct.unpack('<H', st_resp[idx:idx+2])[0] if idx + 2 <= len(st_resp) else 0; idx += 2
-                            raw_pack_adc = struct.unpack('<H', st_resp[idx:idx+2])[0] if idx + 2 <= len(st_resp) else 0; idx += 2
-                            raw_bat_adc = struct.unpack('<H', st_resp[idx:idx+2])[0] if idx + 2 <= len(st_resp) else 0; idx += 2
-                            raw_bytes = st_resp[idx:idx+18] if idx + 18 <= len(st_resp) else b""; idx += 18
+                self.ser.write(pkt_relay)
+                self._read_packet()
+                self._log(f"    [Relay] Set mask 0x{relay_mask:02X} for {mode_name.upper()} mode")
+                time.sleep(0.1)
 
-                            ch_succ = (ch_succ_val == 1)
-                            if ch in self.channels:
-                                is_err = (err_channels & (1 << (ch - 1))) != 0
-                                ch_status_map[ch] = ch_succ and not is_err
-                                cc_adc_map[ch] = struct.unpack('<h', struct.pack('<H', cell1_g))[0]
-                                cc_calc_map[ch] = pack_g / 1000.0
-                                self._log(f"    [DEBUG CH{ch}] cell1_g={cell1_g}, pack_g={pack_g}, bat_g={bat_g}, ch_succ_val={ch_succ_val}, is_err={is_err}")
-                                if len(raw_bytes) > 0:
-                                    self._log(f"    [CH{ch} RAW 0xF081 BLOCK] Hex={bytes(raw_bytes).hex(' ')}")
-                                    self._log(f"    [CH{ch} RAW ADC AVG] Cell1_ADC={raw_c1_adc}, Pack_ADC={raw_pack_adc}, Bat_ADC={raw_bat_adc}")
-                                if ch_status_map[ch] and run_mode != "current":
-                                    self.ch = ch
-                                    self._log(f"    [CH{ch} RP2040 HW Result] PASS -> Cell1 Gain: {cell1_g}, Pack Gain: {pack_g}, Bat Gain: {bat_g}")
-                                    self.emit_result("Cell 1 Gain", "Cell 1 Gain", str(cell1_g), cell1_g, is_gain=True)
-                                    self.emit_result("Pack Gain", "Pack Gain", str(pack_g), pack_g, is_gain=True)
-                                    self.emit_result("Bat Gain", "Bat Gain", str(bat_g), bat_g, is_gain=True)
-                                elif not ch_status_map[ch]:
-                                    err_stage_map = {
-                                        0xE102: "Stage 2 (CAL_EN check FAIL)",
-                                        0xE104: "Stage 4 (Raw ADC Sampling FAIL - 0 samples)",
-                                        0xE105: "Stage 5 (ADC Average is 0)",
-                                        0xE106: "Stage 6 (0x4000 Block Write/Cache FAIL)"
-                                    }
-                                    stage_desc = err_stage_map.get(cell1_g, f"Unknown Stage Error 0x{cell1_g:04X}")
-                                    if cell1_g == 0xE102:
-                                        rx_len = pack_g & 0xFF
-                                        b0 = (pack_g >> 8) & 0xFF
-                                        b1 = bat_g & 0xFF
-                                        b2 = (bat_g >> 8) & 0xFF
-                                        self._log(f"    [CH{ch} RP2040 HW Result] FAIL -> Reason: {stage_desc} | SMBus Resp Len={rx_len}, Bytes=[{b0:02X} {b1:02X} {b2:02X}]")
-                                    else:
-                                        self._log(f"    [CH{ch} RP2040 HW Result] FAIL -> Reason: {stage_desc} (err_mask={bin(err_channels)})")
-                        
-                        if run_mode == "current":
-                            for ch in self.channels:
-                                if ch_status_map.get(ch, False):
-                                    self.ch = ch
-                                    # Read updated 0x4000 block for THIS channel to extract IEEE 754 CC Gain & Capacity Gain
-                                    self.smbus_write_block_raw(0x44, [0x00, 0x40])
-                                    time.sleep(0.05)
-                                    df_b = self.smbus_read_block(0x44)
-                                    if df_b and len(df_b) >= 16:
-                                        # Header in df_b is [0x00, 0x40], payload starts at index 2
-                                        # CC Gain is at offset 6 in block -> index 2 + 6 = 8
-                                        # Capacity Gain is at offset 10 in block -> index 2 + 10 = 12
-                                        cc_gain_read = struct.unpack_from('<f', df_b, 8)[0]
-                                        cap_gain_read = struct.unpack_from('<f', df_b, 12)[0]
-                                        mohm_read = 3.714528 / cc_gain_read if cc_gain_read != 0 else 0
-                                        
-                                        calc_gain = cc_calc_map.get(ch, 0.0)
-                                        calc_mohm = 3.714528 / calc_gain if calc_gain != 0 else 0
-                                        avg_cc = cc_adc_map.get(ch, 0)
-                                        
-                                        self._log(f"    [CH{ch} RP2040 HW Result] PASS -> Avg CC ADC: {avg_cc}, CC Gain: {cc_gain_read:.6f}, Shunt Resistor: {mohm_read:.3f} mOhm")
-                                        self._log(f"    [CH{ch} RAW 0x4000 Bytes]: {df_b[2:18].hex(' ')}")
-                                        
-                                        self.emit_result("CC Gain", "CC Gain (mOhm)", f"{mohm_read:.3f}", mohm_read, is_gain=True)
-                                        self.emit_result("Capacity Gain", "Capacity Gain (mOhm)", f"{mohm_read:.3f}", mohm_read, is_gain=True)
-                        break
-                    elif state == 3: # ERROR state from RP2040
-                        self._log(f"    [RP2040 HW Result] RP2040 returned ERROR state (err_mask={bin(err_channels)})")
-                        break
-                else:
-                    self._log(f"    [DEBUG] Poll status response: cmd={st_cmd}, resp={st_resp}")
+                payload_bytes = bytearray([ch_mask, mode_code])
+                for ch in range(1, 7):
+                    ch_t = self.targets_per_ch.get(ch, self.targets)
+                    if mode_name == "current":
+                        tc1 = int(abs(ch_t.get('currentma', -2000)))
+                        tpk = 0
+                        tbt = 0
+                    else:
+                        tc1 = int(ch_t.get('cell1mv', 3200))
+                        tpk = int(ch_t.get('packmv', 12780))
+                        tbt = int(ch_t.get('batmv', 12780))
+                    payload_bytes.extend(struct.pack(">HHH", tc1, tpk, tbt))
+                    if ch in self.channels:
+                        if mode_name == "current":
+                            self._log(f"    [DEBUG Target CH{ch}] Current={tc1}mA")
+                        else:
+                            self._log(f"    [DEBUG Target CH{ch}] Cell1={tc1}mV, Pack={tpk}mV, Bat={tbt}mV")
+
+                self._log(f"--- Sending Hardware Calibration Command to RP2040 ({mode_name.upper()} mode, Channels: {self.channels}) ---")
+                
+                # Send CMD_CALIB_RUN (0x60) packet
+                pkt = make_packet(0x60, bytes(payload_bytes))
+                self.ser.reset_input_buffer()
+                self.ser.write(pkt)
+                
+                # Read ACK response
+                rx = self._read_packet()
+                cmd, resp = parse_response(rx)
+                if not isinstance(resp, (bytes, bytearray)) or len(resp) == 0 or resp[0] != RESP_OK:
+                    err_code = resp[0] if isinstance(resp, (bytes, bytearray)) and len(resp) > 0 else resp
+                    self._log(f"Error: RP2040 rejected hardware calibration start command for {mode_name}. (Resp Code: {err_code}, Cmd: {cmd}, RAW: {rx.hex(' ') if rx else 'Empty'})")
+                    self.finished_signal.emit(False)
+                    return
+
+                # Poll CMD_CALIB_STATUS (0x61) until state becomes 2 (DONE) or 3 (ERROR)
+                calib_done = False
+                for _ in range(60): # Max 6 seconds poll timeout
+                    if not self._running: break
+                    time.sleep(0.1)
+                    
+                    pkt_status = make_packet(0x61, b"")
+                    self.ser.reset_input_buffer()
+                    self.ser.write(pkt_status)
+                    
+                    rx_st = self._read_packet()
+                    st_cmd, st_resp = parse_response(rx_st)
+                    if isinstance(st_resp, (bytes, bytearray)) and st_resp[0] == RESP_OK:
+                        state = st_resp[1]
+                        active_channels = st_resp[2]
+                        err_channels = st_resp[3]
+                        if state == 2: # DONE
+                            calib_done = True
+                            self._log(f"    [DEBUG RAW RESP] len={len(st_resp)}, hex={bytes(st_resp).hex(' ')}")
+                            idx = 4
+                            cc_adc_map = {}
+                            cc_calc_map = {}
+                            for ch in range(1, 7):
+                                cell1_g = struct.unpack('<H', st_resp[idx:idx+2])[0]; idx += 2
+                                pack_g = struct.unpack('<H', st_resp[idx:idx+2])[0]; idx += 2
+                                bat_g = struct.unpack('<H', st_resp[idx:idx+2])[0]; idx += 2
+                                ch_succ_val = st_resp[idx]; idx += 1
+                                
+                                raw_c1_adc = struct.unpack('<H', st_resp[idx:idx+2])[0] if idx + 2 <= len(st_resp) else 0; idx += 2
+                                raw_pack_adc = struct.unpack('<H', st_resp[idx:idx+2])[0] if idx + 2 <= len(st_resp) else 0; idx += 2
+                                raw_bat_adc = struct.unpack('<H', st_resp[idx:idx+2])[0] if idx + 2 <= len(st_resp) else 0; idx += 2
+                                raw_bytes = st_resp[idx:idx+18] if idx + 18 <= len(st_resp) else b""; idx += 18
+
+                                ch_succ = (ch_succ_val == 1)
+                                if ch in self.channels:
+                                    is_err = (err_channels & (1 << (ch - 1))) != 0
+                                    ch_status_map[ch] = ch_status_map.get(ch, True) and ch_succ and not is_err
+                                    cc_adc_map[ch] = struct.unpack('<h', struct.pack('<H', cell1_g))[0]
+                                    cc_calc_map[ch] = pack_g / 1000.0
+                                    self._log(f"    [DEBUG CH{ch}] cell1_g={cell1_g}, pack_g={pack_g}, bat_g={bat_g}, ch_succ_val={ch_succ_val}, is_err={is_err}")
+                                    if len(raw_bytes) > 0 and mode_name == "voltage":
+                                        self._log(f"    [CH{ch} RAW 0xF081 BLOCK] Hex={bytes(raw_bytes).hex(' ')}")
+                                        self._log(f"    [CH{ch} RAW ADC AVG] Cell1_ADC={raw_c1_adc}, Pack_ADC={raw_pack_adc}, Bat_ADC={raw_bat_adc}")
+                                    if ch_status_map[ch] and mode_name != "current":
+                                        self.ch = ch
+                                        self._log(f"    [CH{ch} RP2040 HW Result] PASS -> Cell1 Gain: {cell1_g}, Pack Gain: {pack_g}, Bat Gain: {bat_g}")
+                                        self.emit_result("Cell 1 Gain", "Cell 1 Gain", str(cell1_g), cell1_g, is_gain=True)
+                                        self.emit_result("Pack Gain", "Pack Gain", str(pack_g), pack_g, is_gain=True)
+                                        self.emit_result("Bat Gain", "Bat Gain", str(bat_g), bat_g, is_gain=True)
+                                        self.post_verify()
+                                    elif not ch_status_map[ch]:
+                                        err_stage_map = {
+                                            0xE102: "Stage 2 (CAL_EN check FAIL)",
+                                            0xE104: "Stage 4 (Raw ADC Sampling FAIL - 0 samples)",
+                                            0xE105: "Stage 5 (ADC Average is 0)",
+                                            0xE106: "Stage 6 (0x4000 Block Write/Cache FAIL)"
+                                        }
+                                        stage_desc = err_stage_map.get(cell1_g, f"Unknown Stage Error 0x{cell1_g:04X}")
+                                        if cell1_g == 0xE102:
+                                            rx_len = pack_g & 0xFF
+                                            b0 = (pack_g >> 8) & 0xFF
+                                            b1 = bat_g & 0xFF
+                                            b2 = (bat_g >> 8) & 0xFF
+                                            self._log(f"    [CH{ch} RP2040 HW Result] FAIL -> Reason: {stage_desc} | SMBus Resp Len={rx_len}, Bytes=[{b0:02X} {b1:02X} {b2:02X}]")
+                                        else:
+                                            self._log(f"    [CH{ch} RP2040 HW Result] FAIL -> Reason: {stage_desc} (err_mask={bin(err_channels)})")
+                            
+                            if mode_name == "current":
+                                for ch in self.channels:
+                                    if ch_status_map.get(ch, False):
+                                        self.ch = ch
+                                        # Read updated 0x4000 block for THIS channel to extract IEEE 754 CC Gain & Capacity Gain
+                                        self.smbus_write_block_raw(0x44, [0x00, 0x40])
+                                        time.sleep(0.05)
+                                        df_b = self.smbus_read_block(0x44)
+                                        if df_b and len(df_b) >= 16:
+                                            # Header in df_b is [0x00, 0x40], payload starts at index 2
+                                            # CC Gain is at offset 6 in block -> index 2 + 6 = 8
+                                            # Capacity Gain is at offset 10 in block -> index 2 + 10 = 12
+                                            cc_gain_read = struct.unpack_from('<f', df_b, 8)[0]
+                                            cap_gain_read = struct.unpack_from('<f', df_b, 12)[0]
+                                            mohm_read = 3.714528 / cc_gain_read if cc_gain_read != 0 else 0
+                                            
+                                            calc_gain = cc_calc_map.get(ch, 0.0)
+                                            calc_mohm = 3.714528 / calc_gain if calc_gain != 0 else 0
+                                            avg_cc = cc_adc_map.get(ch, 0)
+                                            
+                                            self._log(f"    [CH{ch} RP2040 HW Result] PASS -> Avg CC ADC: {avg_cc}, CC Gain: {cc_gain_read:.6f}, Shunt Resistor: {mohm_read:.3f} mOhm")
+                                            self._log(f"    [CH{ch} RAW 0x4000 Bytes]: {df_b[2:18].hex(' ')}")
+                                            
+                                            self.emit_result("CC Gain", "CC Gain (mOhm)", f"{mohm_read:.3f}", mohm_read, is_gain=True)
+                                            self.emit_result("Capacity Gain", "Capacity Gain (mOhm)", f"{mohm_read:.3f}", mohm_read, is_gain=True)
+                            break
+                        elif state == 3: # ERROR state from RP2040
+                            self._log(f"    [RP2040 HW Result] RP2040 returned ERROR state (err_mask={bin(err_channels)})")
+                            break
+                    else:
+                        self._log(f"    [DEBUG] Poll status response: cmd={st_cmd}, resp={st_resp}")
+
+                # Ensure Relays are turned OFF after Current mode
+                if mode_name == "current":
+                    pkt_off = make_packet(CMD_RELAY_SET, bytes([0]))
+                    self.ser.reset_input_buffer()
+                    self.ser.write(pkt_off)
+                    self._read_packet()
+                    self._log("    [Relay] Turn OFF all relays after Current mode")
 
             total_cal_time = time.time() - total_start_time
             self._log(f"[TIME] Total Pure RP2040 Hardware Calibration Time (All Channels): {total_cal_time:.3f} sec")

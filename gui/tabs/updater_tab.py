@@ -953,6 +953,10 @@ class UpdaterTab(QWidget):
             
         started = 0
         for board in self.boards:
+            if board.disconnect_monitor and board.disconnect_monitor.isRunning():
+                board.disconnect_monitor.stop()
+                board.disconnect_monitor.wait(500)
+            board.passed_channels.clear()
             board.check_serial()
             if hasattr(board, 'worker') and board.worker and board.worker.isRunning():
                 started += 1
@@ -973,6 +977,11 @@ class UpdaterTab(QWidget):
         
         board_configs = []
         for board in self.boards:
+            if board.disconnect_monitor and board.disconnect_monitor.isRunning():
+                board.disconnect_monitor.stop()
+                board.disconnect_monitor.wait(500)
+            board.passed_channels.clear()
+
             port = board.combo_port.currentText().strip()
             channels = [i + 1 for i, chk in enumerate(board.ch_checkboxes) if chk.isChecked()]
             if channels:

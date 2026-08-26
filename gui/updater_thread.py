@@ -293,46 +293,58 @@ class UpdaterWorker(QThread):
         packet = make_packet(CMD_FW_UPDATE_RUN, bytes([ch_mask]))
         self.ser.reset_input_buffer()
         self.ser.write(packet)
+        self.log_msg.emit(f"    [RUN TX({len(packet)}b)] {packet.hex(' ')}")
         time.sleep(0.1)
         rx = self.ser.read(64)
         if not rx:
+            self.log_msg.emit("    [RUN RX] Timeout (0 bytes)")
             return False, "Timeout"
+        self.log_msg.emit(f"    [RUN RX({len(rx)}b)] {rx.hex(' ')}")
         cmd, payload = parse_response(rx)
-        if cmd == CMD_FW_UPDATE_RUN and payload[0] == RESP_OK:
+        if cmd == CMD_FW_UPDATE_RUN and payload and payload[0] == RESP_OK:
             return True, "OK"
-        return False, f"Failed or Busy: {payload[0]:#x}"
+        err_code = payload[0] if payload else -1
+        return False, f"Failed or Busy: {err_code:#x}"
 
     def _check_status(self):
         packet = make_packet(CMD_FW_UPDATE_STATUS, b"")
-        self.ser.reset_input_buffer()
         self.ser.write(packet)
         
-        header = self.ser.read(4)
-        if len(header) < 4 or header[0] != PROTOCOL_STX:
-            return None
-            
-        length = struct.unpack(">H", header[1:3])[0]
-        payload_len = length - 1
-        remaining_bytes = payload_len + 3 
+        start_time = time.time()
+        buf = b""
+        old_timeout = self.ser.timeout
+        self.ser.timeout = 0.05
         
-        rest = self.ser.read(remaining_bytes)
-        if len(rest) < remaining_bytes:
-            return None
-            
-        rx = header + rest
-        res = parse_response(rx)
-        if res[0] is None:
-            return None
-            
-        cmd, payload = res
-        if cmd == CMD_FW_UPDATE_STATUS and payload[0] == RESP_OK:
-            state = payload[1]
-            current_line = struct.unpack(">I", payload[2:6])[0]
-            total_lines = struct.unpack(">I", payload[6:10])[0]
-            active_channels = payload[10]
-            error_channels = payload[11]
-            error_code = struct.unpack(">b", bytes([payload[12]]))[0]
-            return (state, current_line, total_lines, active_channels, error_channels, error_code)
+        try:
+            while time.time() - start_time < 0.5:
+                rx = self.ser.read(128)
+                if rx:
+                    buf += rx
+                stx_idx = buf.find(PROTOCOL_STX)
+                if stx_idx != -1 and len(buf) >= stx_idx + 7:
+                    length = struct.unpack(">H", buf[stx_idx+1:stx_idx+3])[0]
+                    expected_total = length + 6
+                    if len(buf) >= stx_idx + expected_total:
+                        pkt_chunk = buf[stx_idx:stx_idx+expected_total]
+                        cmd, payload = parse_response(pkt_chunk)
+                        if cmd == CMD_FW_UPDATE_STATUS and isinstance(payload, (bytes, bytearray)) and len(payload) >= 13 and payload[0] == RESP_OK:
+                            state = payload[1]
+                            current_line = struct.unpack(">I", payload[2:6])[0]
+                            total_lines = struct.unpack(">I", payload[6:10])[0]
+                            active_channels = payload[10]
+                            error_channels = payload[11]
+                            error_code = struct.unpack(">i", payload[12:16])[0] if len(payload) >= 16 else struct.unpack(">b", bytes([payload[12]]))[0]
+                            self.log_msg.emit(f"    [STATUS OK] state={state}, line={current_line}/{total_lines}, active={active_channels:#04x}, err_mask={error_channels:#04x}, err_code={error_code}")
+                            return (state, current_line, total_lines, active_channels, error_channels, error_code)
+                        else:
+                            self.log_msg.emit(f"    [STATUS PARSE MISMATCH] cmd={cmd}, payload={payload.hex() if isinstance(payload, (bytes, bytearray)) else payload}")
+                        buf = buf[stx_idx+expected_total:]
+        finally:
+            self.ser.timeout = old_timeout
+        if buf:
+            self.log_msg.emit(f"    [STATUS TIMEOUT] buf({len(buf)}b)={buf.hex(' ')}")
+        else:
+            self.log_msg.emit("    [STATUS TIMEOUT] No data received from RP2040")
         return None
 
     def _stop_updater(self):
@@ -363,8 +375,6 @@ class UpdaterWorker(QThread):
                 if rx: 
                     raw_rx += rx
                     buf += rx
-                    # Workaround for Pico SDK stdout CRLF conversion
-                    buf = buf.replace(b'\r\n', b'\n')
                 
                 stx_idx = buf.find(PROTOCOL_STX)
                 if stx_idx != -1 and len(buf) >= stx_idx + 7:
@@ -411,7 +421,6 @@ class UpdaterWorker(QThread):
                 rx = self.ser.read(128)
                 if rx: 
                     buf += rx
-                    buf = buf.replace(b'\r\n', b'\n')
                 
                 stx_idx = buf.find(PROTOCOL_STX)
                 if stx_idx != -1 and len(buf) >= stx_idx + 7:
@@ -423,9 +432,9 @@ class UpdaterWorker(QThread):
                         
                         if cmd == CMD_SMBUS_CMD:
                             self.log_msg.emit(f"    [RAW IO] TX({len(packet)}b): {packet.hex(' ')} | RX({len(pkt_chunk)}b): {pkt_chunk.hex(' ')}")
-                            if resp and resp[0] == RESP_OK and len(resp) >= 3:
-                                return struct.unpack("<H", resp[1:3])[0]
-                            return None
+                            if resp and resp[0] == RESP_OK and len(resp) >= 2:
+                                return True
+                            return False
                                 
                         buf = buf[stx_idx+expected_total:]
                         continue
@@ -565,6 +574,8 @@ class UpdaterWorker(QThread):
                         else:
                             self.progress_updated.emit(ch, pct)
                             self.status_updated.emit(ch, "Flashing...")
+                    
+                time.sleep(0.1)
                 
                 if state == UPDATER_STATE_ERROR:
                     self.log_msg.emit(f"[CRITICAL] Updater Error Code: {err_code}")
