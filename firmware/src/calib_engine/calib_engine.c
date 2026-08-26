@@ -196,16 +196,14 @@ static void run_calib_pipeline(void) {
                         float new_cc_gain = (float)fabs((double)target_ma / cc_avg);
                         float new_cap_gain = new_cc_gain * 298261.6178f;
 
+                        // Always fetch FRESH 0x4000 block from BQ40Z50 to preserve newly written gains
                         uint8_t df_block[36] = {0};
-                        uint8_t rx_len = cached_len[ch];
-                        if (rx_len < 14) {
-                            uint8_t df_cmd[2] = {0x00, 0x40};
-                            smbus_write_block(ch, 0x0B, 0x44, df_cmd, 2, false);
-                            sleep_ms(25);
-                            smbus_read_block(ch, 0x0B, 0x44, df_block, &rx_len, false);
-                        } else {
-                            memcpy(df_block, cached_0x4000[ch], rx_len);
-                        }
+                        uint8_t rx_len = 0;
+                        uint8_t df_cmd[2] = {0x00, 0x40};
+                        smbus_write_block(ch, 0x0B, 0x44, df_cmd, 2, false);
+                        sleep_ms(25);
+                        smbus_read_block(ch, 0x0B, 0x44, df_block, &rx_len, false);
+
                         if (rx_len >= 14) {
                             memcpy(df_block + 6, &new_cc_gain, 4);
                             memcpy(df_block + 10, &new_cap_gain, 4);
@@ -251,16 +249,13 @@ static void run_calib_pipeline(void) {
                     calib_status.results[ch].raw_pack_adc = (uint16_t)pack_avg;
                     calib_status.results[ch].raw_bat_adc = (uint16_t)bat_avg;
 
+                    // Always fetch FRESH 0x4000 block from BQ40Z50
                     uint8_t df_block[36] = {0};
-                    uint8_t rx_len = cached_len[ch];
-                    if (rx_len < 6) {
-                        uint8_t df_cmd[2] = {0x00, 0x40};
-                        smbus_write_block(ch, 0x0B, 0x44, df_cmd, 2, false);
-                        sleep_ms(25);
-                        smbus_read_block(ch, 0x0B, 0x44, df_block, &rx_len, false);
-                    } else {
-                        memcpy(df_block, cached_0x4000[ch], rx_len);
-                    }
+                    uint8_t rx_len = 0;
+                    uint8_t df_cmd[2] = {0x00, 0x40};
+                    smbus_write_block(ch, 0x0B, 0x44, df_cmd, 2, false);
+                    sleep_ms(25);
+                    smbus_read_block(ch, 0x0B, 0x44, df_block, &rx_len, false);
 
                     if (rx_len >= 6) {
                         df_block[0] = g_cell1 & 0xFF;
