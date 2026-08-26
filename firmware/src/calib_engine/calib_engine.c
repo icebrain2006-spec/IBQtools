@@ -105,14 +105,20 @@ static void run_calib_pipeline(void) {
         }
     }
 
-    // 3. Raw ADC Mode Start (MAC 0xF081: Block Write [0x81, 0xF0] to 0x00/0x44)
+    // 3. Raw ADC Mode Start (MAC 0xF081: Word Write 0xF081 to 0x00, then Block Write [0x81, 0xF0] to 0x44)
     uint8_t raw_start_cmd[2] = {0x81, 0xF0};
+    for (uint8_t ch = 1; ch <= 6; ch++) {
+        if ((ch_mask & (1 << (ch - 1))) && !(calib_status.error_channels & (1 << (ch - 1)))) {
+            smbus_write_word(ch, 0x0B, 0x00, 0xF081, false);
+        }
+    }
+    sleep_ms(225);
     for (uint8_t ch = 1; ch <= 6; ch++) {
         if ((ch_mask & (1 << (ch - 1))) && !(calib_status.error_channels & (1 << (ch - 1)))) {
             smbus_write_block(ch, 0x0B, 0x44, raw_start_cmd, 2, false);
         }
     }
-    sleep_ms(170); // Wait for ADC data to settle
+    sleep_ms(20); // Wait for ADC data to settle
 
     // 4. Sample Raw ADC Data across active channels
     uint32_t cell1_sum[7] = {0};
@@ -161,10 +167,11 @@ static void run_calib_pipeline(void) {
         }
     }
 
-    // 5. Raw ADC Mode Stop (MAC 0xF080: Block Write [0x80, 0xF0] to 0x00/0x44)
+    // 5. Raw ADC Mode Stop (MAC 0xF080: Word Write 0xF080 to 0x00, then Block Write [0x80, 0xF0] to 0x44)
     uint8_t raw_stop_cmd[2] = {0x80, 0xF0};
     for (uint8_t ch = 1; ch <= 6; ch++) {
         if (ch_mask & (1 << (ch - 1))) {
+            smbus_write_word(ch, 0x0B, 0x00, 0xF080, false);
             smbus_write_block(ch, 0x0B, 0x44, raw_stop_cmd, 2, false);
         }
     }
