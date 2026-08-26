@@ -173,7 +173,13 @@ static void run_calib_pipeline(void) {
                         float new_cc_gain = (float)fabs((double)target_ma / cc_avg);
                         float new_cap_gain = new_cc_gain * 298261.6178f;
 
-                        // Always fetch FRESH 0x4000 block from BQ40Z50 to preserve newly written gains
+                        // 1. Stop Raw ADC Mode (0xF080) so BQ40Z50 returns genuine 0x4000 DataFlash block instead of F081 stream
+                        uint8_t stop_adc_cmd[2] = {0x80, 0xF0};
+                        smbus_write_block(ch, 0x0B, 0x44, stop_adc_cmd, 2, false);
+                        smbus_write_word(ch, 0x0B, 0x00, 0xF080, false);
+                        sleep_ms(40);
+
+                        // 2. Fetch FRESH 0x4000 DataFlash block from BQ40Z50
                         uint8_t df_block[36] = {0};
                         uint8_t rx_len = 0;
                         uint8_t df_cmd[2] = {0x00, 0x40};
@@ -194,10 +200,6 @@ static void run_calib_pipeline(void) {
                             
                             smbus_write_block(ch, 0x0B, 0x44, wr_payload, 2 + copy_len, true);
                             sleep_ms(250); // X 250 from script
-
-                            // 7. Raw ADC MODE stop (again)
-                            smbus_write_word(ch, 0x0B, 0x00, 0xF080, false);
-                            sleep_ms(60);
 
                             calib_status.results[ch].cell1_gain = (uint16_t)(int16_t)cc_avg;
                             calib_status.results[ch].pack_gain = (uint16_t)(new_cc_gain * 1000.0f);
@@ -226,7 +228,13 @@ static void run_calib_pipeline(void) {
                     calib_status.results[ch].raw_pack_adc = (uint16_t)pack_avg;
                     calib_status.results[ch].raw_bat_adc = (uint16_t)bat_avg;
 
-                    // Always fetch FRESH 0x4000 block from BQ40Z50
+                    // Stop Raw ADC Mode (0xF080) so BQ40Z50 returns genuine 0x4000 DataFlash block
+                    uint8_t stop_adc_cmd[2] = {0x80, 0xF0};
+                    smbus_write_block(ch, 0x0B, 0x44, stop_adc_cmd, 2, false);
+                    smbus_write_word(ch, 0x0B, 0x00, 0xF080, false);
+                    sleep_ms(40);
+
+                    // Fetch FRESH 0x4000 DataFlash block from BQ40Z50
                     uint8_t df_block[36] = {0};
                     uint8_t rx_len = 0;
                     uint8_t df_cmd[2] = {0x00, 0x40};
