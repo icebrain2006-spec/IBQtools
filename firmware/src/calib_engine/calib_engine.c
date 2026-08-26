@@ -72,6 +72,7 @@ static void run_calib_pipeline(void) {
             }
             if (!chk_ok) {
                 calib_status.error_channels |= (1 << (ch - 1));
+                calib_status.results[ch].cell1_gain = 0xE102; // Stage 2 CAL_EN check FAIL flag
             }
         }
     }
@@ -119,6 +120,16 @@ static void run_calib_pipeline(void) {
         }
     }
 
+    // Check if sampling failed for active channels
+    for (uint8_t ch = 1; ch <= 6; ch++) {
+        if ((ch_mask & (1 << (ch - 1))) && !(calib_status.error_channels & (1 << (ch - 1)))) {
+            if (sample_cnt[ch] == 0) {
+                calib_status.error_channels |= (1 << (ch - 1));
+                calib_status.results[ch].cell1_gain = 0xE104; // Stage 4 ADC sampling FAIL flag
+            }
+        }
+    }
+
     // 5. Raw ADC Mode Stop (MAC 0xF080: Block Write [0x80, 0xF0] to 0x00/0x44)
     uint8_t raw_stop_cmd[2] = {0x80, 0xF0};
     for (uint8_t ch = 1; ch <= 6; ch++) {
@@ -142,30 +153,25 @@ static void run_calib_pipeline(void) {
 
                         uint8_t df_block[36] = {0};
                         uint8_t rx_len = cached_len[ch];
-                        if (rx_len >= 14) {
-                            memcpy(df_block, cached_0x4000[ch], rx_len);
-                        } else {
+                        if (rx_len < 14) {
                             uint8_t df_cmd[2] = {0x00, 0x40};
                             smbus_write_block(ch, 0x0B, 0x44, df_cmd, 2, false);
                             sleep_ms(25);
                             smbus_read_block(ch, 0x0B, 0x44, df_block, &rx_len, false);
+                        } else {
+                            memcpy(df_block, cached_0x4000[ch], rx_len);
                         }
                         if (rx_len >= 14) {
                             memcpy(df_block + 6, &new_cc_gain, 4);
                             memcpy(df_block + 10, &new_cap_gain, 4);
 
                             // 6. Save Current Calibration Data (updates 0x4000 block)
-                            // BQ40Z50 DataFlash 0x4000 block write payload format:
-                            // MAC Subcommand (0x00 0x40) + Data Flash 32-byte Block Data
-                            // Payload length for SMBus Write Block is 34 bytes (Subcommand 2B + Data 32B)
-                            // But standard SMBus Block Write max len is 32. BQ40Z50 ManufacturerAccess() 0x44 Block Write accepts 34 bytes!
                             uint8_t wr_payload[36];
                             wr_payload[0] = 0x00;
                             wr_payload[1] = 0x40;
                             uint8_t copy_len = (rx_len > 32) ? 32 : rx_len;
                             memcpy(wr_payload + 2, df_block, copy_len);
                             
-                            // Send direct Block Write with 2 + copy_len
                             smbus_write_block(ch, 0x0B, 0x44, wr_payload, 2 + copy_len, true);
                             sleep_ms(250); // X 250 from script
 
@@ -179,9 +185,11 @@ static void run_calib_pipeline(void) {
                             calib_status.results[ch].success = true;
                         } else {
                             calib_status.error_channels |= (1 << (ch - 1));
+                            calib_status.results[ch].cell1_gain = 0xE106; // Stage 6 DF cache FAIL
                         }
                     } else {
                         calib_status.error_channels |= (1 << (ch - 1));
+                        calib_status.results[ch].cell1_gain = 0xE105; // Stage 5 Zero Avg FAIL
                     }
                 } else { // VOLTAGE CALIBRATION
                     double cell1_avg = (double)cell1_sum[ch] / sample_cnt[ch];
@@ -198,13 +206,13 @@ static void run_calib_pipeline(void) {
 
                     uint8_t df_block[36] = {0};
                     uint8_t rx_len = cached_len[ch];
-                    if (rx_len >= 6) {
-                        memcpy(df_block, cached_0x4000[ch], rx_len);
-                    } else {
+                    if (rx_len < 6) {
                         uint8_t df_cmd[2] = {0x00, 0x40};
                         smbus_write_block(ch, 0x0B, 0x44, df_cmd, 2, false);
                         sleep_ms(25);
                         smbus_read_block(ch, 0x0B, 0x44, df_block, &rx_len, false);
+                    } else {
+                        memcpy(df_block, cached_0x4000[ch], rx_len);
                     }
 
                     if (rx_len >= 6) {
@@ -227,10 +235,12 @@ static void run_calib_pipeline(void) {
                         calib_status.results[ch].success = true;
                     } else {
                         calib_status.error_channels |= (1 << (ch - 1));
+                        calib_status.results[ch].cell1_gain = 0xE106; // Stage 6 DF cache FAIL
                     }
                 }
             } else {
                 calib_status.error_channels |= (1 << (ch - 1));
+                calib_status.results[ch].cell1_gain = 0xE104; // Stage 4 Sample Count 0 FAIL
             }
         }
     }
