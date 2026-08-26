@@ -18,15 +18,6 @@ static uint16_t g_target_cell1_mv[7];
 static uint16_t g_target_pack_mv[7];
 static uint16_t g_target_bat_mv[7];
 
-// Execute BQ40Z50 Voltage/Current Calibration in parallel on active channels
-static void run_calib_pipeline(void) {
-    uint8_t ch_mask = calib_status.active_channels;
-    
-    // Ensure relays are completely OFF for non-current modes
-    if (calib_status.mode == 1) {
-        relay_set_mask(ch_mask);
-        sleep_ms(1000); // Wait 1s for load current to stabilize
-    } else {
 // Helper function to set CAL_EN state on BQ40Z50 with 0x0057 check and up to 3 retries
 static bool bq40z50_set_cal_en(uint8_t ch, bool enable) {
     uint8_t mfg_cmd[2] = {0x57, 0x00};
@@ -73,10 +64,12 @@ static bool bq40z50_set_cal_en(uint8_t ch, bool enable) {
     return false; // Fail after 3 attempts
 }
 
+// Execute BQ40Z50 Voltage/Current Calibration in parallel on active channels
 static void run_calib_pipeline(void) {
     uint8_t ch_mask = calib_status.active_channels;
     if (calib_status.mode == 1) {
         relay_set_mask(ch_mask); // Enable relays for Current mode
+        sleep_ms(1000);
     } else {
         relay_set_mask(0); // Explicitly ensure relays OFF for Voltage Mode
     }
