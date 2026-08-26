@@ -41,24 +41,43 @@ static void run_calib_pipeline(void) {
         }
     }
 
-    // 1. Enter CAL mode (MAC 0x002D: Block Write [0x2D, 0x00] to 0x00/0x44) for all active channels in parallel
-    uint8_t cal_enter_cmd[2] = {0x2D, 0x00};
+    // 1. Smart CAL_EN Entry: Check ManufacturingStatus (0x0057) first
+    uint8_t mfg_cmd[2] = {0x57, 0x00};
+    uint8_t cal_toggle_cmd[2] = {0x2D, 0x00};
+
     for (uint8_t ch = 1; ch <= 6; ch++) {
         if (ch_mask & (1 << (ch - 1))) {
-            smbus_write_block(ch, 0x0B, 0x44, cal_enter_cmd, 2, false);
+            bool is_cal_on = false;
+            uint8_t rx_buf[32] = {0};
+            uint8_t rx_len = 0;
+            
+            // Check current CAL_EN status
+            smbus_write_block(ch, 0x0B, 0x44, mfg_cmd, 2, false);
+            sleep_ms(25);
+            if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK && rx_len >= 2) {
+                uint8_t msb = (rx_len >= 4) ? rx_buf[3] : rx_buf[1];
+                if (msb & 0x80) {
+                    is_cal_on = true; // CAL_EN is already ON
+                }
+            }
+
+            // Only send 0x002D if CAL_EN is OFF
+            if (!is_cal_on) {
+                smbus_write_block(ch, 0x0B, 0x44, cal_toggle_cmd, 2, false);
+                sleep_ms(100);
+            }
         }
     }
-    sleep_ms(170); // Shared wait for all channels
+    sleep_ms(100);
 
-    // 2. Check CAL_EN == 1 for all channels
+    // 2. Verify CAL_EN == 1 for all active channels
     for (uint8_t ch = 1; ch <= 6; ch++) {
         if (ch_mask & (1 << (ch - 1))) {
             bool chk_ok = false;
-            uint8_t cmd_buf[2] = {0x57, 0x00};
             uint8_t last_rx_len = 0;
             uint8_t last_rx_b0 = 0, last_rx_b1 = 0, last_rx_b2 = 0, last_rx_b3 = 0;
             for (int r = 0; r < 15; r++) {
-                smbus_write_block(ch, 0x0B, 0x44, cmd_buf, 2, false);
+                smbus_write_block(ch, 0x0B, 0x44, mfg_cmd, 2, false);
                 sleep_ms(25);
                 uint8_t rx_buf[32] = {0};
                 uint8_t rx_len = 0;
@@ -78,7 +97,7 @@ static void run_calib_pipeline(void) {
             }
             if (!chk_ok) {
                 calib_status.error_channels |= (1 << (ch - 1));
-                // Encode diagnostic info: cell1_gain = 0xE102, pack_gain = rx_len|(b0<<8), bat_gain = b1|(b2<<8)
+                // Encode diagnostic info for PC GUI logging
                 calib_status.results[ch].cell1_gain = 0xE102;
                 calib_status.results[ch].pack_gain = (uint16_t)last_rx_len | ((uint16_t)last_rx_b0 << 8);
                 calib_status.results[ch].bat_gain = (uint16_t)last_rx_b1 | ((uint16_t)last_rx_b2 << 8);
@@ -255,11 +274,20 @@ static void run_calib_pipeline(void) {
     }
     sleep_ms(250);
 
-    // 7. Disable CAL Mode (MAC 0x002D: Block Write [0x2D, 0x00]) & verify CHK_CAL 0
-    uint8_t cal_toggle_cmd[2] = {0x2D, 0x00};
+    // 7. Smart CAL_EN Exit: Check 0x0057 and send 0x002D to turn OFF only if CAL_EN is currently ON (1)
     for (uint8_t ch = 1; ch <= 6; ch++) {
         if (ch_mask & (1 << (ch - 1))) {
-            smbus_write_block(ch, 0x0B, 0x44, cal_toggle_cmd, 2, false);
+            uint8_t rx_buf[32] = {0};
+            uint8_t rx_len = 0;
+            smbus_write_block(ch, 0x0B, 0x44, mfg_cmd, 2, false);
+            sleep_ms(25);
+            if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK && rx_len >= 2) {
+                uint8_t msb = (rx_len >= 4) ? rx_buf[3] : rx_buf[1];
+                if (msb & 0x80) {
+                    // Send 0x002D to turn OFF CAL mode
+                    smbus_write_block(ch, 0x0B, 0x44, cal_toggle_cmd, 2, false);
+                }
+            }
         }
     }
     sleep_ms(60);
