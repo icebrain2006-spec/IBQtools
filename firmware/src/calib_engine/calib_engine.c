@@ -293,21 +293,13 @@ static void run_calib_pipeline(void) {
     }
     sleep_ms(250);
 
-    // 7. Smart CAL_EN Exit: Check 0x0057 and send 0x002D to turn OFF only if CAL_EN is currently ON (1)
+    // 7. CAL_EN & Raw ADC Exit: Unconditionally stop Raw ADC (0xF080) and exit CAL mode (0x002D)
     for (uint8_t ch = 1; ch <= 6; ch++) {
         if (ch_mask & (1 << (ch - 1))) {
-            uint8_t rx_buf[32] = {0};
-            uint8_t rx_len = 0;
-            smbus_write_block(ch, 0x0B, 0x44, mfg_cmd, 2, false);
-            sleep_ms(25);
-            if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK && rx_len >= 2) {
-                uint8_t msb = (rx_len >= 4) ? rx_buf[3] : rx_buf[1];
-                if (msb & 0x80) {
-                    // Send 0x002D to turn OFF CAL mode and 0xF080 to stop Raw ADC mode
-                    smbus_write_word(ch, 0x0B, 0x00, 0xF080, false);
-                    smbus_write_word(ch, 0x0B, 0x00, 0x002D, false);
-                }
-            }
+            smbus_write_word(ch, 0x0B, 0x00, 0xF080, false);
+            sleep_ms(20);
+            smbus_write_word(ch, 0x0B, 0x00, 0x002D, false);
+            sleep_ms(20);
         }
     }
     sleep_ms(200);
