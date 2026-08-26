@@ -148,7 +148,7 @@ static void run_calib_pipeline(void) {
                     
                     if (sample_cnt[ch] == 0) {
                         uint8_t c_len = (rx_len > 16) ? 16 : rx_len;
-                        memcpy(calib_status.results[ch].raw_bytes, rx_buf, c_len);
+                        memcpy((void*)calib_status.results[ch].raw_bytes, rx_buf, c_len);
                     }
                     cell1_sum[ch] += cell1;
                     pack_sum[ch] += pack;

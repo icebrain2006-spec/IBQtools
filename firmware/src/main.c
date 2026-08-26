@@ -37,7 +37,7 @@ static void handle_packet(const rx_packet_t *pkt) {
 
   switch (pkt->cmd) {
   case CMD_GET_VERSION: {
-    const char *version = "v1.0.106";
+    const char *version = "v1.0.107";
     resp_payload[0] = RESP_OK;
     strcpy((char *)(resp_payload + 1), version);
     protocol_send_packet(CMD_GET_VERSION, resp_payload, 1 + strlen(version));
@@ -419,7 +419,7 @@ static void handle_packet(const rx_packet_t *pkt) {
       resp_payload[idx++] = (calib_status.results[ch].raw_pack_adc >> 8) & 0xFF;
       resp_payload[idx++] = calib_status.results[ch].raw_bat_adc & 0xFF;
       resp_payload[idx++] = (calib_status.results[ch].raw_bat_adc >> 8) & 0xFF;
-      memcpy(resp_payload + idx, calib_status.results[ch].raw_bytes, 16);
+      memcpy(resp_payload + idx, (const void*)calib_status.results[ch].raw_bytes, 16);
       idx += 16;
     }
     protocol_send_packet(CMD_CALIB_STATUS, resp_payload, idx);
