@@ -304,13 +304,14 @@ static void run_calib_pipeline(void) {
             if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK && rx_len >= 2) {
                 uint8_t msb = (rx_len >= 4) ? rx_buf[3] : rx_buf[1];
                 if (msb & 0x80) {
-                    // Send 0x002D to turn OFF CAL mode
-                    smbus_write_block(ch, 0x0B, 0x44, cal_toggle_cmd, 2, false);
+                    // Send 0x002D to turn OFF CAL mode and 0xF080 to stop Raw ADC mode
+                    smbus_write_word(ch, 0x0B, 0x00, 0xF080, false);
+                    smbus_write_word(ch, 0x0B, 0x00, 0x002D, false);
                 }
             }
         }
     }
-    sleep_ms(60);
+    sleep_ms(200);
 
     // Always turn OFF relays upon calibration pipeline completion
     relay_set_mask(0);
