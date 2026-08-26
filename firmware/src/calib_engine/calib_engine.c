@@ -60,9 +60,10 @@ static void run_calib_pipeline(void) {
                 sleep_ms(25);
                 uint8_t rx_buf[32];
                 uint8_t rx_len = 0;
-                if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK && rx_len >= 4) {
-                    // CAL_EN bit is bit 7 of byte 3 (0x80) in ManufacturingStatus (MAC 0x0057)
-                    if (rx_buf[3] & 0x80) {
+                if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK && rx_len >= 2) {
+                    // ManufacturingStatus (MAC 0x0057): CAL_EN is bit 7 of MSB (byte 3 if 4-byte block, or byte 1 if 2-byte word)
+                    uint8_t msb = (rx_len >= 4) ? rx_buf[3] : rx_buf[1];
+                    if (msb & 0x80) {
                         chk_ok = true;
                         break;
                     }
