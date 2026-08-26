@@ -55,24 +55,33 @@ static void run_calib_pipeline(void) {
         if (ch_mask & (1 << (ch - 1))) {
             bool chk_ok = false;
             uint8_t cmd_buf[2] = {0x57, 0x00};
+            uint8_t last_rx_len = 0;
+            uint8_t last_rx_b0 = 0, last_rx_b1 = 0, last_rx_b2 = 0, last_rx_b3 = 0;
             for (int r = 0; r < 15; r++) {
                 smbus_write_block(ch, 0x0B, 0x44, cmd_buf, 2, false);
                 sleep_ms(25);
-                uint8_t rx_buf[32];
+                uint8_t rx_buf[32] = {0};
                 uint8_t rx_len = 0;
-                if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK && rx_len >= 2) {
-                    // ManufacturingStatus (MAC 0x0057): CAL_EN is bit 7 of MSB (byte 3 if 4-byte block, or byte 1 if 2-byte word)
-                    uint8_t msb = (rx_len >= 4) ? rx_buf[3] : rx_buf[1];
-                    if (msb & 0x80) {
-                        chk_ok = true;
-                        break;
+                if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK) {
+                    last_rx_len = rx_len;
+                    last_rx_b0 = rx_buf[0]; last_rx_b1 = rx_buf[1];
+                    last_rx_b2 = rx_buf[2]; last_rx_b3 = rx_buf[3];
+                    if (rx_len >= 2) {
+                        uint8_t msb = (rx_len >= 4) ? rx_buf[3] : rx_buf[1];
+                        if (msb & 0x80) {
+                            chk_ok = true;
+                            break;
+                        }
                     }
                 }
                 sleep_ms(25);
             }
             if (!chk_ok) {
                 calib_status.error_channels |= (1 << (ch - 1));
-                calib_status.results[ch].cell1_gain = 0xE102; // Stage 2 CAL_EN check FAIL flag
+                // Encode diagnostic info: cell1_gain = 0xE102, pack_gain = rx_len|(b0<<8), bat_gain = b1|(b2<<8)
+                calib_status.results[ch].cell1_gain = 0xE102;
+                calib_status.results[ch].pack_gain = (uint16_t)last_rx_len | ((uint16_t)last_rx_b0 << 8);
+                calib_status.results[ch].bat_gain = (uint16_t)last_rx_b1 | ((uint16_t)last_rx_b2 << 8);
             }
         }
     }
