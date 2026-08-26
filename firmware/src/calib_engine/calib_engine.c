@@ -187,19 +187,26 @@ static void run_calib_pipeline(void) {
                         sleep_ms(25);
                         smbus_read_block(ch, 0x0B, 0x44, df_block, &rx_len, false);
 
-                        if (rx_len >= 14) {
-                            memcpy(df_block + 6, &new_cc_gain, 4);
-                            memcpy(df_block + 10, &new_cap_gain, 4);
+                        if (rx_len >= 16) {
+                            // Real DataFlash 0x4000 fields start at df_block + 2:
+                            // CC Gain is at Offset 6 (df_block + 8)
+                            // Cap Gain is at Offset 10 (df_block + 12)
+                            memcpy(df_block + 8, &new_cc_gain, 4);
+                            memcpy(df_block + 12, &new_cap_gain, 4);
 
-                            // 6. Save Current Calibration Data (updates 0x4000 block)
+                            // Save Current Calibration Data (updates 0x4000 block)
                             uint8_t wr_payload[36];
                             wr_payload[0] = 0x00;
                             wr_payload[1] = 0x40;
-                            uint8_t copy_len = (rx_len > 32) ? 32 : rx_len;
-                            memcpy(wr_payload + 2, df_block, copy_len);
+                            uint8_t copy_len = (rx_len > 34) ? 32 : (rx_len - 2);
+                            memcpy(wr_payload + 2, df_block + 2, copy_len);
                             
                             smbus_write_block(ch, 0x0B, 0x44, wr_payload, 2 + copy_len, true);
-                            sleep_ms(250); // X 250 from script
+                            sleep_ms(250);
+
+                            // Send 0x0041 Reset so BQ40Z50 reloads new DataFlash 0x4000 gains into RAM
+                            smbus_write_word(ch, 0x0B, 0x00, 0x0041, false);
+                            sleep_ms(300);
 
                             calib_status.results[ch].cell1_gain = (uint16_t)(int16_t)cc_avg;
                             calib_status.results[ch].pack_gain = (uint16_t)(new_cc_gain * 1000.0f);
@@ -242,23 +249,30 @@ static void run_calib_pipeline(void) {
                     sleep_ms(25);
                     smbus_read_block(ch, 0x0B, 0x44, df_block, &rx_len, false);
 
-                    if (rx_len >= 6) {
-                        df_block[0] = g_cell1 & 0xFF;
-                        df_block[1] = (g_cell1 >> 8) & 0xFF;
-                        df_block[2] = g_bat & 0xFF;
-                        df_block[3] = (g_bat >> 8) & 0xFF;
-                        df_block[4] = g_pack & 0xFF;
-                        df_block[5] = (g_pack >> 8) & 0xFF;
+                    if (rx_len >= 8) {
+                        // df_block[0..1] is 0x0040 subclass address header
+                        // Real DataFlash 0x4000 fields start at df_block + 2:
+                        df_block[2] = g_cell1 & 0xFF;
+                        df_block[3] = (g_cell1 >> 8) & 0xFF;
+                        df_block[4] = g_bat & 0xFF;
+                        df_block[5] = (g_bat >> 8) & 0xFF;
+                        df_block[6] = g_pack & 0xFF;
+                        df_block[7] = (g_pack >> 8) & 0xFF;
 
-                        // 6. Save Voltage Calibration Data (updates 0x4000 block: Cell1Gain, BatGain, PackGain)
+                        // Save Voltage Calibration Data (updates 0x4000 block: Cell1Gain, BatGain, PackGain)
                         uint8_t wr_payload[36];
                         wr_payload[0] = 0x00;
                         wr_payload[1] = 0x40;
-                        uint8_t copy_len = (rx_len > 32) ? 32 : rx_len;
-                        memcpy(wr_payload + 2, df_block, copy_len);
+                        uint8_t copy_len = (rx_len > 34) ? 32 : (rx_len - 2);
+                        memcpy(wr_payload + 2, df_block + 2, copy_len);
                         
-                        smbus_write_block(ch, 0x0B, 0x44, wr_payload, 2 + copy_len, true); // Send 0x4000 block write with PEC
+                        smbus_write_block(ch, 0x0B, 0x44, wr_payload, 2 + copy_len, true);
                         sleep_ms(250);
+
+                        // Send 0x0041 Reset so BQ40Z50 reloads new DataFlash 0x4000 gains into RAM
+                        smbus_write_word(ch, 0x0B, 0x00, 0x0041, false);
+                        sleep_ms(300);
+
                         calib_status.results[ch].success = true;
                     } else {
                         calib_status.error_channels |= (1 << (ch - 1));
