@@ -7,7 +7,7 @@ from PySide6.QtCore import QThread, Signal, Slot
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from updater_thread import make_packet, parse_response, RESP_OK, CMD_I2C_RAW, CMD_SMBUS_CMD, CMD_SMBUS_POLL_BLOCK, CMD_RELAY_SET, PROTOCOL_STX
-from calibrators.utils import detect_dataflash_offset, load_calibration_offsets
+from calibrators.utils import detect_dataflash_offset, load_calibration_offsets, load_adc_offset_0xf081
 
 def crc8_smbus_byte(crc, data):
     crc ^= data
@@ -602,15 +602,21 @@ class CalibrationThread(QThread):
                                     if valid_count > 0:
                                         self.bq78350_v_cal["cell15"] = cell15_sum / valid_count
                             else:
+                                adc_cfg = load_adc_offset_0xf081("BQ40Z50")
                                 cell1_sum = 0
                                 pack_sum = 0
                                 batt_sum = 0
                                 valid_count = 0
+                                min_len = adc_cfg.get("min_len", 16)
+                                c1_off = adc_cfg.get("cell1", 4)
+                                pack_off = adc_cfg.get("pack", 12)
+                                bat_off = adc_cfg.get("bat", 14)
+
                                 for blk in blocks:
-                                    if len(blk) >= 12:
-                                        cell1_sum += struct.unpack_from('<H', blk, 0)[0]
-                                        batt_sum += struct.unpack_from('<H', blk, 8)[0]
-                                        pack_sum += struct.unpack_from('<H', blk, 10)[0]
+                                    if len(blk) >= min_len:
+                                        cell1_sum += struct.unpack_from('<H', blk, c1_off)[0]
+                                        pack_sum += struct.unpack_from('<H', blk, pack_off)[0]
+                                        batt_sum += struct.unpack_from('<H', blk, bat_off)[0]
                                         valid_count += 1
                                         
                                 if valid_count > 0:
@@ -681,9 +687,12 @@ class CalibrationThread(QThread):
                                         cc_sum += struct.unpack_from('<h', blk, 16)[0]
                                         valid_count += 1
                                 else:
-                                    if len(blk) >= 7:
-                                        # Raw CC is a 16-bit signed integer at offset 4 (after 1A 81 F0 BE 01)
-                                        cc_sum += struct.unpack_from('<h', blk, 4)[0]
+                                    adc_cfg = load_adc_offset_0xf081("BQ40Z50")
+                                    min_len = adc_cfg.get("min_len", 18)
+                                    cc_off = adc_cfg.get("current", 4)
+                                    if len(blk) >= min_len:
+                                        # Raw CC is a 16-bit signed integer at cc_off
+                                        cc_sum += struct.unpack_from('<h', blk, cc_off)[0]
                                         valid_count += 1
                                     
                             if valid_count > 0:
@@ -1100,6 +1109,12 @@ class CalibrationThread(QThread):
                             pack_g = struct.unpack('<H', st_resp[idx:idx+2])[0]; idx += 2
                             bat_g = struct.unpack('<H', st_resp[idx:idx+2])[0]; idx += 2
                             ch_succ_val = st_resp[idx]; idx += 1
+                            
+                            raw_c1_adc = struct.unpack('<H', st_resp[idx:idx+2])[0] if idx + 2 <= len(st_resp) else 0; idx += 2
+                            raw_pack_adc = struct.unpack('<H', st_resp[idx:idx+2])[0] if idx + 2 <= len(st_resp) else 0; idx += 2
+                            raw_bat_adc = struct.unpack('<H', st_resp[idx:idx+2])[0] if idx + 2 <= len(st_resp) else 0; idx += 2
+                            raw_bytes = st_resp[idx:idx+18] if idx + 18 <= len(st_resp) else b""; idx += 18
+
                             ch_succ = (ch_succ_val == 1)
                             if ch in self.channels:
                                 is_err = (err_channels & (1 << (ch - 1))) != 0
@@ -1107,6 +1122,9 @@ class CalibrationThread(QThread):
                                 cc_adc_map[ch] = struct.unpack('<h', struct.pack('<H', cell1_g))[0]
                                 cc_calc_map[ch] = pack_g / 1000.0
                                 self._log(f"    [DEBUG CH{ch}] cell1_g={cell1_g}, pack_g={pack_g}, bat_g={bat_g}, ch_succ_val={ch_succ_val}, is_err={is_err}")
+                                if len(raw_bytes) > 0:
+                                    self._log(f"    [CH{ch} RAW 0xF081 BLOCK] Hex={bytes(raw_bytes).hex(' ')}")
+                                    self._log(f"    [CH{ch} RAW ADC AVG] Cell1_ADC={raw_c1_adc}, Pack_ADC={raw_pack_adc}, Bat_ADC={raw_bat_adc}")
                                 if ch_status_map[ch] and run_mode != "current":
                                     self.ch = ch
                                     self._log(f"    [CH{ch} RP2040 HW Result] PASS -> Cell1 Gain: {cell1_g}, Pack Gain: {pack_g}, Bat Gain: {bat_g}")
@@ -1114,7 +1132,21 @@ class CalibrationThread(QThread):
                                     self.emit_result("Pack Gain", "Pack Gain", str(pack_g), pack_g, is_gain=True)
                                     self.emit_result("Bat Gain", "Bat Gain", str(bat_g), bat_g, is_gain=True)
                                 elif not ch_status_map[ch]:
-                                    self._log(f"    [CH{ch} RP2040 HW Result] FAIL (ch_succ={ch_succ}, err_mask={bin(err_channels)})")
+                                    err_stage_map = {
+                                        0xE102: "Stage 2 (CAL_EN check FAIL)",
+                                        0xE104: "Stage 4 (Raw ADC Sampling FAIL - 0 samples)",
+                                        0xE105: "Stage 5 (ADC Average is 0)",
+                                        0xE106: "Stage 6 (0x4000 Block Write/Cache FAIL)"
+                                    }
+                                    stage_desc = err_stage_map.get(cell1_g, f"Unknown Stage Error 0x{cell1_g:04X}")
+                                    if cell1_g == 0xE102:
+                                        rx_len = pack_g & 0xFF
+                                        b0 = (pack_g >> 8) & 0xFF
+                                        b1 = bat_g & 0xFF
+                                        b2 = (bat_g >> 8) & 0xFF
+                                        self._log(f"    [CH{ch} RP2040 HW Result] FAIL -> Reason: {stage_desc} | SMBus Resp Len={rx_len}, Bytes=[{b0:02X} {b1:02X} {b2:02X}]")
+                                    else:
+                                        self._log(f"    [CH{ch} RP2040 HW Result] FAIL -> Reason: {stage_desc} (err_mask={bin(err_channels)})")
                         
                         if run_mode == "current":
                             for ch in self.channels:

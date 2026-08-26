@@ -1,0 +1,12 @@
+{
+  "BQ40Z50": {
+    "min_len": 18,
+    "current": 4,
+    "cell1": 6,
+    "cell2": 8,
+    "cell3": 10,
+    "cell4": 12,
+    "pack": 16,
+    "bat": 14
+  }
+}

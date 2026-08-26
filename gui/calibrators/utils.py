@@ -83,3 +83,20 @@ def load_calibration_offsets(csv_name):
                 except ValueError:
                     pass
     return offsets
+
+def load_adc_offset_0xf081(ic_name="BQ40Z50"):
+    import json
+    df_dir = get_dataflash_dir()
+    json_path = os.path.join(df_dir, "adc_offset_0xf081.json")
+    if not os.path.exists(json_path):
+        json_path = os.path.join(os.path.dirname(__file__), "adc_offset_0xf081.json")
+    
+    defaults = {"min_len": 16, "current": 2, "cell1": 4, "cell2": 6, "cell3": 8, "cell4": 10, "pack": 12, "bat": 14}
+    if os.path.exists(json_path):
+        try:
+            with open(json_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return data.get(ic_name.upper(), defaults)
+        except Exception:
+            pass
+    return defaults

@@ -72,6 +72,8 @@ def build_app():
         '--add-data=gui/calibrators/scripts/*;gui/calibrators/scripts',
         '--add-data=gui/calibrators/dataflashs/*;calibrators/dataflashs',
         '--add-data=gui/calibrators/dataflashs/*;gui/calibrators/dataflashs',
+        '--add-data=gui/calibrators/adc_offset_0xf081.json;calibrators',
+        '--add-data=gui/calibrators/adc_offset_0xf081.json;gui/calibrators',
     ]
     
     print(f"Running PyInstaller...")
