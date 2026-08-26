@@ -56,11 +56,12 @@ static int tokenize(char *line, char **tokens, int max_tokens) {
     return count;
 }
 
+static char line_buf[512];
+static char *tokens[128];
+static uint8_t i2c_payload[255];
+
 // Core 1 Main Entry
 static void core1_entry(void) {
-    char line_buf[512];
-    char *tokens[128];
-    uint8_t i2c_payload[255];
 
     while (true) {
         // Wait for start signal from Core 0 via FIFO
