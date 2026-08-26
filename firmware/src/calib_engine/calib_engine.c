@@ -27,81 +27,66 @@ static void run_calib_pipeline(void) {
         relay_set_mask(ch_mask);
         sleep_ms(1000); // Wait 1s for load current to stabilize
     } else {
-        relay_set_mask(0); // Explicitly ensure relays OFF for Voltage Mode
-    }
-
-    // 0. Cache 0x4000 DataFlash block BEFORE CAL mode entry (CAL mode blocks reading)
-    uint8_t cached_0x4000[7][36] = {0};
-    uint8_t cached_len[7] = {0};
-    uint8_t df_pre_cmd[2] = {0x00, 0x40};
-    for (uint8_t ch = 1; ch <= 6; ch++) {
-        if (ch_mask & (1 << (ch - 1))) {
-            smbus_write_block(ch, 0x0B, 0x44, df_pre_cmd, 2, false);
-            sleep_ms(25);
-            smbus_read_block(ch, 0x0B, 0x44, cached_0x4000[ch], &cached_len[ch], false);
-        }
-    }
-
-    // 1. Smart CAL_EN Entry: Check ManufacturingStatus (0x0057) first
+// Helper function to set CAL_EN state on BQ40Z50 with 0x0057 check and up to 3 retries
+static bool bq40z50_set_cal_en(uint8_t ch, bool enable) {
     uint8_t mfg_cmd[2] = {0x57, 0x00};
     uint8_t cal_toggle_cmd[2] = {0x2D, 0x00};
 
-    for (uint8_t ch = 1; ch <= 6; ch++) {
-        if (ch_mask & (1 << (ch - 1))) {
-            bool is_cal_on = false;
-            uint8_t rx_buf[32] = {0};
-            uint8_t rx_len = 0;
-            
-            // Check current CAL_EN status
-            smbus_write_block(ch, 0x0B, 0x44, mfg_cmd, 2, false);
-            sleep_ms(25);
-            if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK && rx_len >= 2) {
-                uint8_t msb = (rx_len >= 4) ? rx_buf[3] : rx_buf[1];
-                if (msb & 0x80) {
-                    is_cal_on = true; // CAL_EN is already ON
-                }
-            }
+    for (int retry = 0; retry < 3; retry++) {
+        uint8_t rx_buf[32] = {0};
+        uint8_t rx_len = 0;
+        bool is_on = false;
 
-            // Only send 0x002D if CAL_EN is OFF
-            if (!is_cal_on) {
-                smbus_write_block(ch, 0x0B, 0x44, cal_toggle_cmd, 2, false);
-                sleep_ms(100);
+        // 1. Check 0x0057 (ManufacturingStatus)
+        smbus_write_block(ch, 0x0B, 0x44, mfg_cmd, 2, false);
+        sleep_ms(25);
+        if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK && rx_len >= 2) {
+            uint8_t msb = (rx_len >= 4) ? rx_buf[3] : rx_buf[1];
+            if (msb & 0x80) {
+                is_on = true;
             }
         }
-    }
-    sleep_ms(100);
 
-    // 2. Verify CAL_EN == 1 for all active channels
+        // If current state matches target 'enable', return PASS (true)
+        if (is_on == enable) {
+            return true;
+        }
+
+        // 2. State mismatch -> Send 0x002D toggle command
+        smbus_write_block(ch, 0x0B, 0x44, cal_toggle_cmd, 2, false);
+        smbus_write_word(ch, 0x0B, 0x00, 0x002D, false);
+        sleep_ms(50);
+    }
+
+    // 3. Final verification check
+    uint8_t rx_buf[32] = {0};
+    uint8_t rx_len = 0;
+    smbus_write_block(ch, 0x0B, 0x44, mfg_cmd, 2, false);
+    sleep_ms(25);
+    if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK && rx_len >= 2) {
+        uint8_t msb = (rx_len >= 4) ? rx_buf[3] : rx_buf[1];
+        bool is_on = (msb & 0x80) != 0;
+        if (is_on == enable) {
+            return true;
+        }
+    }
+    return false; // Fail after 3 attempts
+}
+
+static void run_calib_pipeline(void) {
+    uint8_t ch_mask = calib_status.active_channels;
+    if (calib_status.mode == 1) {
+        relay_set_mask(ch_mask); // Enable relays for Current mode
+    } else {
+        relay_set_mask(0); // Explicitly ensure relays OFF for Voltage Mode
+    }
+
+    // 1. Enable CAL_EN mode for active channels
     for (uint8_t ch = 1; ch <= 6; ch++) {
         if (ch_mask & (1 << (ch - 1))) {
-            bool chk_ok = false;
-            uint8_t last_rx_len = 0;
-            uint8_t last_rx_b0 = 0, last_rx_b1 = 0, last_rx_b2 = 0, last_rx_b3 = 0;
-            for (int r = 0; r < 15; r++) {
-                smbus_write_block(ch, 0x0B, 0x44, mfg_cmd, 2, false);
-                sleep_ms(25);
-                uint8_t rx_buf[32] = {0};
-                uint8_t rx_len = 0;
-                if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK) {
-                    last_rx_len = rx_len;
-                    last_rx_b0 = rx_buf[0]; last_rx_b1 = rx_buf[1];
-                    last_rx_b2 = rx_buf[2]; last_rx_b3 = rx_buf[3];
-                    if (rx_len >= 2) {
-                        uint8_t msb = (rx_len >= 4) ? rx_buf[3] : rx_buf[1];
-                        if (msb & 0x80) {
-                            chk_ok = true;
-                            break;
-                        }
-                    }
-                }
-                sleep_ms(25);
-            }
-            if (!chk_ok) {
+            if (!bq40z50_set_cal_en(ch, true)) {
                 calib_status.error_channels |= (1 << (ch - 1));
-                // Encode diagnostic info for PC GUI logging
-                calib_status.results[ch].cell1_gain = 0xE102;
-                calib_status.results[ch].pack_gain = (uint16_t)last_rx_len | ((uint16_t)last_rx_b0 << 8);
-                calib_status.results[ch].bat_gain = (uint16_t)last_rx_b1 | ((uint16_t)last_rx_b2 << 8);
+                calib_status.results[ch].cell1_gain = 0xE102; // CAL_EN Entry FAIL
             }
         }
     }
@@ -288,16 +273,15 @@ static void run_calib_pipeline(void) {
     }
     sleep_ms(250);
 
-    // 7. CAL_EN & Raw ADC Exit: Send 0xF080 (Stop Raw ADC), 0x002D (Exit CAL), 0x0012 (Reset MAC) via 0x44 block write
+    // 7. CAL_EN & Raw ADC Exit: Use bq40z50_set_cal_en(ch, false) with 3-retry verification and reset MAC
     uint8_t pipeline_stop_cmd[2] = {0x80, 0xF0};
-    uint8_t cal_exit_cmd[2] = {0x2D, 0x00};
     uint8_t reset_cmd[2] = {0x12, 0x00};
 
     for (uint8_t ch = 1; ch <= 6; ch++) {
         if (ch_mask & (1 << (ch - 1))) {
             smbus_write_block(ch, 0x0B, 0x44, pipeline_stop_cmd, 2, false);
             sleep_ms(20);
-            smbus_write_block(ch, 0x0B, 0x44, cal_exit_cmd, 2, false);
+            bq40z50_set_cal_en(ch, false);
             sleep_ms(20);
             smbus_write_block(ch, 0x0B, 0x44, reset_cmd, 2, false);
             sleep_ms(50);
