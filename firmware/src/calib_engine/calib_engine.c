@@ -45,8 +45,7 @@ bool bq40z50_set_cal_en(uint8_t ch, bool enable) {
 
         // 2. State mismatch -> Send 0x002D toggle command
         smbus_write_block(ch, 0x0B, 0x44, cal_toggle_cmd, 2, false);
-        smbus_write_word(ch, 0x0B, 0x00, 0x002D, false);
-        sleep_ms(50);
+        sleep_ms(100);
     }
 
     // 3. Final verification check
