@@ -135,19 +135,16 @@ static void run_calib_pipeline(void) {
                 uint8_t rx_len = 0;
                 // Raw ADC Block read (0x44) length is typically 14 or 16 bytes for BQ40Z50
                 if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK && rx_len >= 12) {
-                    uint8_t off = (rx_buf[0] == 0x81 && rx_buf[1] == 0xF0) ? 2 : 0;
-                    if (rx_len >= off + 12) {
-                        uint16_t cell1 = rx_buf[off + 0] | (rx_buf[off + 1] << 8);
-                        uint16_t bat = rx_buf[off + 8] | (rx_buf[off + 9] << 8);
-                        uint16_t pack = rx_buf[off + 10] | (rx_buf[off + 11] << 8);
-                        int16_t cc = (int16_t)(rx_buf[off + 4] | (rx_buf[off + 5] << 8));
-                        
-                        cell1_sum[ch] += cell1;
-                        pack_sum[ch] += pack;
-                        bat_sum[ch] += bat;
-                        cc_sum[ch] += cc;
-                        sample_cnt[ch]++;
-                    }
+                    uint16_t cell1 = rx_buf[0] | (rx_buf[1] << 8);
+                    uint16_t bat = rx_buf[8] | (rx_buf[9] << 8);
+                    uint16_t pack = rx_buf[10] | (rx_buf[11] << 8);
+                    int16_t cc = (int16_t)(rx_buf[4] | (rx_buf[5] << 8));
+                    
+                    cell1_sum[ch] += cell1;
+                    pack_sum[ch] += pack;
+                    bat_sum[ch] += bat;
+                    cc_sum[ch] += cc;
+                    sample_cnt[ch]++;
                 }
             }
         }
