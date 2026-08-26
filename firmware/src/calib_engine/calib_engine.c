@@ -293,16 +293,22 @@ static void run_calib_pipeline(void) {
     }
     sleep_ms(250);
 
-    // 7. CAL_EN & Raw ADC Exit: Unconditionally stop Raw ADC (0xF080) and exit CAL mode (0x002D)
+    // 7. CAL_EN & Raw ADC Exit: Send 0xF080 (Stop Raw ADC), 0x002D (Exit CAL), 0x0012 (Reset MAC) via 0x44 block write
+    uint8_t raw_stop_cmd[2] = {0x80, 0xF0};
+    uint8_t cal_exit_cmd[2] = {0x2D, 0x00};
+    uint8_t reset_cmd[2] = {0x12, 0x00};
+
     for (uint8_t ch = 1; ch <= 6; ch++) {
         if (ch_mask & (1 << (ch - 1))) {
-            smbus_write_word(ch, 0x0B, 0x00, 0xF080, false);
+            smbus_write_block(ch, 0x0B, 0x44, raw_stop_cmd, 2, false);
             sleep_ms(20);
-            smbus_write_word(ch, 0x0B, 0x00, 0x002D, false);
+            smbus_write_block(ch, 0x0B, 0x44, cal_exit_cmd, 2, false);
             sleep_ms(20);
+            smbus_write_block(ch, 0x0B, 0x44, reset_cmd, 2, false);
+            sleep_ms(50);
         }
     }
-    sleep_ms(200);
+    sleep_ms(250);
 
     // Always turn OFF relays upon calibration pipeline completion
     relay_set_mask(0);
