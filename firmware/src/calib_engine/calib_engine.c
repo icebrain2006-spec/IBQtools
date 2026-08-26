@@ -204,10 +204,6 @@ static void run_calib_pipeline(void) {
                             smbus_write_block(ch, 0x0B, 0x44, wr_payload, 2 + copy_len, true);
                             sleep_ms(250);
 
-                            // Send 0x0041 Reset so BQ40Z50 reloads new DataFlash 0x4000 gains into RAM
-                            smbus_write_word(ch, 0x0B, 0x00, 0x0041, false);
-                            sleep_ms(300);
-
                             calib_status.results[ch].cell1_gain = (uint16_t)(int16_t)cc_avg;
                             calib_status.results[ch].pack_gain = (uint16_t)(new_cc_gain * 1000.0f);
                             calib_status.results[ch].success = true;
@@ -268,10 +264,6 @@ static void run_calib_pipeline(void) {
                         
                         smbus_write_block(ch, 0x0B, 0x44, wr_payload, 2 + copy_len, true);
                         sleep_ms(250);
-
-                        // Send 0x0041 Reset so BQ40Z50 reloads new DataFlash 0x4000 gains into RAM
-                        smbus_write_word(ch, 0x0B, 0x00, 0x0041, false);
-                        sleep_ms(300);
 
                         calib_status.results[ch].success = true;
                     } else {
