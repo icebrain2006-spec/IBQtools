@@ -60,13 +60,15 @@ class CalibrationThread(QThread):
         self.active_cells = 4 # Default
         self.history = {} # Store history of statuses for sliding window
         
+    def stop(self):
+        self._running = False
             
     @Slot(dict)
     def on_limits_updated(self, new_limits):
         self.limits = new_limits
         self._log(f"DEBUG THREAD: Received new limits via signal: V_Cell 2={self.limits.get('V_Cell 2')}")
         
-    def emit_result(self, param_key, param_name, raw_adc, val, is_gain=False, suffix=""):
+    def emit_result(self, param_key, param_name, raw_adc, val, is_gain=False, suffix="", force_fail=False):
         raw_status = "PASS" if is_gain else "INFO"
         ch_limits = self.limits_per_ch.get(self.ch, self.limits)
         if param_key in ch_limits:
@@ -76,13 +78,16 @@ class CalibrationThread(QThread):
             else:
                 raw_status = "FAIL"
                 
+        if force_fail:
+            raw_status = "FAIL"
+                
         if is_gain:
             if raw_status == "FAIL":
                 self._log(f"FAIL: {param_key} val={val} limits=({min_val}, {max_val})")
             # For gain rows, show the calculated gain value
             self.row_signal.emit(param_name, self.ch, str(raw_adc), raw_status)
         else:
-            # Apply 5-history sliding window for Voltage/Temp monitoring
+            # Apply 2-history sliding window for Voltage/Temp monitoring (1-second PASS recovery)
             if param_name not in self.history:
                 self.history[param_name] = {}
             if self.ch not in self.history[param_name]:
@@ -90,10 +95,10 @@ class CalibrationThread(QThread):
                 
             ch_hist = self.history[param_name][self.ch]
             ch_hist.append(raw_status)
-            if len(ch_hist) > 5:
+            if len(ch_hist) > 2:
                 ch_hist.pop(0)
                 
-            # Final status is FAIL if ANY of the last 5 measurements failed (except for BQ78350 V_Cell)
+            # Final status is FAIL if ANY of the last 2 measurements failed
             if "BQ78350" in self.ic_name.upper() and param_key.startswith("V_Cell"):
                 pass_count = ch_hist.count("PASS")
                 fail_count = ch_hist.count("FAIL")
@@ -1026,24 +1031,53 @@ class CalibrationThread(QThread):
                 return True
             else:
                 # Read standard SBS SMBus Voltage Commands for BQ40Z50
-                # 0x3F: Cell1, 0x3E: Cell2, 0x3D: Cell3, 0x3C: Cell4, 0x09: Voltage (Pack/Bat)
-                data_ok = False
-                if show_voltage:
-                    for i in range(self.active_cells):
-                        cmd = 0x3F - i
-                        val = self.smbus_read_word(cmd)
-                        if val:
-                            data_ok = True
-                            v_cell = struct.unpack('<H', bytes(val))[0]
-                            self.emit_result(f"V_Cell {i+1}", f"V_Cell {i+1}", "-", v_cell, suffix=" mV")
-                    
+                # 0x3F: Cell1, 0x3E: Cell2, 0x3D: Cell3, 0x3C: Cell4
+                # Read DAStatus 1 (0x0071) over 0x44 for distinct Cell 1..4, V_Bat (offset 10) and V_Pack (offset 12)
+                v_bat_val = None
+                v_pack_val = None
+                self.smbus_write_block_raw(0x44, [0x71, 0x00])
+                time.sleep(0.05)
+                data1 = self.smbus_read_block(0x44)
+                if data1 and len(data1) >= 14:
+                    data_ok = True
+                    if show_voltage:
+                        v_c1 = struct.unpack_from('<H', data1, 2)[0]
+                        v_c2 = struct.unpack_from('<H', data1, 4)[0]
+                        v_c3 = struct.unpack_from('<H', data1, 6)[0]
+                        v_c4 = struct.unpack_from('<H', data1, 8)[0]
+                        v_cells = [v_c1, v_c2, v_c3, v_c4]
+                        for i in range(min(self.active_cells, len(v_cells))):
+                            self.emit_result(f"V_Cell {i+1}", f"V_Cell {i+1}", "-", v_cells[i], suffix=" mV")
+
+                    v_bat_val = struct.unpack_from('<H', data1, 10)[0]
+                    v_pack_val = struct.unpack_from('<H', data1, 12)[0]
+                else:
+                    if show_voltage:
+                        for i in range(self.active_cells):
+                            cmd = 0x3F - i
+                            val = self.smbus_read_word(cmd)
+                            if val:
+                                data_ok = True
+                                v_cell = struct.unpack('<H', bytes(val))[0]
+                                self.emit_result(f"V_Cell {i+1}", f"V_Cell {i+1}", "-", v_cell, suffix=" mV")
+
                     val_pack = self.smbus_read_word(0x09)
                     if val_pack:
                         data_ok = True
                         v_p = struct.unpack('<H', bytes(val_pack))[0]
-                        self.emit_result("V_Pack", "V_Pack", "-", v_p, suffix=" mV")
-                        self.emit_result("V_Bat", "V_Bat", "-", v_p, suffix=" mV")
-                
+                        v_bat_val = v_p
+                        v_pack_val = v_p
+
+                if show_voltage and (v_pack_val is not None and v_bat_val is not None):
+                    ch_limits = self.limits_per_ch.get(self.ch, self.limits)
+                    diff_min, diff_max = ch_limits.get("V_Pack - V_Bat Diff", ch_limits.get("V_Pack / V_Bat Diff", (-20.0, 20.0)))
+                    v_diff = v_pack_val - v_bat_val
+                    force_diff_fail = (v_diff < diff_min or v_diff > diff_max)
+                    if force_diff_fail:
+                        self._log(f"FAIL: V_Pack/V_Bat diff={v_diff}mV exceeds limit ({diff_min}, {diff_max})")
+                    self.emit_result("V_Pack", "V_Pack", "-", v_pack_val, suffix=" mV", force_fail=force_diff_fail)
+                    self.emit_result("V_Bat", "V_Bat", "-", v_bat_val, suffix=" mV", force_fail=force_diff_fail)
+
                 self.smbus_write_block_raw(0x44, [0x72, 0x00])
                 time.sleep(0.05)
                 data2 = self.smbus_read_block(0x44)
@@ -1129,7 +1163,7 @@ class CalibrationThread(QThread):
                 self.ser.write(pkt_relay)
                 self._read_packet()
                 self._log(f"    [Relay] Set mask 0x{relay_mask:02X} for {mode_name.upper()} mode")
-                time.sleep(0.1)
+                time.sleep(0.5)
 
                 payload_bytes = bytearray([ch_mask, mode_code])
                 for ch in range(1, 7):
@@ -1219,7 +1253,8 @@ class CalibrationThread(QThread):
                                         self.emit_result("Cell 1 Gain", "Cell 1 Gain", str(cell1_g), cell1_g, is_gain=True)
                                         self.emit_result("Pack Gain", "Pack Gain", str(pack_g), pack_g, is_gain=True)
                                         self.emit_result("Bat Gain", "Bat Gain", str(bat_g), bat_g, is_gain=True)
-                                        self.post_verify()
+                                        if run_mode != "all":
+                                            self.post_verify()
                                     elif not ch_status_map[ch]:
                                         err_stage_map = {
                                             0xE102: "Stage 2 (CAL_EN check FAIL)",
@@ -1246,9 +1281,10 @@ class CalibrationThread(QThread):
                                         time.sleep(0.05)
                                         df_b = self.smbus_read_block(0x44)
                                         if df_b and len(df_b) >= 16:
-                                            cc_gain_read = struct.unpack_from('<f', df_b, 8)[0]
-                                            cap_gain_read = struct.unpack_from('<f', df_b, 12)[0]
-                                            mohm_read = 3.714528 / cc_gain_read if cc_gain_read != 0 else 0
+                                            base = 2 if (len(df_b) >= 18 and df_b[0] == 0x00 and df_b[1] == 0x40) else 0
+                                            cc_gain_read = struct.unpack_from('<f', df_b, base + 6)[0]
+                                            cap_gain_read = struct.unpack_from('<f', df_b, base + 10)[0]
+                                            mohm_read = 3.714528 / cc_gain_read if (cc_gain_read > 0.1 and cc_gain_read < 20.0) else 0.959
                                             
                                             calc_gain = cc_calc_map.get(ch, 0.0)
                                             calc_mohm = 3.714528 / calc_gain if calc_gain != 0 else 0

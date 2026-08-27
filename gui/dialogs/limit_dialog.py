@@ -35,7 +35,7 @@ class LimitsDialog(QDialog):
             self.limit_keys = [
                 "Cell 1 Gain", "Pack Gain", "Bat Gain",
                 "V_Cell 1", "V_Cell 2", "V_Cell 3", "V_Cell 4",
-                "V_Bat", "V_Pack",
+                "V_Bat", "V_Pack", "V_Pack - V_Bat Diff",
                 "Int Temp", "TS1 Temp", "TS2 Temp", "TS3 Temp", "TS4 Temp",
                 "Shunt Resistor"
             ]
@@ -86,6 +86,9 @@ class LimitsDialog(QDialog):
                 if "shunt" in target_key:
                     default_min = "-0.05"
                     default_max = "0.05"
+                elif "diff" in target_key:
+                    default_min = "-20"
+                    default_max = "20"
                 elif "vcell" in target_key or "vpack" in target_key or "vbat" in target_key or "vext" in target_key or "vaux" in target_key:
                     default_min = "-20"
                     default_max = "20"
@@ -148,6 +151,8 @@ class LimitsDialog(QDialog):
                         if "Gain" not in key and "Offset" not in key or "CC Offset" in key or "Coulomb" in key:
                             is_offset = True
                             target_key = key.lower().replace(" ", "").replace("_", "")
+                            if "diff" in target_key:
+                                is_offset = False
                             if "shunt" in target_key:
                                 base_target = float(self.default_targets.get("shuntresistormohm", 1.0))
                             elif "vcell" in target_key:

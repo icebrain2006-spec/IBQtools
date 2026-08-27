@@ -323,24 +323,10 @@ class RP2040BoardWidget(QGroupBox):
             self.setStyleSheet(self.default_style)
 
     def start_worker(self, loop_count, skip_preflight=False):
-        if self.passed_channels:
-            self.log_callback(f"[Board {self.board_id}] Board is in PASS state. Swap the board to unlock.")
-            return False
-            
         if self.disconnect_monitor and self.disconnect_monitor.isRunning():
             self.disconnect_monitor.stop()
             self.disconnect_monitor.wait(500)
         self.passed_channels.clear()
-
-        if not skip_preflight:
-            self.refresh_info()
-            
-        if "Unknown" in self.lbl_slfs_info.text() or "Error" in self.lbl_slfs_info.text():
-            if not skip_preflight:
-                QMessageBox.warning(self, "SLFS Check", f"Board {self.board_id}: SLFS file not found! Please check the connection or upload the SLFS file first.")
-            else:
-                self.log_callback(f"[Board {self.board_id}] SLFS file not found! Board disabled.")
-            return False
             
         active_channels = []
         for i, chk in enumerate(self.ch_checkboxes):

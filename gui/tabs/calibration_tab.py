@@ -769,6 +769,28 @@ class CalibrationTab(QWidget):
             self.param_statuses[param] = {}
         self.param_statuses[param][ch] = status
         
+        param_order_list = [
+            "CC Gain (mOhm)", "Capacity Gain (mOhm)", "CC Offset", "Coulomb Counter Offset Samples", "Shunt Resistor",
+            "Cell 1 Gain", "Pack Gain", "Bat Gain",
+            "Cell 1 Offset", "Cell 2 Offset", "Cell 3 Offset", "Cell 4 Offset",
+            "Cell 5 Offset", "Cell 6 Offset", "Cell 7 Offset", "Cell 8 Offset",
+            "Cell 9 Offset", "Cell 10 Offset", "Cell 11 Offset", "Cell 12 Offset",
+            "Cell 13 Offset", "Cell 14 Offset", "Cell 15 Offset",
+            "Ext Cell Divider Gain",
+            "V_Cell 1", "V_Cell 2", "V_Cell 3", "V_Cell 4", "V_Cell 5", "V_Cell 6",
+            "V_Cell 7", "V_Cell 8", "V_Cell 9", "V_Cell 10", "V_Cell 11", "V_Cell 12",
+            "V_Cell 13", "V_Cell 14", "V_Cell 15",
+            "V_Ext", "V_Aux", "V_Pack", "V_Bat",
+            "Int Temp", "TS1 Temp", "TS2 Temp", "TS3 Temp", "TS4 Temp"
+        ]
+
+        def get_param_order(p_name):
+            p_clean = p_name.split("(")[0].strip().lower()
+            for idx, name in enumerate(param_order_list):
+                if p_clean == name.lower() or p_clean.startswith(name.lower()):
+                    return idx
+            return 999
+
         def get_category(p_name):
             p = p_name.lower()
             if "temp" in p or "ts" in p: return 1
@@ -777,6 +799,7 @@ class CalibrationTab(QWidget):
             return 0
             
         my_cat = get_category(param)
+        my_rank = get_param_order(param)
         
         # Check if "Overall Result" row exists
         overall_row = -1
@@ -809,12 +832,12 @@ class CalibrationTab(QWidget):
             else:
                 item_val.setForeground(QColor("#E0E0E0"))
         else:
-            # Find insertion position based on category to group them
+            # Find insertion position based on strict param order
             insert_pos = self.table_data.rowCount()
             for r in range(self.table_data.rowCount()):
                 r_item = self.table_data.item(r, 0)
                 if r_item:
-                    if get_category(r_item.text()) > my_cat:
+                    if get_param_order(r_item.text()) > my_rank:
                         insert_pos = r
                         break
                         
@@ -978,14 +1001,32 @@ class CalibrationTab(QWidget):
             self.log("Error: No COM port selected.")
             return
             
+        # Stop and disconnect any existing active calibration/monitoring thread
+        if hasattr(self, 'cal_thread') and self.cal_thread and self.cal_thread.isRunning():
+            self.log("Stopping active background monitoring thread...")
+            try:
+                self.cal_thread.log_signal.disconnect()
+                self.cal_thread.row_signal.disconnect()
+                self.cal_thread.clear_ch_signal.disconnect()
+                self.cal_thread.play_sound_signal.disconnect()
+                self.cal_thread.finished_signal.disconnect()
+            except Exception:
+                pass
+            self.cal_thread.stop()
+            self.cal_thread.wait(1000)
+
         self.log_console.clear()
         ch_text = ", ".join([f"CH{ch}" for ch in selected_channels])
         self.log(f"Starting {ic} calibration ({mode} mode) on {port}, Channels: {ch_text}...")
+        self.table_data.clearContents()
         self.table_data.setRowCount(0)
         
         # Clear Overall Result table
         for c in range(1, 7):
             item = self.table_overall.item(0, c)
+            if item:
+                item.setText("")
+                item.setBackground(QColor("#2b2b2b"))
             if item: item.setText("")
             
         self.param_statuses = {}
@@ -1012,7 +1053,7 @@ class CalibrationTab(QWidget):
             limit_keys = [
                 "Cell 1 Gain", "Pack Gain", "Bat Gain", "CC Gain", "Capacity Gain",
                 "V_Cell 1", "V_Cell 2", "V_Cell 3", "V_Cell 4",
-                "V_Bat", "V_Pack",
+                "V_Bat", "V_Pack", "V_Pack - V_Bat Diff",
                 "Int Temp", "TS1 Temp", "TS2 Temp", "TS3 Temp", "TS4 Temp",
                 "Shunt Resistor"
             ]
@@ -1032,7 +1073,11 @@ class CalibrationTab(QWidget):
                 else:
                     is_offset = True
                     target_key = key.lower().replace(" ", "").replace("_", "")
-                    if "shunt" in target_key:
+                    if "diff" in target_key:
+                        is_offset = False
+                        default_min = "-20"
+                        default_max = "20"
+                    elif "shunt" in target_key:
                         base_target = float(ch_t.get("shuntresistormohm", 1.0))
                         default_min = "-0.05"
                         default_max = "0.05"
