@@ -80,6 +80,28 @@ bool bq40z50_update_df_block_offset(uint8_t ch, uint16_t subclass_addr, uint8_t 
     // Update g_cached_df4000[ch] memory copy so subsequent calibrations use updated values!
     memcpy(g_cached_df4000[ch] + 2 + field_offset, new_data, data_len);
 
+    // Validate Cell1, Bat, Pack gains in df_block payload (bytes 2..7) before writing to DataFlash
+    uint16_t c1_g = df_block[2] | (df_block[3] << 8);
+    uint16_t bat_g = df_block[4] | (df_block[5] << 8);
+    uint16_t pack_g = df_block[6] | (df_block[7] << 8);
+
+    // Fail-safe: If voltage gains in payload are invalid (e.g. corrupted by raw ADC 7627 or 0), re-fetch genuine 0x4000
+    if (c1_g < 5000 || c1_g > 60000 || bat_g < 5000 || pack_g < 5000) {
+        uint8_t df_cmd[2] = { (uint8_t)(subclass_addr & 0xFF), (uint8_t)((subclass_addr >> 8) & 0xFF) };
+        uint8_t ref_block[36] = {0};
+        uint8_t ref_len = 0;
+        smbus_write_block(ch, 0x0B, 0x44, df_cmd, 2, true);
+        sleep_ms(40);
+        if (smbus_read_block(ch, 0x0B, 0x44, ref_block, &ref_len, true) == SMBUS_OK && ref_len >= 16) {
+            uint16_t ref_c1 = ref_block[2] | (ref_block[3] << 8);
+            if (ref_c1 >= 5000 && ref_c1 <= 60000) {
+                // Restore valid Cell1, Bat, Pack gains (6 bytes)
+                memcpy(df_block + 2, ref_block + 2, 6);
+                memcpy(g_cached_df4000[ch] + 2, ref_block + 2, 6);
+            }
+        }
+    }
+
     // Build 34-byte write payload: subclass address (0x0040) + 32-byte updated DataFlash payload
     uint8_t wr_payload[36];
     wr_payload[0] = (uint8_t)(subclass_addr & 0xFF);
@@ -92,11 +114,11 @@ bool bq40z50_update_df_block_offset(uint8_t ch, uint16_t subclass_addr, uint8_t 
 
     // Read back from BQ40Z50 to verify
     uint8_t df_cmd[2] = { (uint8_t)(subclass_addr & 0xFF), (uint8_t)((subclass_addr >> 8) & 0xFF) };
-    smbus_write_block(ch, 0x0B, 0x44, df_cmd, 2, false);
+    smbus_write_block(ch, 0x0B, 0x44, df_cmd, 2, true);
     sleep_ms(30);
     uint8_t verify_block[36] = {0};
     uint8_t verify_len = 0;
-    if (smbus_read_block(ch, 0x0B, 0x44, verify_block, &verify_len, false) == SMBUS_OK && verify_len >= (2 + field_offset + data_len)) {
+    if (smbus_read_block(ch, 0x0B, 0x44, verify_block, &verify_len, true) == SMBUS_OK && verify_len >= (2 + field_offset + data_len)) {
         if (memcmp(verify_block + 2 + field_offset, new_data, data_len) == 0) {
             return true;
         }
