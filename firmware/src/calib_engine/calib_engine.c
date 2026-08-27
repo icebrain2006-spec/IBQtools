@@ -157,59 +157,70 @@ static void run_calib_pipeline(void) {
         if (ch_mask & (1 << (ch - 1))) {
             smbus_write_word(ch, 0x0B, 0x00, 0xF080, false);
             smbus_write_block(ch, 0x0B, 0x44, raw_stop_cmd, 2, false);
-        }
-    }
-    sleep_ms(160);
 
-    // 6. Calculate Gain & Write 0x4000 block per channel
-    for (uint8_t ch = 1; ch <= 6; ch++) {
-        if ((ch_mask & (1 << (ch - 1))) && !(calib_status.error_channels & (1 << (ch - 1)))) {
+                uint8_t sub_cmd[2] = {0x81, 0xF0};
+                smbus_write_block(ch, 0x0B, 0x44, sub_cmd, 2, false);
+                sleep_ms(20);
+
+                if (smbus_read_block(ch, 0x0B, 0x44, raw_buf, &rx_len, false) == SMBUS_OK && rx_len >= 16) {
+                    uint8_t seq = raw_buf[2];
+                    if (seq != last_seq) {
+                        last_seq = seq;
+                        if (sample_cnt[ch] == 0) {
+                            memcpy(calib_status.results[ch].f081_raw_block, raw_buf, 18);
+                        }
+
+                        adc_f081_offsets_t off = get_adc_offset_0xf081();
+                        if (calib_status.mode == 2) { // CURRENT MODE
+                            if (rx_len >= off.min_len) {
+                                int16_t raw_cc = (int16_t)(raw_buf[off.current_off] | (raw_buf[off.current_off + 1] << 8));
+                                cc_sum[ch] += raw_cc;
+                                sample_cnt[ch]++;
+                            }
+                        } else { // VOLTAGE MODE
+                            if (rx_len >= off.min_len) {
+                                uint16_t raw_c1 = raw_buf[off.cell1_off] | (raw_buf[off.cell1_off + 1] << 8);
+                                uint16_t raw_pack = raw_buf[off.pack_off] | (raw_buf[off.pack_off + 1] << 8);
+                                uint16_t raw_bat = raw_buf[off.bat_off] | (raw_buf[off.bat_off + 1] << 8);
+
+                                cell1_sum[ch] += raw_c1;
+                                pack_sum[ch] += raw_pack;
+                                bat_sum[ch] += raw_bat;
+                                sample_cnt[ch]++;
+                            }
+                        }
+                    }
+                }
+                sleep_ms(20);
+            }
+
+            // 5. Calculate Gains & Update DataFlash 0x4000
             if (sample_cnt[ch] > 0) {
-                if (calib_status.mode == 1) { // CURRENT CALIBRATION
+                if (calib_status.mode == 2) { // CURRENT CALIBRATION
                     double cc_avg = (double)cc_sum[ch] / sample_cnt[ch];
-                    if (cc_avg != 0.0) {
-                        int16_t target_ma = (int16_t)g_target_cell1_mv[ch]; // We pass target_ma via cell1 target
-                        if (target_ma == 0) target_ma = -2000; // default fallback
-                        float new_cc_gain = (float)fabs((double)target_ma / cc_avg);
+                    int16_t target_ma = -2000;
+                    if (cc_avg != 0) {
+                        float new_cc_gain = fabsf((float)target_ma / (float)cc_avg);
                         float new_cap_gain = new_cc_gain * 298261.6178f;
 
-                        // 1. Stop Raw ADC Mode (0xF080) so BQ40Z50 returns genuine 0x4000 DataFlash block instead of F081 stream
+                        // Stop Raw ADC Mode (0xF080) so BQ40Z50 returns genuine DataFlash block
                         uint8_t stop_adc_cmd[2] = {0x80, 0xF0};
                         smbus_write_block(ch, 0x0B, 0x44, stop_adc_cmd, 2, false);
                         smbus_write_word(ch, 0x0B, 0x00, 0xF080, false);
                         sleep_ms(40);
 
-                        // 2. Fetch FRESH 0x4000 DataFlash block from BQ40Z50
-                        uint8_t df_block[36] = {0};
-                        uint8_t rx_len = 0;
-                        uint8_t df_cmd[2] = {0x00, 0x40};
-                        smbus_write_block(ch, 0x0B, 0x44, df_cmd, 2, false);
-                        sleep_ms(25);
-                        smbus_read_block(ch, 0x0B, 0x44, df_block, &rx_len, false);
+                        // Save Current Calibration Data (updates ONLY CC Gain & Cap Gain at offset 6)
+                        uint8_t cur_bytes[8];
+                        memcpy(cur_bytes, &new_cc_gain, 4);
+                        memcpy(cur_bytes + 4, &new_cap_gain, 4);
 
-                        if (rx_len >= 16) {
-                            // Real DataFlash 0x4000 fields start at df_block + 2:
-                            // CC Gain is at Offset 6 (df_block + 8)
-                            // Cap Gain is at Offset 10 (df_block + 12)
-                            memcpy(df_block + 8, &new_cc_gain, 4);
-                            memcpy(df_block + 12, &new_cap_gain, 4);
-
-                            // Save Current Calibration Data (updates 0x4000 block)
-                            uint8_t wr_payload[36];
-                            wr_payload[0] = 0x00;
-                            wr_payload[1] = 0x40;
-                            uint8_t copy_len = (rx_len > 34) ? 32 : (rx_len - 2);
-                            memcpy(wr_payload + 2, df_block + 2, copy_len);
-                            
-                            smbus_write_block(ch, 0x0B, 0x44, wr_payload, 2 + copy_len, true);
-                            sleep_ms(250);
-
+                        if (bq40z50_update_df_block_offset(ch, 0x4000, 6, cur_bytes, 8)) {
                             calib_status.results[ch].cell1_gain = (uint16_t)(int16_t)cc_avg;
                             calib_status.results[ch].pack_gain = (uint16_t)(new_cc_gain * 1000.0f);
                             calib_status.results[ch].success = true;
                         } else {
                             calib_status.error_channels |= (1 << (ch - 1));
-                            calib_status.results[ch].cell1_gain = 0xE106; // Stage 6 DF cache FAIL
+                            calib_status.results[ch].cell1_gain = 0xE106; // Stage 6 Write/Verify FAIL
                         }
                     } else {
                         calib_status.error_channels |= (1 << (ch - 1));
@@ -231,44 +242,26 @@ static void run_calib_pipeline(void) {
                     calib_status.results[ch].raw_pack_adc = (uint16_t)pack_avg;
                     calib_status.results[ch].raw_bat_adc = (uint16_t)bat_avg;
 
-                    // Stop Raw ADC Mode (0xF080) so BQ40Z50 returns genuine 0x4000 DataFlash block
+                    // Stop Raw ADC Mode (0xF080) so BQ40Z50 returns genuine DataFlash block
                     uint8_t stop_adc_cmd[2] = {0x80, 0xF0};
                     smbus_write_block(ch, 0x0B, 0x44, stop_adc_cmd, 2, false);
                     smbus_write_word(ch, 0x0B, 0x00, 0xF080, false);
                     sleep_ms(40);
 
-                    // Fetch FRESH 0x4000 DataFlash block from BQ40Z50
-                    uint8_t df_block[36] = {0};
-                    uint8_t rx_len = 0;
-                    uint8_t df_cmd[2] = {0x00, 0x40};
-                    smbus_write_block(ch, 0x0B, 0x44, df_cmd, 2, false);
-                    sleep_ms(25);
-                    smbus_read_block(ch, 0x0B, 0x44, df_block, &rx_len, false);
+                    // Save Voltage Calibration Data (updates ONLY Cell1, Bat, Pack Gain at offset 0)
+                    uint8_t volt_bytes[6];
+                    volt_bytes[0] = g_cell1 & 0xFF;
+                    volt_bytes[1] = (g_cell1 >> 8) & 0xFF;
+                    volt_bytes[2] = g_bat & 0xFF;
+                    volt_bytes[3] = (g_bat >> 8) & 0xFF;
+                    volt_bytes[4] = g_pack & 0xFF;
+                    volt_bytes[5] = (g_pack >> 8) & 0xFF;
 
-                    if (rx_len >= 8) {
-                        // df_block[0..1] is 0x0040 subclass address header
-                        // Real DataFlash 0x4000 fields start at df_block + 2:
-                        df_block[2] = g_cell1 & 0xFF;
-                        df_block[3] = (g_cell1 >> 8) & 0xFF;
-                        df_block[4] = g_bat & 0xFF;
-                        df_block[5] = (g_bat >> 8) & 0xFF;
-                        df_block[6] = g_pack & 0xFF;
-                        df_block[7] = (g_pack >> 8) & 0xFF;
-
-                        // Save Voltage Calibration Data (updates 0x4000 block: Cell1Gain, BatGain, PackGain)
-                        uint8_t wr_payload[36];
-                        wr_payload[0] = 0x00;
-                        wr_payload[1] = 0x40;
-                        uint8_t copy_len = (rx_len > 34) ? 32 : (rx_len - 2);
-                        memcpy(wr_payload + 2, df_block + 2, copy_len);
-                        
-                        smbus_write_block(ch, 0x0B, 0x44, wr_payload, 2 + copy_len, true);
-                        sleep_ms(250);
-
+                    if (bq40z50_update_df_block_offset(ch, 0x4000, 0, volt_bytes, 6)) {
                         calib_status.results[ch].success = true;
                     } else {
                         calib_status.error_channels |= (1 << (ch - 1));
-                        calib_status.results[ch].cell1_gain = 0xE106; // Stage 6 DF cache FAIL
+                        calib_status.results[ch].cell1_gain = 0xE106; // Stage 6 Write/Verify FAIL
                     }
                 }
             } else {
