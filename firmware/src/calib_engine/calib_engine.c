@@ -204,7 +204,9 @@ static void run_calib_pipeline(void) {
     }
     sleep_ms(160);
 
-            // 5. Calculate Gains & Update DataFlash 0x4000
+    // 6. Calculate Gain & Write 0x4000 block per channel
+    for (uint8_t ch = 1; ch <= 6; ch++) {
+        if ((ch_mask & (1 << (ch - 1))) && !(calib_status.error_channels & (1 << (ch - 1)))) {
             if (sample_cnt[ch] > 0) {
                 if (calib_status.mode == 2) { // CURRENT CALIBRATION
                     double cc_avg = (double)cc_sum[ch] / sample_cnt[ch];
