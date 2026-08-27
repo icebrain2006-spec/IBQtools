@@ -194,15 +194,16 @@ static void run_calib_pipeline(void) {
         }
     }
 
-    // 5. Raw ADC Mode Stop (MAC 0xF080: Word Write 0xF080 to 0x00, then Block Write [0x80, 0xF0] to 0x44)
+    // 5. Raw ADC Mode Stop & Exit CAL_EN mode (so DataFlash 0x4000 reads return genuine DF data instead of ADC buffers)
     uint8_t raw_stop_cmd[2] = {0x80, 0xF0};
     for (uint8_t ch = 1; ch <= 6; ch++) {
         if (ch_mask & (1 << (ch - 1))) {
             smbus_write_word(ch, 0x0B, 0x00, 0xF080, false);
             smbus_write_block(ch, 0x0B, 0x44, raw_stop_cmd, 2, false);
+            bq40z50_set_cal_en(ch, false);
         }
     }
-    sleep_ms(160);
+    sleep_ms(200);
 
     // 6. Calculate Gain & Write 0x4000 block per channel
     for (uint8_t ch = 1; ch <= 6; ch++) {
@@ -214,12 +215,6 @@ static void run_calib_pipeline(void) {
                     if (cc_avg != 0) {
                         float new_cc_gain = fabsf((float)target_ma / (float)cc_avg);
                         float new_cap_gain = new_cc_gain * 298261.6178f;
-
-                        // Stop Raw ADC Mode (0xF080) so BQ40Z50 returns genuine DataFlash block
-                        uint8_t stop_adc_cmd[2] = {0x80, 0xF0};
-                        smbus_write_block(ch, 0x0B, 0x44, stop_adc_cmd, 2, false);
-                        smbus_write_word(ch, 0x0B, 0x00, 0xF080, false);
-                        sleep_ms(40);
 
                         // Save Current Calibration Data (updates ONLY CC Gain & Cap Gain at offset 6)
                         uint8_t cur_bytes[8];
@@ -253,12 +248,6 @@ static void run_calib_pipeline(void) {
                     calib_status.results[ch].raw_cell1_adc = (uint16_t)cell1_avg;
                     calib_status.results[ch].raw_pack_adc = (uint16_t)pack_avg;
                     calib_status.results[ch].raw_bat_adc = (uint16_t)bat_avg;
-
-                    // Stop Raw ADC Mode (0xF080) so BQ40Z50 returns genuine DataFlash block
-                    uint8_t stop_adc_cmd[2] = {0x80, 0xF0};
-                    smbus_write_block(ch, 0x0B, 0x44, stop_adc_cmd, 2, false);
-                    smbus_write_word(ch, 0x0B, 0x00, 0xF080, false);
-                    sleep_ms(40);
 
                     // Save Voltage Calibration Data (updates ONLY Cell1, Bat, Pack Gain at offset 0)
                     uint8_t volt_bytes[6];
