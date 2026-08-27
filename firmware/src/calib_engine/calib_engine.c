@@ -254,7 +254,7 @@ static void run_calib_pipeline(void) {
                     double cc_avg = (double)cc_sum[ch] / sample_cnt[ch];
                     int16_t target_ma = -2000;
                     if (cc_avg != 0) {
-                        float new_cc_gain = fabsf((float)target_ma / (float)cc_avg);
+                        float new_cc_gain = fabsf((float)target_ma / (float)cc_avg) * 14.7456f;
                         float new_cap_gain = new_cc_gain * 298261.6178f;
 
                         // Save Current Calibration Data (updates ONLY CC Gain & Cap Gain at offset 6)
