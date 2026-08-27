@@ -21,7 +21,7 @@ typedef struct {
 
 static const bq_raw_adc_offsets_t BQ40Z50_ADC_OFFSETS = {
     .min_len = 18,
-    .current = 2,
+    .current = 4,
     .cell1   = 6,
     .cell2   = 8,
     .cell3   = 10,

@@ -213,15 +213,7 @@ static void run_calib_pipeline(void) {
                     uint16_t cell1 = rx_buf[c1_off] | (rx_buf[c1_off + 1] << 8);     // Cell voltage 1 (bbBB)
                     uint16_t pack  = rx_buf[pack_off] | (rx_buf[pack_off + 1] << 8); // PACK voltage (ffFF)
                     uint16_t bat   = rx_buf[bat_off] | (rx_buf[bat_off + 1] << 8);   // BAT voltage (ggGG)
-                    int16_t cc = 0;
-                    if (calib_status.mode == 1) {
-                        uint16_t curr_w = 0;
-                        if (smbus_read_word(ch, 0x0B, 0x0C, &curr_w, false) == SMBUS_OK) {
-                            cc = (int16_t)curr_w;
-                        }
-                    } else {
-                        cc = (int16_t)(rx_buf[cc_off] | (rx_buf[cc_off + 1] << 8));
-                    }
+                    int16_t cc = (int16_t)(rx_buf[cc_off] | (rx_buf[cc_off + 1] << 8)); // Current (aaAA)
                     
                     if (sample_cnt[ch] == 0) {
                         uint8_t c_len = (rx_len > 18) ? 18 : rx_len;
@@ -270,13 +262,7 @@ static void run_calib_pipeline(void) {
                     double cc_avg = (double)cc_sum[ch] / sample_cnt[ch];
                     float target_ma = -2000.0f;
                     if (cc_avg != 0) {
-                        float old_cc_gain = 3.846154f;
-                        memcpy(&old_cc_gain, g_cached_df4000[ch] + 2 + 6, 4);
-                        if (old_cc_gain < 0.1f || old_cc_gain > 20.0f) {
-                            old_cc_gain = 3.846154f;
-                        }
-
-                        float new_cc_gain = old_cc_gain * (target_ma / (float)cc_avg);
+                        float new_cc_gain = fabsf(target_ma / (float)cc_avg);
                         if (new_cc_gain < 0.1f) new_cc_gain = 0.1f;
                         if (new_cc_gain > 20.0f) new_cc_gain = 20.0f;
                         float new_cap_gain = new_cc_gain * 298261.6178f;
