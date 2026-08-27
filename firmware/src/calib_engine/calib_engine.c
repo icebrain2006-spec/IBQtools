@@ -258,7 +258,7 @@ static void run_calib_pipeline(void) {
     for (uint8_t ch = 1; ch <= 6; ch++) {
         if ((ch_mask & (1 << (ch - 1))) && !(calib_status.error_channels & (1 << (ch - 1)))) {
             if (sample_cnt[ch] > 0) {
-                if (calib_status.mode == 2) { // CURRENT CALIBRATION
+                if (calib_status.mode == 1) { // CURRENT CALIBRATION (mode 1)
                     double cc_avg = (double)cc_sum[ch] / sample_cnt[ch];
                     int16_t target_ma = -2000;
                     if (cc_avg != 0) {
