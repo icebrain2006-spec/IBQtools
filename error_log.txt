@@ -166,3 +166,24 @@ Traceback (most recent call last):
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 AttributeError: 'PySide6.QtGui.QShortcut' object has no attribute 'setKeySequence'
 [2026-08-05 18:01:03,221] [ERROR] [Calibration] [CH6] Error opening port: Cannot configure port, something went wrong. Original message: OSError(22, '스레드 종료 또는 응용 프로그램 요청 때문에 I/O 작업이 취소되었습니다.', None, 995)
+[2026-08-20 09:17:11,466] [ERROR] [Calibration] [CH1] Error opening port: could not open port 'COM6': PermissionError(13, '액세스가 거부되었습니다.', None, 5)
+[2026-08-20 09:17:14,467] [ERROR] [Calibration] [CH1] Error opening port: could not open port 'COM6': PermissionError(13, '액세스가 거부되었습니다.', None, 5)
+[2026-08-20 09:17:17,634] [ERROR] [Calibration] [CH1] Error opening port: could not open port 'COM6': PermissionError(13, '액세스가 거부되었습니다.', None, 5)
+[2026-08-20 09:17:18,924] [ERROR] [Calibration] [CH1] Error opening port: could not open port 'COM6': PermissionError(13, '액세스가 거부되었습니다.', None, 5)
+[2026-08-20 09:17:19,904] [ERROR] [Calibration] [CH1] Error opening port: could not open port 'COM6': PermissionError(13, '액세스가 거부되었습니다.', None, 5)
+[2026-08-24 14:56:56,395] [ERROR] [Calibration] [CH1] CRASH in CalibrationThread: name 'os' is not defined
+Traceback (most recent call last):
+  File "D:\WinApp\python\IBQtools\gui\calibrators\calib_runner.py", line 1015, in run
+    if not self.detect_firmware_and_config():
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\WinApp\python\IBQtools\gui\calibrators\calib_runner.py", line 313, in detect_firmware_and_config
+    offset, csv_name = detect_dataflash_offset(self.ic_name, version, "DA Configuration")
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\WinApp\python\IBQtools\gui\calibrators\utils.py", line 26, in detect_dataflash_offset
+    df_dir = get_dataflash_dir()
+             ^^^^^^^^^^^^^^^^^^^
+  File "D:\WinApp\python\IBQtools\gui\calibrators\utils.py", line 15, in get_dataflash_dir
+    return os.path.join(os.path.dirname(__file__), "dataflashs")
+           ^^
+NameError: name 'os' is not defined. Did you forget to import 'os'
+

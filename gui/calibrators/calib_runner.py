@@ -976,6 +976,8 @@ class CalibrationThread(QThread):
                     self.emit_result("Capacity Gain", "Capacity Gain (mOhm)", f"{mohm:.3f}", mohm, is_gain=True)
                     
                     full_payload = df_addr_bytes + list(df_bytes)
+                    hex_str = bytes(full_payload).hex(' ')
+                    self._log(f"    [WRITE 0x4000 BLOCK PAYLOAD ({len(full_payload)}b)] {hex_str}")
                     if self.smbus_write_block_raw(0x44, full_payload):
                         self._log("  => OK (Wrote Current Calibration Block)")
                     else:
@@ -1281,6 +1283,7 @@ class CalibrationThread(QThread):
                                         time.sleep(0.05)
                                         df_b = self.smbus_read_block(0x44)
                                         if df_b and len(df_b) >= 16:
+                                            self._log(f"    [CH{ch} 0x4000 RAW READ BACK ({len(df_b)}b)] {bytes(df_b).hex(' ')}")
                                             base = 2 if (len(df_b) >= 18 and df_b[0] == 0x00 and df_b[1] == 0x40) else 0
                                             cc_gain_read = struct.unpack_from('<f', df_b, base + 6)[0]
                                             cap_gain_read = struct.unpack_from('<f', df_b, base + 10)[0]
