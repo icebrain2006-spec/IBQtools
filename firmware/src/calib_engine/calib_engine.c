@@ -116,13 +116,8 @@ bool bq40z50_update_df_block_offset(uint8_t ch, uint16_t subclass_addr, uint8_t 
     uint8_t csum = (uint8_t)(0xFF - (csum_sum & 0xFF));
     uint8_t block_len = 36; // 32 payload + 2 addr + 2 checksum/len
 
-    // 1. Send Write to 0x44 with PEC
-    smbus_write_block(ch, 0x0B, 0x44, wr_payload, 34, true);
-    sleep_ms(20);
-
-    // 2. Send Checksum (0x60) & Length (0x61) to commit DataFlash block write to flash
-    uint8_t csum_payload[2] = { csum, block_len };
-    smbus_write_block(ch, 0x0B, 0x60, csum_payload, 2, true);
+    // 1. Send Write to 0x44 (34 bytes, NO PEC - matching Python S 0x4000 block write)
+    smbus_write_block(ch, 0x0B, 0x44, wr_payload, 34, false);
     sleep_ms(240);
 
     // Read back from BQ40Z50 to verify
