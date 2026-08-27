@@ -287,13 +287,6 @@ class UpdaterWorker(QThread):
         self.ser = None
 
     def _start_updater_multi(self):
-        # Reset any stale background state on RP2040 before starting
-        pkt_stop = make_packet(CMD_FW_UPDATE_STOP, b"")
-        self.ser.reset_input_buffer()
-        self.ser.write(pkt_stop)
-        time.sleep(0.05)
-        self.ser.read(64)
-
         ch_mask = 0
         for ch in self.channels:
             ch_mask |= (1 << (ch - 1))
@@ -568,31 +561,24 @@ class UpdaterWorker(QThread):
                 # self.log_msg.emit(f"Progress: {pct}% [{current_line}/{total_lines}] | ErrMask: {err_mask:#04x}")
                 
                 # Update UI
-                if state == UPDATER_STATE_ERROR:
-                    err_text = "No FW File" if err_code == -10 else f"ERROR ({err_code})"
-                    for ch in self.channels:
-                        self.status_updated.emit(ch, err_text)
+                for ch in self.channels:
+                    # Check if channel had an error
+                    is_err = err_mask & (1 << (ch - 1))
+                    if is_err:
+                        self.status_updated.emit(ch, f"ERROR (Code {err_code})")
                         self.progress_updated.emit(ch, 0)
-                else:
-                    for ch in self.channels:
-                        # Check if channel had an error
-                        is_err = err_mask & (1 << (ch - 1))
-                        if is_err:
-                            self.status_updated.emit(ch, f"ERROR ({err_code})")
-                            self.progress_updated.emit(ch, 0)
+                    else:
+                        if state == UPDATER_STATE_DONE:
+                            self.progress_updated.emit(ch, 100)
+                            self.status_updated.emit(ch, "DONE")
                         else:
-                            if state == UPDATER_STATE_DONE:
-                                self.progress_updated.emit(ch, 100)
-                                self.status_updated.emit(ch, "DONE")
-                            else:
-                                self.progress_updated.emit(ch, pct)
-                                self.status_updated.emit(ch, "Flashing...")
+                            self.progress_updated.emit(ch, pct)
+                            self.status_updated.emit(ch, "Flashing...")
                     
                 time.sleep(0.1)
                 
                 if state == UPDATER_STATE_ERROR:
-                    err_msg = "No FW File uploaded to RP2040 flash (-10)" if err_code == -10 else f"Updater Error Code {err_code}"
-                    self.log_msg.emit(f"[CRITICAL] {err_msg}. Please upload firmware file in 'SLFS Upload' tab first.")
+                    self.log_msg.emit(f"[CRITICAL] Updater Error Code: {err_code}")
                     for ch in self.channels:
                         self.verify_updated.emit(ch, "", -1)
                     self._stop_updater()

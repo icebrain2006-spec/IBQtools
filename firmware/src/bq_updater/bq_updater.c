@@ -16,8 +16,6 @@ volatile update_status_t update_status = {
     .current_delay_ms = 0
 };
 
-static volatile bool updater_start_flag = false;
-
 static uint8_t parse_hex_byte(const char *str) {
     uint8_t val = 0;
     for (int i = 0; i < 2; i++) {
@@ -66,11 +64,9 @@ static uint8_t i2c_payload[255];
 static void core1_entry(void) {
 
     while (true) {
-        if (!updater_start_flag) {
-            sleep_ms(10);
-            continue;
-        }
-        updater_start_flag = false;
+        // Wait for start signal from Core 0 via FIFO
+        uint32_t cmd = multicore_fifo_pop_blocking();
+        if (cmd != 0x57415254) continue;
 
         uint32_t file_size = flash_store_get_size();
         if (file_size == 0) {
@@ -79,15 +75,11 @@ static void core1_entry(void) {
             continue;
         }
 
-        // Phase 1: Fast line count scan (less than 2ms for 512KB)
+        // Phase 1: Calculate total lines in the file
+        uint32_t temp_offset = 0;
         uint32_t lines_count = 0;
-        const uint8_t *flash_ptr = (const uint8_t *)(XIP_BASE + FLASH_SLFS_DATA_OFFSET);
-        for (uint32_t i = 0; i < file_size; i++) {
-            if (flash_ptr[i] == '\n') {
-                lines_count++;
-            }
-        }
-        if (file_size > 0 && flash_ptr[file_size - 1] != '\n') {
+        while (temp_offset < file_size) {
+            temp_offset = get_next_line(temp_offset, line_buf, sizeof(line_buf), file_size);
             lines_count++;
         }
 
@@ -245,21 +237,21 @@ void bq_updater_init(void) {
 }
 
 bool bq_updater_start(uint8_t channel_mask) {
+    if (update_status.state == UPDATER_STATE_RUNNING || update_status.state == UPDATER_STATE_DELAYING) return false;
     if (channel_mask == 0) return false;
 
     update_status.active_channels = channel_mask;
-    update_status.current_line = 0;
-    update_status.total_lines = 0;
     update_status.error_channels = 0;
     update_status.error_code = 0;
     update_status.state = UPDATER_STATE_RUNNING;
 
-    // Trigger Core 1 worker
-    updater_start_flag = true;
+    // Send start command to Core 1
+    multicore_fifo_push_blocking(0x57415254);
     return true;
 }
 
 void bq_updater_stop(void) {
-    updater_start_flag = false;
-    update_status.state = UPDATER_STATE_IDLE;
+    if (update_status.state == UPDATER_STATE_RUNNING || update_status.state == UPDATER_STATE_DELAYING) {
+        update_status.state = UPDATER_STATE_IDLE;
+    }
 }
