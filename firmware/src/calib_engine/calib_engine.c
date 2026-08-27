@@ -114,17 +114,23 @@ static void run_calib_pipeline(void) {
         relay_set_mask(0); // Explicitly ensure relays OFF for Voltage Mode
     }
 
-    // 0. Pre-cache genuine 0x4000 DataFlash block for active channels BEFORE starting calibration
+    // 0. Pre-cache genuine 0x4000 DataFlash block for active channels BEFORE starting calibration (WITH PEC=true)
     for (uint8_t ch = 1; ch <= 6; ch++) {
         if (ch_mask & (1 << (ch - 1))) {
-            uint16_t c1_gain = g_cached_df4000[ch][2] | (g_cached_df4000[ch][3] << 8);
-            // Fetch from chip only if RAM cache is empty or invalid (not valid gain 5000~60000)
-            if (c1_gain < 5000 || c1_gain > 60000) {
-                uint8_t df_cmd[2] = {0x00, 0x40};
-                uint8_t rx_len = 0;
-                smbus_write_block(ch, 0x0B, 0x44, df_cmd, 2, false);
-                sleep_ms(30);
-                smbus_read_block(ch, 0x0B, 0x44, g_cached_df4000[ch], &rx_len, false);
+            uint8_t df_cmd[2] = {0x00, 0x40};
+            uint8_t rx_len = 0;
+            smbus_write_block(ch, 0x0B, 0x44, df_cmd, 2, true); // Write 0x0040 WITH PEC!
+            sleep_ms(40);
+            if (smbus_read_block(ch, 0x0B, 0x44, g_cached_df4000[ch], &rx_len, true) == SMBUS_OK && rx_len >= 16) {
+                // Find address echo 0x00 0x40 to guarantee exact payload offsets
+                for (int i = 0; i < rx_len - 14; i++) {
+                    if (g_cached_df4000[ch][i] == 0x00 && g_cached_df4000[ch][i+1] == 0x40) {
+                        if (i > 0) {
+                            memmove(g_cached_df4000[ch], g_cached_df4000[ch] + i, rx_len - i);
+                        }
+                        break;
+                    }
+                }
             }
         }
     }
