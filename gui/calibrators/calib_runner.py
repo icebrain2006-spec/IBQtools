@@ -414,6 +414,40 @@ class CalibrationThread(QThread):
         self.active_cells = 4
         return True
 
+    def format_df4000_breakdown(self, df_bytes, label="0x4000 DF DUMP"):
+        if not df_bytes or len(df_bytes) < 16:
+            return f"    [{label}] Invalid/Short block (len={len(df_bytes) if df_bytes else 0})"
+        
+        # Address header (0x00 0x40) check
+        if len(df_bytes) >= 18 and df_bytes[0] == 0x00 and df_bytes[1] == 0x40:
+            base = 2
+        else:
+            base = 0
+            
+        c1_g = struct.unpack_from('<H', df_bytes, base)[0]
+        bat_g = struct.unpack_from('<H', df_bytes, base + 2)[0]
+        pack_g = struct.unpack_from('<H', df_bytes, base + 4)[0]
+        cc_g = struct.unpack_from('<f', df_bytes, base + 6)[0]
+        cap_g = struct.unpack_from('<f', df_bytes, base + 10)[0]
+        
+        c1_hex = bytes(df_bytes[base:base+2]).hex(' ')
+        bat_hex = bytes(df_bytes[base+2:base+4]).hex(' ')
+        pack_hex = bytes(df_bytes[base+4:base+6]).hex(' ')
+        cc_hex = bytes(df_bytes[base+6:base+10]).hex(' ')
+        cap_hex = bytes(df_bytes[base+10:base+14]).hex(' ')
+        
+        mohm = (3.714528 / cc_g) if cc_g != 0 else 0.0
+        
+        lines = [
+            f"    [{label}]",
+            f"    ├── Cell1 Gain : {c1_g:<5d} (0x{c1_g:04X})  [Hex: {c1_hex}]",
+            f"    ├── Bat Gain   : {bat_g:<5d} (0x{bat_g:04X})  [Hex: {bat_hex}]",
+            f"    ├── Pack Gain  : {pack_g:<5d} (0x{pack_g:04X})  [Hex: {pack_hex}]",
+            f"    ├── CC Gain    : {cc_g:.6f} ({mohm:.3f} mOhm) [Hex: {cc_hex}]",
+            f"    └── Cap Gain   : {cap_g:.3f}  [Hex: {cap_hex}]"
+        ]
+        return "\n".join(lines)
+
     def execute_script(self, script_path, mode_name):
         if not os.path.exists(script_path):
             self._log(f"Script {script_path} not found. Skipping.")
@@ -451,10 +485,10 @@ class CalibrationThread(QThread):
         self.smbus_write_block_raw(0x44, [0x00, 0x40])
         time.sleep(0.05)
         self.cached_4000 = self.smbus_read_block(0x44)
-        if not self.cached_4000 or len(self.cached_4000) < 34:
+        if not self.cached_4000 or len(self.cached_4000) < 18:
             self._log("Warning: Failed to cache 0x4000 block at start. It may be read as zeros later.")
         else:
-            self._log("0x4000 Calibration Block cached successfully.")
+            self._log(self.format_df4000_breakdown(self.cached_4000, f"ORIGINAL 0x4000 DF BLOCK (BEFORE {mode_name.upper()} CALIBRATION)"))
             
         self.smbus_write_block_raw(0x44, [0x20, 0x40])
         time.sleep(0.05)
@@ -1037,15 +1071,7 @@ class CalibrationThread(QThread):
                 time.sleep(0.05)
                 df_4000 = self.smbus_read_block(0x44)
                 if df_4000:
-                    hex_str = bytes(df_4000).hex(' ')
-                    self._log(f"    [0x4000 DF DUMP] len={len(df_4000)}, hex={hex_str}")
-                    if len(df_4000) >= 14:
-                        c1_g = struct.unpack_from('<H', df_4000, 0)[0]
-                        bat_g = struct.unpack_from('<H', df_4000, 2)[0]
-                        pack_g = struct.unpack_from('<H', df_4000, 4)[0]
-                        cc_g = struct.unpack_from('<f', df_4000, 6)[0]
-                        cap_g = struct.unpack_from('<f', df_4000, 10)[0]
-                        self._log(f"    [0x4000 PARSED] Cell1Gain={c1_g}, BatGain={bat_g}, PackGain={pack_g}, CCGain={cc_g:.6f}, CapGain={cap_g:.6f}")
+                    self._log(self.format_df4000_breakdown(df_4000, f"CH{self.ch} POST-VERIFY 0x4000 DF BLOCK"))
 
                 if not data_ok and not data2:
                     return False
@@ -1086,6 +1112,15 @@ class CalibrationThread(QThread):
             for mode_name in modes_to_run:
                 self._log(f"\n--- Executing Hardware Calibration Mode: {mode_name.upper()} ---")
                 mode_code = 0 if mode_name == "voltage" else (1 if mode_name == "current" else 2)
+
+                # Pre-calibration 0x4000 DF Dump Checkpoint
+                for ch in self.channels:
+                    self.smbus_write_block_raw(0x44, [0x00, 0x40])
+                    time.sleep(0.05)
+                    df_pre = self.smbus_read_block(0x44)
+                    if df_pre:
+                        stage_tag = "1. BEFORE VOLTAGE" if mode_name == "voltage" else "3. BEFORE CURRENT"
+                        self._log(self.format_df4000_breakdown(df_pre, f"CH{ch} {stage_tag} CALIBRATION 0x4000 DF BLOCK"))
 
                 # Set Relay state: OFF for Voltage mode, ON for Current mode
                 relay_mask = ch_mask if mode_name == "current" else 0
@@ -1176,6 +1211,11 @@ class CalibrationThread(QThread):
                                     if ch_status_map[ch] and mode_name != "current":
                                         self.ch = ch
                                         self._log(f"    [CH{ch} RP2040 HW Result] PASS -> Cell1 Gain: {cell1_g}, Pack Gain: {pack_g}, Bat Gain: {bat_g}")
+                                        self.smbus_write_block_raw(0x44, [0x00, 0x40])
+                                        time.sleep(0.05)
+                                        df_b = self.smbus_read_block(0x44)
+                                        if df_b:
+                                            self._log(self.format_df4000_breakdown(df_b, f"CH{ch} 2. AFTER VOLTAGE CALIBRATION 0x4000 DF BLOCK"))
                                         self.emit_result("Cell 1 Gain", "Cell 1 Gain", str(cell1_g), cell1_g, is_gain=True)
                                         self.emit_result("Pack Gain", "Pack Gain", str(pack_g), pack_g, is_gain=True)
                                         self.emit_result("Bat Gain", "Bat Gain", str(bat_g), bat_g, is_gain=True)
@@ -1206,9 +1246,6 @@ class CalibrationThread(QThread):
                                         time.sleep(0.05)
                                         df_b = self.smbus_read_block(0x44)
                                         if df_b and len(df_b) >= 16:
-                                            # Header in df_b is [0x00, 0x40], payload starts at index 2
-                                            # CC Gain is at offset 6 in block -> index 2 + 6 = 8
-                                            # Capacity Gain is at offset 10 in block -> index 2 + 10 = 12
                                             cc_gain_read = struct.unpack_from('<f', df_b, 8)[0]
                                             cap_gain_read = struct.unpack_from('<f', df_b, 12)[0]
                                             mohm_read = 3.714528 / cc_gain_read if cc_gain_read != 0 else 0
@@ -1218,7 +1255,7 @@ class CalibrationThread(QThread):
                                             avg_cc = cc_adc_map.get(ch, 0)
                                             
                                             self._log(f"    [CH{ch} RP2040 HW Result] PASS -> Avg CC ADC: {avg_cc}, CC Gain: {cc_gain_read:.6f}, Shunt Resistor: {mohm_read:.3f} mOhm")
-                                            self._log(f"    [CH{ch} RAW 0x4000 Bytes]: {df_b[2:18].hex(' ')}")
+                                            self._log(self.format_df4000_breakdown(df_b, f"CH{ch} 4. AFTER CURRENT CALIBRATION 0x4000 DF BLOCK"))
                                             
                                             self.emit_result("CC Gain", "CC Gain (mOhm)", f"{mohm_read:.3f}", mohm_read, is_gain=True)
                                             self.emit_result("Capacity Gain", "Capacity Gain (mOhm)", f"{mohm_read:.3f}", mohm_read, is_gain=True)
