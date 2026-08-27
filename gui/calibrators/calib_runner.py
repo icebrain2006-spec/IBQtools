@@ -1353,12 +1353,12 @@ class CalibrationThread(QThread):
                         if not self._running:
                             break
                         self.ch = ch
-                        if consecutive_fails[ch] >= 3:
+                        if consecutive_fails[ch] >= 2:
                             continue # Skip checking this channel if it's already dead
                             
                         if not self.post_verify():
                             consecutive_fails[ch] += 1
-                            if consecutive_fails[ch] >= 3:
+                            if consecutive_fails[ch] >= 2:
                                 self._log(f"Error: Communication lost on CH{ch} during monitoring.")
                         else:
                             consecutive_fails[ch] = 0
@@ -1368,7 +1368,7 @@ class CalibrationThread(QThread):
                         self._log("All channels lost communication. Exiting monitoring mode.")
                         break
                         
-                    time.sleep(0.5)
+                    time.sleep(0.3)
             
                 self._log("--- Calibration Sequence Completed ---")
                 self.finished_signal.emit(success)
