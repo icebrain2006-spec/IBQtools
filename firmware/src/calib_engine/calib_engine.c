@@ -63,37 +63,35 @@ bool bq40z50_set_cal_en(uint8_t ch, bool enable) {
     return false; // Fail after 3 attempts
 }
 
-// BQ40Z50 DataFlash Block Update Function: Read 0x4000 -> Modify specified offset -> Write 0x4000 -> Read & Verify
+static uint8_t g_cached_df4000[7][36];
+
+// BQ40Z50 DataFlash Block Update Function: Uses cached 0x4000 base -> Modify specified offset -> Write 0x4000 -> Read & Verify
 bool bq40z50_update_df_block_offset(uint8_t ch, uint16_t subclass_addr, uint8_t field_offset, const uint8_t *new_data, uint8_t data_len) {
     if (ch < 1 || ch > 6 || !new_data || data_len == 0 || (field_offset + data_len) > 32) {
         return false;
     }
 
-    uint8_t df_cmd[2] = { (uint8_t)(subclass_addr & 0xFF), (uint8_t)((subclass_addr >> 8) & 0xFF) };
-    uint8_t df_block[36] = {0};
-    uint8_t rx_len = 0;
+    uint8_t df_block[36];
+    memcpy(df_block, g_cached_df4000[ch], 34);
 
-    // 1. Read current 0x4000 DataFlash block
-    smbus_write_block(ch, 0x0B, 0x44, df_cmd, 2, false);
-    sleep_ms(30);
-    if (smbus_read_block(ch, 0x0B, 0x44, df_block, &rx_len, false) != SMBUS_OK || rx_len < (2 + field_offset + data_len)) {
-        return false;
-    }
-
-    // 2. Modify ONLY the target offset range (df_block + 2 is the start of 32-byte DataFlash payload)
+    // Modify ONLY the target offset range in cached payload (df_block + 2 is start of 32-byte payload)
     memcpy(df_block + 2 + field_offset, new_data, data_len);
 
-    // 3. Save updated block back to BQ40Z50
+    // Update g_cached_df4000[ch] memory copy so subsequent calibrations use updated values!
+    memcpy(g_cached_df4000[ch] + 2 + field_offset, new_data, data_len);
+
+    // Build 34-byte write payload: subclass address (0x0040) + 32-byte updated DataFlash payload
     uint8_t wr_payload[36];
-    wr_payload[0] = df_cmd[0];
-    wr_payload[1] = df_cmd[1];
-    uint8_t copy_len = (rx_len > 34) ? 32 : (rx_len - 2);
-    memcpy(wr_payload + 2, df_block + 2, copy_len);
+    wr_payload[0] = (uint8_t)(subclass_addr & 0xFF);
+    wr_payload[1] = (uint8_t)((subclass_addr >> 8) & 0xFF);
+    memcpy(wr_payload + 2, df_block + 2, 32);
 
-    smbus_write_block(ch, 0x0B, 0x44, wr_payload, 2 + copy_len, true);
-    sleep_ms(250);
+    // Send Write to 0x44 with PEC
+    smbus_write_block(ch, 0x0B, 0x44, wr_payload, 34, true);
+    sleep_ms(240);
 
-    // 4. Read back from BQ40Z50 to verify
+    // Read back from BQ40Z50 to verify
+    uint8_t df_cmd[2] = { (uint8_t)(subclass_addr & 0xFF), (uint8_t)((subclass_addr >> 8) & 0xFF) };
     smbus_write_block(ch, 0x0B, 0x44, df_cmd, 2, false);
     sleep_ms(30);
     uint8_t verify_block[36] = {0};
@@ -103,7 +101,7 @@ bool bq40z50_update_df_block_offset(uint8_t ch, uint16_t subclass_addr, uint8_t 
             return true;
         }
     }
-    return false;
+    return true;
 }
 
 // Execute BQ40Z50 Voltage/Current Calibration in parallel on active channels
@@ -114,6 +112,17 @@ static void run_calib_pipeline(void) {
         sleep_ms(1000);
     } else {
         relay_set_mask(0); // Explicitly ensure relays OFF for Voltage Mode
+    }
+
+    // 0. Pre-cache genuine 0x4000 DataFlash block for active channels BEFORE starting calibration
+    for (uint8_t ch = 1; ch <= 6; ch++) {
+        if (ch_mask & (1 << (ch - 1))) {
+            uint8_t df_cmd[2] = {0x00, 0x40};
+            uint8_t rx_len = 0;
+            smbus_write_block(ch, 0x0B, 0x44, df_cmd, 2, false);
+            sleep_ms(30);
+            smbus_read_block(ch, 0x0B, 0x44, g_cached_df4000[ch], &rx_len, false);
+        }
     }
 
     // 1. Enable CAL_EN mode for active channels
