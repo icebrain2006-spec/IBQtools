@@ -63,6 +63,49 @@ bool bq40z50_set_cal_en(uint8_t ch, bool enable) {
     return false; // Fail after 3 attempts
 }
 
+// BQ40Z50 DataFlash Block Update Function: Read 0x4000 -> Modify specified offset -> Write 0x4000 -> Read & Verify
+bool bq40z50_update_df_block_offset(uint8_t ch, uint16_t subclass_addr, uint8_t field_offset, const uint8_t *new_data, uint8_t data_len) {
+    if (ch < 1 || ch > 6 || !new_data || data_len == 0 || (field_offset + data_len) > 32) {
+        return false;
+    }
+
+    uint8_t df_cmd[2] = { (uint8_t)(subclass_addr & 0xFF), (uint8_t)((subclass_addr >> 8) & 0xFF) };
+    uint8_t df_block[36] = {0};
+    uint8_t rx_len = 0;
+
+    // 1. Read current 0x4000 DataFlash block
+    smbus_write_block(ch, 0x0B, 0x44, df_cmd, 2, false);
+    sleep_ms(30);
+    if (smbus_read_block(ch, 0x0B, 0x44, df_block, &rx_len, false) != SMBUS_OK || rx_len < (2 + field_offset + data_len)) {
+        return false;
+    }
+
+    // 2. Modify ONLY the target offset range (df_block + 2 is the start of 32-byte DataFlash payload)
+    memcpy(df_block + 2 + field_offset, new_data, data_len);
+
+    // 3. Save updated block back to BQ40Z50
+    uint8_t wr_payload[36];
+    wr_payload[0] = df_cmd[0];
+    wr_payload[1] = df_cmd[1];
+    uint8_t copy_len = (rx_len > 34) ? 32 : (rx_len - 2);
+    memcpy(wr_payload + 2, df_block + 2, copy_len);
+
+    smbus_write_block(ch, 0x0B, 0x44, wr_payload, 2 + copy_len, true);
+    sleep_ms(250);
+
+    // 4. Read back from BQ40Z50 to verify
+    smbus_write_block(ch, 0x0B, 0x44, df_cmd, 2, false);
+    sleep_ms(30);
+    uint8_t verify_block[36] = {0};
+    uint8_t verify_len = 0;
+    if (smbus_read_block(ch, 0x0B, 0x44, verify_block, &verify_len, false) == SMBUS_OK && verify_len >= (2 + field_offset + data_len)) {
+        if (memcmp(verify_block + 2 + field_offset, new_data, data_len) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Execute BQ40Z50 Voltage/Current Calibration in parallel on active channels
 static void run_calib_pipeline(void) {
     uint8_t ch_mask = calib_status.active_channels;
