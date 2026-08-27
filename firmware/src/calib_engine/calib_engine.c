@@ -200,42 +200,9 @@ static void run_calib_pipeline(void) {
         if (ch_mask & (1 << (ch - 1))) {
             smbus_write_word(ch, 0x0B, 0x00, 0xF080, false);
             smbus_write_block(ch, 0x0B, 0x44, raw_stop_cmd, 2, false);
-
-                uint8_t sub_cmd[2] = {0x81, 0xF0};
-                smbus_write_block(ch, 0x0B, 0x44, sub_cmd, 2, false);
-                sleep_ms(20);
-
-                if (smbus_read_block(ch, 0x0B, 0x44, raw_buf, &rx_len, false) == SMBUS_OK && rx_len >= 16) {
-                    uint8_t seq = raw_buf[2];
-                    if (seq != last_seq) {
-                        last_seq = seq;
-                        if (sample_cnt[ch] == 0) {
-                            memcpy(calib_status.results[ch].f081_raw_block, raw_buf, 18);
-                        }
-
-                        adc_f081_offsets_t off = get_adc_offset_0xf081();
-                        if (calib_status.mode == 2) { // CURRENT MODE
-                            if (rx_len >= off.min_len) {
-                                int16_t raw_cc = (int16_t)(raw_buf[off.current_off] | (raw_buf[off.current_off + 1] << 8));
-                                cc_sum[ch] += raw_cc;
-                                sample_cnt[ch]++;
-                            }
-                        } else { // VOLTAGE MODE
-                            if (rx_len >= off.min_len) {
-                                uint16_t raw_c1 = raw_buf[off.cell1_off] | (raw_buf[off.cell1_off + 1] << 8);
-                                uint16_t raw_pack = raw_buf[off.pack_off] | (raw_buf[off.pack_off + 1] << 8);
-                                uint16_t raw_bat = raw_buf[off.bat_off] | (raw_buf[off.bat_off + 1] << 8);
-
-                                cell1_sum[ch] += raw_c1;
-                                pack_sum[ch] += raw_pack;
-                                bat_sum[ch] += raw_bat;
-                                sample_cnt[ch]++;
-                            }
-                        }
-                    }
-                }
-                sleep_ms(20);
-            }
+        }
+    }
+    sleep_ms(160);
 
             // 5. Calculate Gains & Update DataFlash 0x4000
             if (sample_cnt[ch] > 0) {
