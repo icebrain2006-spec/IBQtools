@@ -427,6 +427,9 @@ int smbus_read_block(uint8_t ch, uint8_t addr, uint8_t cmd, uint8_t *data, uint8
 
     if ((err = i2c_tx_byte(sda, scl, addr_r)) != SMBUS_OK) goto error;
 
+    // 1. Read SMBus Block Length byte
+    // [참고] 이 Length 바이트(Byte 0)는 *len 변수로 분리되며, 
+    // 실제 반환되는 data[] 배열에는 포함되지 않고 제외됩니다.
     if ((err = i2c_rx_byte(sda, scl, &rx_len, false)) != SMBUS_OK) goto error; // ACK
     if (rx_len > 36 || rx_len == 0) {
         err = -rx_len; // Return -rx_len to debug what BQ40Z50 is actually sending!

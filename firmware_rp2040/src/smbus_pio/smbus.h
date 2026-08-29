@@ -95,12 +95,17 @@ int smbus_read_word(uint8_t ch, uint8_t addr, uint8_t cmd, uint16_t *val, bool u
 int smbus_write_block(uint8_t ch, uint8_t addr, uint8_t cmd, const uint8_t *data, uint8_t len, bool use_pec);
 
 /**
+ * @file smbus.h - smbus_read_block docstring
  * @brief SMBus 블록 읽기 (Block Read 프로토콜)
- * @param ch 채널 번호 (0 ~ 5)
+ * @note [중요] I2C 통신 신호 상의 첫 바이트인 'Block Length(바이트 수)'는 
+ *       함수 내부에서 자동으로 수신 및 제거(Stripped)되어 *len 변수에 들어가며, 
+ *       data 배열에는 Length 다음 바이트(MAC Echo 등)부터 index 0으로 저장됩니다.
+ *       따라서 Physical Wire-Level Offset을 data 배열 인덱스로 사용할 때는 '- 1'을 차감합니다.
+ * @param ch 채널 번호 (1 ~ 6)
  * @param addr I2C 7비트 슬레이브 주소
  * @param cmd 명령 레지스터 주소
- * @param data 읽어온 바이트 데이터 저장 배열 포인터
- * @param len 수신된 실제 데이터 길이 저장 포인터
+ * @param data 읽어온 순수 페이로드 저장 배열 포인터 (Length 바이트 제거됨)
+ * @param len 수신된 실제 데이터 길이(Length) 저장 포인터
  * @param use_pec PEC(CRC-8) 검증 여부
  * @return 0: 성공, 음수: 에러 코드
  */
