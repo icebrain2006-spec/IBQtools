@@ -22,6 +22,9 @@ add_executable(firmware
     src/protocol/protocol.c
     src/bq_updater/bq_updater.c
     src/calib_engine/calib_engine.c
+    src/calib_engine/bq40z50/bq40z50_calib.c
+    src/calib_engine/bq78350/bq78350_calib.c
+    src/calib_engine/bq40z80/bq40z80_calib.c
     src/led/ws2812_control.c
 )
 
@@ -34,6 +37,9 @@ target_include_directories(firmware PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/protocol
     ${CMAKE_CURRENT_SOURCE_DIR}/src/bq_updater
     ${CMAKE_CURRENT_SOURCE_DIR}/src/calib_engine
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/calib_engine/bq40z50
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/calib_engine/bq78350
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/calib_engine/bq40z80
     ${CMAKE_CURRENT_SOURCE_DIR}/src/led
 )
 

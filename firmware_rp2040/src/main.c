@@ -391,7 +391,7 @@ static void handle_packet(const rx_packet_t *pkt) {
       }
     }
 
-    bool ok = calib_engine_start(ch_mask, mode, t_cell1, t_pack, t_bat);
+    bool ok = calib_engine_start(ch_mask, mode, IC_TYPE_BQ40Z50, t_cell1, t_pack, t_bat);
     resp_payload[0] = ok ? RESP_OK : RESP_ERR_BUSY;
     protocol_send_packet(CMD_CALIB_RUN, resp_payload, 1);
     break;
