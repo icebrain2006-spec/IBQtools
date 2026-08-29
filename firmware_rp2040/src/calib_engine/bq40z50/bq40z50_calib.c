@@ -16,55 +16,47 @@
 static uint8_t g_cached_df4000[7][36];
 
 /**
+ * @brief BQ40Z50 ManufacturingStatus(MAC 0x0057) 읽기 및 CAL_EN 상태 조회 헬퍼 함수
+ * @param ch SMBus 채널 번호 (1 ~ 6)
+ * @return true: CAL_EN 활성화(ON), false: 비활성화(OFF)
+ */
+static bool bq40z50_get_cal_en_status(uint8_t ch) {
+    uint8_t mfg_cmd[2] = {0x57, 0x00};
+    uint8_t rx_buf[32] = {0};
+    uint8_t rx_len = 0;
+
+    smbus_write_block(ch, 0x0B, 0x44, mfg_cmd, 2, false);
+    sleep_ms(25);
+    if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK && rx_len >= 2) {
+        uint8_t msb = (rx_len >= 4) ? rx_buf[3] : rx_buf[1];
+        return (msb & 0x80) != 0; // Bit 7가 CAL_EN 플래그
+    }
+    return false;
+}
+
+/**
  * @brief BQ40Z50 CAL_EN (ManufacturingStatus Calibration Mode) 활성화/비활성화 제어
- * @details 0x0057 ManufacturingStatus 레지스터를 조회하여 0x80(CAL_EN) 비트를 확인하고,
- *          설정하고자 하는 상태와 다를 경우 0x002D 명령을 전송하여 상태를 토글(Toggle)합니다.
+ * @details 현재 CAL_EN 상태를 확인하고, 목표 상태와 다를 경우 MAC 0x002D 토글 명령을 전송한 후 재검증합니다.
  * @param ch SMBus 채널 번호 (1 ~ 6)
  * @param enable true: CAL_EN 활성화, false: 비활성화
  * @return true: 원하는 CAL_EN 상태 진입 성공, false: 설정 실패
  */
 bool bq40z50_set_cal_en(uint8_t ch, bool enable) {
-    uint8_t mfg_cmd[2] = {0x57, 0x00};        // ManufacturingStatus 읽기 명령 (MAC 0x0057)
     uint8_t cal_toggle_cmd[2] = {0x2D, 0x00}; // CAL_EN 토글 명령 (MAC 0x002D)
 
     for (int retry = 0; retry < 3; retry++) {
-        uint8_t rx_buf[32] = {0};
-        uint8_t rx_len = 0;
-        bool is_on = false;
-
-        // 1. ManufacturingStatus 읽기 요청
-        smbus_write_block(ch, 0x0B, 0x44, mfg_cmd, 2, false);
-        sleep_ms(25);
-        if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK && rx_len >= 2) {
-            uint8_t msb = (rx_len >= 4) ? rx_buf[3] : rx_buf[1];
-            if (msb & 0x80) { // MSB의 0x80 비트가 CAL_EN 플래그
-                is_on = true;
-            }
-        }
-
-        // 2. 이미 목표 상태와 일치하면 즉시 리턴
-        if (is_on == enable) {
+        // 1. 사전 상태 확인: 목표 상태와 이미 같으면 즉시 리턴
+        if (bq40z50_get_cal_en_status(ch) == enable) {
             return true;
         }
 
-        // 3. 상태가 다르면 토글 명령 전송 후 대기
+        // 2. 상태가 다르면 토글 명령 전송 후 대기
         smbus_write_block(ch, 0x0B, 0x44, cal_toggle_cmd, 2, false);
         sleep_ms(100);
     }
 
-    // 최종 상태 재검증
-    uint8_t rx_buf[32] = {0};
-    uint8_t rx_len = 0;
-    smbus_write_block(ch, 0x0B, 0x44, mfg_cmd, 2, false);
-    sleep_ms(25);
-    if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK && rx_len >= 2) {
-        uint8_t msb = (rx_len >= 4) ? rx_buf[3] : rx_buf[1];
-        bool is_on = (msb & 0x80) != 0;
-        if (is_on == enable) {
-            return true;
-        }
-    }
-    return false;
+    // 3. 최종 상태 재검증
+    return (bq40z50_get_cal_en_status(ch) == enable);
 }
 
 /**
