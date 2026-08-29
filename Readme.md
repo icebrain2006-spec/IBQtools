@@ -12,6 +12,7 @@
 ├── reference/           # 하드웨어 회로도 및 칩 데이터시트
 ├── firmware_rp2040/     # RP2040-Zero C/C++ SDK 기반 펌웨어 소스코드
 ├── gui/                 # PC용 Python GUI 프로그램 소스코드
+├── test_code/           # 독립 통신 테스트 및 디버깅용 파이썬 스크립트
 ├── AGENTS.md            # 개발 가이드 및 AI 에이전트 규칙
 └── Readme.md            # 프로젝트 개요 문서
 ```
