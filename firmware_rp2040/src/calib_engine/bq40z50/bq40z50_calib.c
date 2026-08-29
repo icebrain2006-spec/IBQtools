@@ -4,7 +4,7 @@
  */
 
 #include "bq40z50_calib.h"
-#include "adc_offset_0xf081.h"
+#include "bq40z50_offsets.h"
 #include "calib_engine.h"
 #include "smbus.h"
 #include "relay/relay.h"
