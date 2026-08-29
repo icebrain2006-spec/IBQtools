@@ -1,43 +1,44 @@
+; RP2040 PIO 기반 6채널 SMBus/I2C 하드웨어 가속 어셈블리 프로그램
 .program smbus
 .side_set 1 opt pindirs
 
-; SCL is side-set pin 0. SDA is OUT pin 0 and IN pin 0.
-; SDA/SCL are active low (pindirs = 1 drives SCL/SDA low, pindirs = 0 releases them for pull-up)
+; SCL: Side-set 핀 0 / SDA: OUT 핀 0 & IN 핀 0
+; SDA/SCL은 Active-Low 드라이브 (pindirs = 1이면 로우 드라이브, 0이면 풀업 플로팅)
 
 public entry_point:
-    set pindirs, 0 side 0        ; Release SCL and SDA (both high impedance)
+    set pindirs, 0 side 0        ; SCL 및 SDA 플로팅 해제 (둘 다 하이 임피던스)
 
-public start:
-    set pindirs, 1 side 0 [1]    ; SDA low, SCL high
-    set pindirs, 1 side 1 [1]    ; SDA low, SCL low
+public start:                    ; I2C START 조건 생성 (SCL 하이일 때 SDA 하강 엣지)
+    set pindirs, 1 side 0 [1]    ; SDA 로우, SCL 하이
+    set pindirs, 1 side 1 [1]    ; SDA 로우, SCL 로우
 
-public stop:
-    set pindirs, 1 side 1 [1]    ; SDA low, SCL low
-    set pindirs, 1 side 0 [1]    ; SDA low, SCL high
-    set pindirs, 0 side 0 [1]    ; SDA high, SCL high
+public stop:                     ; I2C STOP 조건 생성 (SCL 하이일 때 SDA 상승 엣지)
+    set pindirs, 1 side 1 [1]    ; SDA 로우, SCL 로우
+    set pindirs, 1 side 0 [1]    ; SDA 로우, SCL 하이
+    set pindirs, 0 side 0 [1]    ; SDA 하이, SCL 하이
 
-public rx_ack:
-    set pindirs, 0 side 1 [1]    ; Float SDA, SCL low
-    nop            side 0 [1]    ; SCL high
-    in pins, 1     side 0        ; Sample SDA
-    jmp entry_point side 1       ; SCL low, finish
+public rx_ack:                   ; 슬레이브의 ACK/NACK 응답 샘플링 (1비트)
+    set pindirs, 0 side 1 [1]    ; SDA 플로팅, SCL 로우
+    nop            side 0 [1]    ; SCL 하이
+    in pins, 1     side 0        ; SCL 하이 구간에서 SDA 샘플링
+    jmp entry_point side 1       ; SCL 로우 마감
 
-public tx_byte:
-    set y, 7       side 1        ; Loop counter, SCL low
+public tx_byte:                  ; 1바이트 (8비트) 전송 루프
+    set y, 7       side 1        ; 루프 카운터 (8비트), SCL 로우
 write_loop:
-    out pindirs, 1 side 1        ; Set SDA from OSR, SCL low
-    nop            side 0 [1]    ; SCL high
-    jmp y--, write_loop side 1   ; SCL low, repeat
+    out pindirs, 1 side 1        ; OSR에서 1비트를 OUT하여 SDA 핀 설정, SCL 로우
+    nop            side 0 [1]    ; SCL 하이
+    jmp y--, write_loop side 1   ; SCL 로우, 8비트 반복
 
-public rx_byte:
-    set pindirs, 0 side 1        ; Float SDA, SCL low
-    set y, 7       side 1        ; Loop counter, SCL low
+public rx_byte:                  ; 1바이트 (8비트) 수신 루프
+    set pindirs, 0 side 1        ; SDA 플로팅, SCL 로우
+    set y, 7       side 1        ; 루프 카운터 (8비트), SCL 로우
 read_loop:
-    nop            side 0 [1]    ; SCL high
-    in pins, 1     side 0        ; Sample SDA to ISR, SCL high
-    jmp y--, read_loop side 1 [1] ; SCL low, repeat
+    nop            side 0 [1]    ; SCL 하이
+    in pins, 1     side 0        ; SCL 하이 구간에서 SDA 1비트 ISR 샘플링
+    jmp y--, read_loop side 1 [1] ; SCL 로우, 8비트 반복
 
-public tx_ack:
-    out pindirs, 1 side 1        ; Set SDA (ACK/NACK) from OSR, SCL low
-    nop            side 0 [1]    ; SCL high
-    jmp entry_point side 1       ; SCL low, finish
+public tx_ack:                   ; 수신 후 마스터 ACK/NACK 1비트 전송
+    out pindirs, 1 side 1        ; OSR의 비트로 SDA (ACK=0 / NACK=1) 설정, SCL 로우
+    nop            side 0 [1]    ; SCL 하이
+    jmp entry_point side 1       ; SCL 로우 마감

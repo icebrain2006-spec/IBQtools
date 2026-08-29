@@ -1,18 +1,19 @@
+# RP2040-Zero IBQtools C/C++ SDK 기반 펌웨어 CMake 빌드 파일
 cmake_minimum_required(VERSION 3.13)
 
-# Pico SDK Import
+# Raspberry Pi Pico SDK 임포트
 include(pico_sdk_import.cmake)
 
 project(IBQtools_Firmware C CXX ASM)
 
-# Bypass host tools compilation by pre-defining their build targets before SDK init
+# 호스트 도구(Pioasm, ELF2UF2) 빌드를 건너뛰어 크로스 컴파일 호환성 확보
 add_custom_target(PioasmBuild)
 add_custom_target(ELF2UF2Build)
 
-# Initialize Pico SDK
+# Pico SDK 초기화
 pico_sdk_init()
 
-# Define executable and source files
+# 펌웨어 실행 타겟 및 소스코드 파일 정의
 add_executable(firmware
     src/main.c
     src/smbus_pio/smbus.c
@@ -24,10 +25,7 @@ add_executable(firmware
     src/led/ws2812_control.c
 )
 
-# Pull in PIO header generation (Bypassed: using precompiled smbus.pio.h)
-# pico_generate_pio_header(firmware ${CMAKE_CURRENT_SOURCE_DIR}/src/smbus_pio/smbus.pio)
-
-# Include directories
+# 헤더 파일 인클루드 경로 지정
 target_include_directories(firmware PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/smbus_pio
@@ -39,7 +37,7 @@ target_include_directories(firmware PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/led
 )
 
-# Link hardware libraries
+# 하드웨어 드라이버 라이브러리 링크 (PIO, Flash, Sync, Multicore)
 target_link_libraries(firmware PRIVATE
     pico_stdlib
     hardware_pio
@@ -48,9 +46,6 @@ target_link_libraries(firmware PRIVATE
     pico_multicore
 )
 
-# Enable USB CDC Serial (tud_cdc), disable hardware UART
+# USB CDC 시리얼 포트 사용 설정 (UART 하드웨어 핀 미사용)
 pico_enable_stdio_usb(firmware 1)
 pico_enable_stdio_uart(firmware 0)
-
-# Add post-install steps (e.g. generate uf2) (Bypassed: will convert elf manually)
-# pico_add_extra_outputs(firmware)
