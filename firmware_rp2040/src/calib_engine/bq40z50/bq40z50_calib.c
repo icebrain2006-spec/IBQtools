@@ -140,25 +140,6 @@ static bool bq40z50_update_df_block_offset(uint8_t ch, uint16_t subclass_addr, u
 }
 
 /**
- * @brief BQ40Z50 전용 캘리브레이션 전체 파이프라인 실행 함수 (Core1 비동기 실행)
- * @details 전압(Voltage) 및 전류(Current) 캘리브레이션 모드별로 릴레이를 제어하고,
- *          Raw ADC sampling(6회 평균), Gain 계산, DataFlash 0x4000 갱신, Reset 재부팅을 순차적으로 수행합니다.
- * @param ch_mask 비트마스크 형태의 대상 채널 (Bit 0: CH1 ~ Bit 5: CH6)
- * @param mode 0: 전압 캘리브레이션 Mode, 1: 전류 캘리브레이션 Mode (-2000mA 로드 릴레이 온)
- * @param target_cell1_mv CH별 기준 Cell1 전압 목표값 (mV)
- * @param target_pack_mv CH별 기준 Pack 전압 목표값 (mV)
- * @param target_bat_mv CH별 기준 Bat 전압 목표값 (mV)
- */
-void bq40z50_run_calib_pipeline(uint8_t ch_mask, uint8_t mode, const uint16_t target_cell1_mv[7], const uint16_t target_pack_mv[7], const uint16_t target_bat_mv[7]) {
-    // 1. 전류 모드일 경우 하드웨어 부하 릴레이(Relay) ON
-    if (mode == 1) {
-        relay_set_mask(ch_mask);
-        sleep_ms(1000); // 릴레이 접점 접촉 및 전류 안정을 위한 1초 대기
-    } else {
-        relay_set_mask(0);
-    }
-
-/**
  * @brief DataFlash 0x4000 블록 데이터 사전 백업 및 버퍼 정렬 (Step 2)
  * @param ch_mask 채널 비트마스크
  */
@@ -372,7 +353,7 @@ static void bq40z50_finalize_pipeline(uint8_t ch_mask) {
 }
 
 /**
- * @brief BQ40Z50 전용 캘리브레이션 전체 파이프라인 메인 실행 함수 (Core1 비동기)
+ * @brief BQ40Z50 전용 캘리브레이션 전체 파이프라인 메인 실행 함수 (Core1 비동기 실행)
  */
 void bq40z50_run_calib_pipeline(uint8_t ch_mask, uint8_t mode, const uint16_t target_cell1_mv[7], const uint16_t target_pack_mv[7], const uint16_t target_bat_mv[7]) {
     // 1. 전류 모드일 경우 하드웨어 부하 릴레이(Relay) ON
@@ -406,4 +387,3 @@ void bq40z50_run_calib_pipeline(uint8_t ch_mask, uint8_t mode, const uint16_t ta
     // 8 ~ 9. 파이프라인 마감, IC Reset 및 릴레이 OFF
     bq40z50_finalize_pipeline(ch_mask);
 }
-
