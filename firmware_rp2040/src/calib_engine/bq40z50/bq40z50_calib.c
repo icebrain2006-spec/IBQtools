@@ -268,72 +268,90 @@ static void bq40z50_collect_raw_adc_samples(uint8_t ch_mask, bq40z50_adc_sums_t 
 /**
  * @brief 모드별 Gain 연산 및 DataFlash 0x4000 기록 (Step 7)
  */
+/**
+ * @brief 채널별 전류 캘리브레이션 연산 및 DataFlash 0x4000 갱신
+ */
+static void bq40z50_apply_current_calib(uint8_t ch, const bq40z50_adc_sums_t *sums) {
+    double cc_avg = (double)sums->cc_sum[ch] / sums->sample_cnt[ch];
+    float target_ma = -2000.0f; // -2000mA 로드 기준
+    if (cc_avg != 0) {
+        float new_cc_gain = fabsf(target_ma / (float)cc_avg);
+        if (new_cc_gain < 0.1f) new_cc_gain = 0.1f;
+        if (new_cc_gain > 20.0f) new_cc_gain = 20.0f;
+        float new_cap_gain = new_cc_gain * 298261.6178f; // Capacity Gain 비례 계수 곱
+
+        uint8_t cur_bytes[8];
+        memcpy(cur_bytes, &new_cc_gain, 4);
+        memcpy(cur_bytes + 4, &new_cap_gain, 4);
+
+        // CC Gain 및 Capacity Gain 쓰기 (오프셋 6)
+        if (bq40z50_update_df_block_offset(ch, 0x4000, 6, cur_bytes, 8)) {
+            calib_status.results[ch].cell1_gain = (uint16_t)(int16_t)cc_avg;
+            calib_status.results[ch].pack_gain = (uint16_t)(new_cc_gain * 1000.0f);
+            calib_status.results[ch].success = true;
+        } else {
+            calib_status.error_channels |= (1 << (ch - 1));
+            calib_status.results[ch].cell1_gain = 0xE106; // DF 쓰기 검증 실패
+        }
+    } else {
+        calib_status.error_channels |= (1 << (ch - 1));
+        calib_status.results[ch].cell1_gain = 0xE105; // CC ADC 0 분모 에러
+    }
+}
+
+/**
+ * @brief 채널별 전압 캘리브레이션 연산 및 DataFlash 0x4000 갱신
+ */
+static void bq40z50_apply_voltage_calib(uint8_t ch, const bq40z50_adc_sums_t *sums, const uint16_t target_cell1_mv[7], const uint16_t target_pack_mv[7], const uint16_t target_bat_mv[7]) {
+    double cell1_avg = (double)sums->cell1_sum[ch] / sums->sample_cnt[ch];
+    double pack_avg = (double)sums->pack_sum[ch] / sums->sample_cnt[ch];
+    double bat_avg = (double)sums->bat_sum[ch] / sums->sample_cnt[ch];
+
+    // BQ40Z50 전압 Gain 연산 공식: (Target_mV / Raw_ADC_Avg) * 65536 + 0.5
+    uint16_t g_cell1 = (cell1_avg > 0) ? (uint16_t)((((double)target_cell1_mv[ch] / cell1_avg) * 65536.0) + 0.5) : 32768;
+    uint16_t g_pack = (pack_avg > 0) ? (uint16_t)((((double)target_pack_mv[ch] / pack_avg) * 65536.0) + 0.5) : 12800;
+    uint16_t g_bat = (bat_avg > 0) ? (uint16_t)((((double)target_bat_mv[ch] / bat_avg) * 65536.0) + 0.5) : 12800;
+
+    calib_status.results[ch].cell1_gain = g_cell1;
+    calib_status.results[ch].pack_gain = g_pack;
+    calib_status.results[ch].bat_gain = g_bat;
+    calib_status.results[ch].raw_cell1_adc = (uint16_t)cell1_avg;
+    calib_status.results[ch].raw_pack_adc = (uint16_t)pack_avg;
+    calib_status.results[ch].raw_bat_adc = (uint16_t)bat_avg;
+
+    uint8_t volt_bytes[6];
+    volt_bytes[0] = g_cell1 & 0xFF;
+    volt_bytes[1] = (g_cell1 >> 8) & 0xFF;
+    volt_bytes[2] = g_bat & 0xFF;
+    volt_bytes[3] = (g_bat >> 8) & 0xFF;
+    volt_bytes[4] = g_pack & 0xFF;
+    volt_bytes[5] = (g_pack >> 8) & 0xFF;
+
+    // Cell1, Bat, Pack Gain 쓰기 (오프셋 0)
+    if (bq40z50_update_df_block_offset(ch, 0x4000, 0, volt_bytes, 6)) {
+        calib_status.results[ch].success = true;
+    } else {
+        calib_status.error_channels |= (1 << (ch - 1));
+        calib_status.results[ch].cell1_gain = 0xE106; // DF 쓰기 검증 실패
+    }
+}
+
+/**
+ * @brief 모드별 Gain 연산 및 DataFlash 0x4000 기록 (Step 7)
+ */
 static void bq40z50_calculate_and_apply_gains(uint8_t ch_mask, uint8_t mode, const bq40z50_adc_sums_t *sums, const uint16_t target_cell1_mv[7], const uint16_t target_pack_mv[7], const uint16_t target_bat_mv[7]) {
     for (uint8_t ch = 1; ch <= 6; ch++) {
         if ((ch_mask & (1 << (ch - 1))) && !(calib_status.error_channels & (1 << (ch - 1)))) {
-            if (sums->sample_cnt[ch] > 0) {
-                if (mode == 1) { // [전류 캘리브레이션 연산]
-                    double cc_avg = (double)sums->cc_sum[ch] / sums->sample_cnt[ch];
-                    float target_ma = -2000.0f; // -2000mA 로드 기준
-                    if (cc_avg != 0) {
-                        float new_cc_gain = fabsf(target_ma / (float)cc_avg);
-                        if (new_cc_gain < 0.1f) new_cc_gain = 0.1f;
-                        if (new_cc_gain > 20.0f) new_cc_gain = 20.0f;
-                        float new_cap_gain = new_cc_gain * 298261.6178f; // Capacity Gain 비례 계수 곱
-
-                        uint8_t cur_bytes[8];
-                        memcpy(cur_bytes, &new_cc_gain, 4);
-                        memcpy(cur_bytes + 4, &new_cap_gain, 4);
-
-                        // CC Gain 및 Capacity Gain 쓰기 (오프셋 6)
-                        if (bq40z50_update_df_block_offset(ch, 0x4000, 6, cur_bytes, 8)) {
-                            calib_status.results[ch].cell1_gain = (uint16_t)(int16_t)cc_avg;
-                            calib_status.results[ch].pack_gain = (uint16_t)(new_cc_gain * 1000.0f);
-                            calib_status.results[ch].success = true;
-                        } else {
-                            calib_status.error_channels |= (1 << (ch - 1));
-                            calib_status.results[ch].cell1_gain = 0xE106; // DF 쓰기 검증 실패
-                        }
-                    } else {
-                        calib_status.error_channels |= (1 << (ch - 1));
-                        calib_status.results[ch].cell1_gain = 0xE105; // CC ADC 0 분모 에러
-                    }
-                } else { // [전압 캘리브레이션 연산]
-                    double cell1_avg = (double)sums->cell1_sum[ch] / sums->sample_cnt[ch];
-                    double pack_avg = (double)sums->pack_sum[ch] / sums->sample_cnt[ch];
-                    double bat_avg = (double)sums->bat_sum[ch] / sums->sample_cnt[ch];
-
-                    // BQ40Z50 전압 Gain 연산 공식: (Target_mV / Raw_ADC_Avg) * 65536 + 0.5
-                    uint16_t g_cell1 = (cell1_avg > 0) ? (uint16_t)((((double)target_cell1_mv[ch] / cell1_avg) * 65536.0) + 0.5) : 32768;
-                    uint16_t g_pack = (pack_avg > 0) ? (uint16_t)((((double)target_pack_mv[ch] / pack_avg) * 65536.0) + 0.5) : 12800;
-                    uint16_t g_bat = (bat_avg > 0) ? (uint16_t)((((double)target_bat_mv[ch] / bat_avg) * 65536.0) + 0.5) : 12800;
-
-                    calib_status.results[ch].cell1_gain = g_cell1;
-                    calib_status.results[ch].pack_gain = g_pack;
-                    calib_status.results[ch].bat_gain = g_bat;
-                    calib_status.results[ch].raw_cell1_adc = (uint16_t)cell1_avg;
-                    calib_status.results[ch].raw_pack_adc = (uint16_t)pack_avg;
-                    calib_status.results[ch].raw_bat_adc = (uint16_t)bat_avg;
-
-                    uint8_t volt_bytes[6];
-                    volt_bytes[0] = g_cell1 & 0xFF;
-                    volt_bytes[1] = (g_cell1 >> 8) & 0xFF;
-                    volt_bytes[2] = g_bat & 0xFF;
-                    volt_bytes[3] = (g_bat >> 8) & 0xFF;
-                    volt_bytes[4] = g_pack & 0xFF;
-                    volt_bytes[5] = (g_pack >> 8) & 0xFF;
-
-                    // Cell1, Bat, Pack Gain 쓰기 (오프셋 0)
-                    if (bq40z50_update_df_block_offset(ch, 0x4000, 0, volt_bytes, 6)) {
-                        calib_status.results[ch].success = true;
-                    } else {
-                        calib_status.error_channels |= (1 << (ch - 1));
-                        calib_status.results[ch].cell1_gain = 0xE106; // DF 쓰기 검증 실패
-                    }
-                }
-            } else {
+            if (sums->sample_cnt[ch] == 0) {
                 calib_status.error_channels |= (1 << (ch - 1));
                 calib_status.results[ch].cell1_gain = 0xE104;
+                continue;
+            }
+
+            if (mode == 1) { // 전류 모드 연산
+                bq40z50_apply_current_calib(ch, sums);
+            } else { // 전압 모드 연산
+                bq40z50_apply_voltage_calib(ch, sums, target_cell1_mv, target_pack_mv, target_bat_mv);
             }
         }
     }
