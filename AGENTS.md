@@ -21,3 +21,8 @@
 - **Endianness**: Gain values for BQ40Z50 are typically Little-Endian uint16 (unless float32 in specific CC gain sections).
 - **Header Matching**: Always use `_find_header()` to locate command echoes in SMBus responses to avoid byte-shift errors.
 - **Timing**: Respect `_DELAY` constants from `calibrators/bq40z50.py`.
+
+## Restricted Actions (v2.0 Development)
+- **No Git Deploy**: 2.0 버전은 대규모 수정이 진행되므로, 다시 요청하기 전까지 `deploy_github.py`를 통한 git 배포/푸시 작업을 절대 진행하지 않는다.
+- **No Windows Build**: 다시 요청하기 전까지 `build_windows.py`를 통한 빌드/패키징 작업을 실행하지 않는다.
+
