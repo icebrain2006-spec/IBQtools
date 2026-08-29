@@ -158,7 +158,11 @@ void bq40z50_run_calib_pipeline(uint8_t ch_mask, uint8_t mode, const uint16_t ta
         relay_set_mask(0);
     }
 
-    // 2. DataFlash 0x4000 블록 데이터 사전 읽기 (Pre-caching)
+/**
+ * @brief DataFlash 0x4000 블록 데이터 사전 백업 및 버퍼 정렬 (Step 2)
+ * @param ch_mask 채널 비트마스크
+ */
+static void bq40z50_precache_df4000(uint8_t ch_mask) {
     for (uint8_t ch = 1; ch <= 6; ch++) {
         if (ch_mask & (1 << (ch - 1))) {
             uint8_t df_cmd[2] = {0x00, 0x40};
@@ -177,18 +181,26 @@ void bq40z50_run_calib_pipeline(uint8_t ch_mask, uint8_t mode, const uint16_t ta
             }
         }
     }
+}
 
-    // 3. ManufacturingStatus CAL_EN 진입
-    for (uint8_t ch = 1; ch <= 6; ch++) {
-        if (ch_mask & (1 << (ch - 1))) {
-            if (!bq40z50_set_cal_en(ch, true)) {
-                calib_status.error_channels |= (1 << (ch - 1));
-                calib_status.results[ch].cell1_gain = 0xE102; // CAL_EN 진입 실패 에러코드
-            }
-        }
-    }
+/** @brief Raw ADC 6회 샘플링 누적 구조체 */
+typedef struct {
+    uint32_t cell1_sum[7];
+    uint32_t pack_sum[7];
+    uint32_t bat_sum[7];
+    int32_t  cc_sum[7];
+    uint8_t  sample_cnt[7];
+} bq40z50_adc_sums_t;
 
-    // 4. Raw ADC 모드 진입 (MAC 0xF081)
+/**
+ * @brief Raw ADC 모드 진입 및 6회 샘플링 데이터 수집 (Step 4 ~ 6)
+ * @param ch_mask 채널 비트마스크
+ * @param sums 샘플링 누적 결과 저장 구조체 포인터
+ */
+static void bq40z50_collect_raw_adc_samples(uint8_t ch_mask, bq40z50_adc_sums_t *sums) {
+    memset(sums, 0, sizeof(bq40z50_adc_sums_t));
+
+    // 1. Raw ADC 모드 진입 (MAC 0xF081)
     uint8_t raw_start_cmd[2] = {0x81, 0xF0};
     for (uint8_t ch = 1; ch <= 6; ch++) {
         if ((ch_mask & (1 << (ch - 1))) && !(calib_status.error_channels & (1 << (ch - 1)))) {
@@ -203,13 +215,7 @@ void bq40z50_run_calib_pipeline(uint8_t ch_mask, uint8_t mode, const uint16_t ta
     }
     sleep_ms(20);
 
-    // 5. 6회 Raw ADC 샘플링 및 누적 합산 (약 1.2초 소요)
-    uint32_t cell1_sum[7] = {0};
-    uint32_t pack_sum[7] = {0};
-    uint32_t bat_sum[7] = {0};
-    int32_t  cc_sum[7] = {0};
-    uint8_t sample_cnt[7] = {0};
-
+    // 2. 6회 샘플링 수집
     for (int sample = 0; sample < 6; sample++) {
         uint32_t start_ms = to_ms_since_boot(get_absolute_time());
         for (uint8_t ch = 1; ch <= 6; ch++) {
@@ -227,15 +233,15 @@ void bq40z50_run_calib_pipeline(uint8_t ch_mask, uint8_t mode, const uint16_t ta
                     uint16_t bat   = rx_buf[bat_off] | (rx_buf[bat_off + 1] << 8);
                     int16_t cc = (int16_t)(rx_buf[cc_off] | (rx_buf[cc_off + 1] << 8));
                     
-                    if (sample_cnt[ch] == 0) {
+                    if (sums->sample_cnt[ch] == 0) {
                         uint8_t c_len = (rx_len > 18) ? 18 : rx_len;
                         memcpy((void*)calib_status.results[ch].raw_bytes, rx_buf, c_len);
                     }
-                    cell1_sum[ch] += cell1;
-                    pack_sum[ch] += pack;
-                    bat_sum[ch] += bat;
-                    cc_sum[ch] += cc;
-                    sample_cnt[ch]++;
+                    sums->cell1_sum[ch] += cell1;
+                    sums->pack_sum[ch] += pack;
+                    sums->bat_sum[ch] += bat;
+                    sums->cc_sum[ch] += cc;
+                    sums->sample_cnt[ch]++;
                 }
             }
         }
@@ -245,17 +251,17 @@ void bq40z50_run_calib_pipeline(uint8_t ch_mask, uint8_t mode, const uint16_t ta
         }
     }
 
-    // 샘플링 개수 검증
+    // 3. 샘플링 개수 검증
     for (uint8_t ch = 1; ch <= 6; ch++) {
         if ((ch_mask & (1 << (ch - 1))) && !(calib_status.error_channels & (1 << (ch - 1)))) {
-            if (sample_cnt[ch] == 0) {
+            if (sums->sample_cnt[ch] == 0) {
                 calib_status.error_channels |= (1 << (ch - 1));
                 calib_status.results[ch].cell1_gain = 0xE104; // Raw ADC 수신 실패 에러코드
             }
         }
     }
 
-    // 6. Raw ADC 모드 정지 (MAC 0xF080)
+    // 4. Raw ADC 모드 정지 (MAC 0xF080)
     uint8_t raw_stop_cmd[2] = {0x80, 0xF0};
     for (uint8_t ch = 1; ch <= 6; ch++) {
         if (ch_mask & (1 << (ch - 1))) {
@@ -265,13 +271,17 @@ void bq40z50_run_calib_pipeline(uint8_t ch_mask, uint8_t mode, const uint16_t ta
         }
     }
     sleep_ms(200);
+}
 
-    // 7. 모드별 Gain 연산 및 DataFlash 0x4000 기록
+/**
+ * @brief 모드별 Gain 연산 및 DataFlash 0x4000 기록 (Step 7)
+ */
+static void bq40z50_calculate_and_apply_gains(uint8_t ch_mask, uint8_t mode, const bq40z50_adc_sums_t *sums, const uint16_t target_cell1_mv[7], const uint16_t target_pack_mv[7], const uint16_t target_bat_mv[7]) {
     for (uint8_t ch = 1; ch <= 6; ch++) {
         if ((ch_mask & (1 << (ch - 1))) && !(calib_status.error_channels & (1 << (ch - 1)))) {
-            if (sample_cnt[ch] > 0) {
+            if (sums->sample_cnt[ch] > 0) {
                 if (mode == 1) { // [전류 캘리브레이션 연산]
-                    double cc_avg = (double)cc_sum[ch] / sample_cnt[ch];
+                    double cc_avg = (double)sums->cc_sum[ch] / sums->sample_cnt[ch];
                     float target_ma = -2000.0f; // -2000mA 로드 기준
                     if (cc_avg != 0) {
                         float new_cc_gain = fabsf(target_ma / (float)cc_avg);
@@ -297,9 +307,9 @@ void bq40z50_run_calib_pipeline(uint8_t ch_mask, uint8_t mode, const uint16_t ta
                         calib_status.results[ch].cell1_gain = 0xE105; // CC ADC 0 분모 에러
                     }
                 } else { // [전압 캘리브레이션 연산]
-                    double cell1_avg = (double)cell1_sum[ch] / sample_cnt[ch];
-                    double pack_avg = (double)pack_sum[ch] / sample_cnt[ch];
-                    double bat_avg = (double)bat_sum[ch] / sample_cnt[ch];
+                    double cell1_avg = (double)sums->cell1_sum[ch] / sums->sample_cnt[ch];
+                    double pack_avg = (double)sums->pack_sum[ch] / sums->sample_cnt[ch];
+                    double bat_avg = (double)sums->bat_sum[ch] / sums->sample_cnt[ch];
 
                     // BQ40Z50 전압 Gain 연산 공식: (Target_mV / Raw_ADC_Avg) * 65536 + 0.5
                     uint16_t g_cell1 = (cell1_avg > 0) ? (uint16_t)((((double)target_cell1_mv[ch] / cell1_avg) * 65536.0) + 0.5) : 32768;
@@ -336,8 +346,12 @@ void bq40z50_run_calib_pipeline(uint8_t ch_mask, uint8_t mode, const uint16_t ta
         }
     }
     sleep_ms(250);
+}
 
-    // 8. 파이프라인 마감 및 BQ40Z50 Reset 재부팅 (MAC 0x0012)
+/**
+ * @brief 파이프라인 마감, IC Reset 및 릴레이 안전 복구 (Step 8 ~ 9)
+ */
+static void bq40z50_finalize_pipeline(uint8_t ch_mask) {
     uint8_t pipeline_stop_cmd[2] = {0x80, 0xF0};
     uint8_t reset_cmd[2] = {0x12, 0x00};
 
@@ -353,6 +367,43 @@ void bq40z50_run_calib_pipeline(uint8_t ch_mask, uint8_t mode, const uint16_t ta
     }
     sleep_ms(250);
 
-    // 9. 하드웨어 릴레이 OFF 안전 복구
+    // 하드웨어 릴레이 OFF 안전 복구
     relay_set_mask(0);
 }
+
+/**
+ * @brief BQ40Z50 전용 캘리브레이션 전체 파이프라인 메인 실행 함수 (Core1 비동기)
+ */
+void bq40z50_run_calib_pipeline(uint8_t ch_mask, uint8_t mode, const uint16_t target_cell1_mv[7], const uint16_t target_pack_mv[7], const uint16_t target_bat_mv[7]) {
+    // 1. 전류 모드일 경우 하드웨어 부하 릴레이(Relay) ON
+    if (mode == 1) {
+        relay_set_mask(ch_mask);
+        sleep_ms(1000); // 릴레이 접점 접촉 및 전류 안정을 위한 1초 대기
+    } else {
+        relay_set_mask(0);
+    }
+
+    // 2. DataFlash 0x4000 블록 데이터 사전 읽기 (Pre-caching)
+    bq40z50_precache_df4000(ch_mask);
+
+    // 3. ManufacturingStatus CAL_EN 진입
+    for (uint8_t ch = 1; ch <= 6; ch++) {
+        if (ch_mask & (1 << (ch - 1))) {
+            if (!bq40z50_set_cal_en(ch, true)) {
+                calib_status.error_channels |= (1 << (ch - 1));
+                calib_status.results[ch].cell1_gain = 0xE102; // CAL_EN 진입 실패 에러코드
+            }
+        }
+    }
+
+    // 4 ~ 6. Raw ADC 6회 샘플링 수집
+    bq40z50_adc_sums_t sums;
+    bq40z50_collect_raw_adc_samples(ch_mask, &sums);
+
+    // 7. 모드별 Gain 연산 및 DataFlash 0x4000 기록
+    bq40z50_calculate_and_apply_gains(ch_mask, mode, &sums, target_cell1_mv, target_pack_mv, target_bat_mv);
+
+    // 8 ~ 9. 파이프라인 마감, IC Reset 및 릴레이 OFF
+    bq40z50_finalize_pipeline(ch_mask);
+}
+
