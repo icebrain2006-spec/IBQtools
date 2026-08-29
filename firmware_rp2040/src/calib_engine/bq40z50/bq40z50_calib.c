@@ -166,11 +166,6 @@ typedef struct {
 } bq40z50_adc_sums_t;
 
 /**
- * @brief Raw ADC 모드 진입 및 6회 샘플링 데이터 수집 (Step 4 ~ 6)
- * @param ch_mask 채널 비트마스크
- * @param sums 샘플링 누적 결과 저장 구조체 포인터
- */
-/**
  * @brief Raw ADC 모드 진입 (MAC 0xF081)
  */
 static void bq40z50_start_raw_adc_mode(uint8_t ch_mask) {
