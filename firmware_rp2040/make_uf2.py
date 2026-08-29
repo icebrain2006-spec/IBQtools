@@ -17,6 +17,11 @@ CMD_REBOOT_BOOTSEL = 0x02
 RESP_OK = 0x00
 
 def crc16_calculate(data):
+    """
+    RP2040 프로토콜 호환 CRC16 (MODBUS 방식 / Polynomial 0xA001) 계산.
+    :param data: CRC 계산할 bytes 데이터
+    :return: 16비트 정수형 CRC 값
+    """
     crc = 0xFFFF
     for byte in data:
         crc ^= byte
@@ -28,6 +33,12 @@ def crc16_calculate(data):
     return crc
 
 def make_packet(cmd, payload):
+    """
+    RP2040 시리얼 패킷 생성 (STX + LEN + CMD + PAYLOAD + CRC16 + ETX).
+    :param cmd: 명령어 바이트 (예: CMD_REBOOT_BOOTSEL 0x02)
+    :param payload: 패킷에 실을 바이너리 페이로드
+    :return: 최종 전송용 바이너리 패킷 (bytes)
+    """
     total_len = 1 + len(payload)
     header = struct.pack(">B H B", PROTOCOL_STX, total_len, cmd)
     crc_data = bytes([cmd]) + payload
@@ -36,6 +47,11 @@ def make_packet(cmd, payload):
     return header + payload + footer
 
 def send_bootsel_reboot(port_name):
+    """
+    시리얼 포트를 통해 실행 중인 RP2040에 소프트웨어 리셋 명령을 보내 BOOTSEL 모드로 전환시킴.
+    :param port_name: RP2040이 연결된 시리얼 포트명 (예: COM7)
+    :return: 성공 여부 (bool)
+    """
     # Try importing serial dynamically so users without pyserial can still run basic make_uf2 without -port
     try:
         import serial
@@ -61,6 +77,13 @@ def send_bootsel_reboot(port_name):
         return False
 
 def bin_to_uf2(bin_path, uf2_path, target_addr=0x10000000):
+    """
+    컴파일된 raw binary(.bin) 데이터를 RP2040 플래시 용 UF2 포맷으로 변환.
+    :param bin_path: 입력 .bin 파일 경로
+    :param uf2_path: 출력 .uf2 파일 경로
+    :param target_addr: RP2040 플래시 메모리 시작 주소 (기본값: 0x10000000)
+    :return: 성공 여부 (bool)
+    """
     if not os.path.exists(bin_path):
         print(f"Error: {bin_path} not found. Please build the project first.")
         return False
@@ -109,6 +132,13 @@ def bin_to_uf2(bin_path, uf2_path, target_addr=0x10000000):
     return True
 
 def main():
+    """
+    메인 빌드 프로세스:
+    1. (선택사항) 지정된 시리얼 포트로 BOOTSEL 소프트웨어 리셋 명령 송신
+    2. cmake/ninja 명령어로 C/C++ 프로젝트 컴파일
+    3. arm-none-eabi-objcopy로 .elf를 .bin으로 변환
+    4. bin_to_uf2 함수를 호출하여 최종 .uf2 바이너리 생성
+    """
     parser = argparse.ArgumentParser(description="Build firmware and generate UF2 with optional BOOTSEL reset")
     parser.add_argument("-port", help="Serial port of RP2040 to auto-reset to BOOTSEL mode (optional)")
     args = parser.parse_args()
