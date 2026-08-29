@@ -65,9 +65,13 @@ static bool bq40z50_update_df_block_offset(uint8_t ch, uint16_t subclass_addr, u
     memcpy(df_block + 2 + field_offset, new_data, data_len);
     memcpy(g_cached_df4000[ch] + 2 + field_offset, new_data, data_len);
 
-    uint16_t c1_g = df_block[2] | (df_block[3] << 8);
-    uint16_t bat_g = df_block[4] | (df_block[5] << 8);
-    uint16_t pack_g = df_block[6] | (df_block[7] << 8);
+    uint8_t c1_idx = BQ40Z50_DF4000_OFFSETS.cell1_gain - 1; // Wire Offset 3 -> Payload Index 2
+    uint8_t bat_idx = BQ40Z50_DF4000_OFFSETS.bat_gain - 1;   // Wire Offset 5 -> Payload Index 4
+    uint8_t pack_idx = BQ40Z50_DF4000_OFFSETS.pack_gain - 1; // Wire Offset 7 -> Payload Index 6
+
+    uint16_t c1_g = df_block[c1_idx] | (df_block[c1_idx + 1] << 8);
+    uint16_t bat_g = df_block[bat_idx] | (df_block[bat_idx + 1] << 8);
+    uint16_t pack_g = df_block[pack_idx] | (df_block[pack_idx + 1] << 8);
 
     if (c1_g < 5000 || c1_g > 60000 || bat_g < 5000 || pack_g < 5000) {
         uint8_t df_cmd[2] = { (uint8_t)(subclass_addr & 0xFF), (uint8_t)((subclass_addr >> 8) & 0xFF) };

@@ -45,6 +45,19 @@
  * |Cell1 ADC |Cell2 ADC |Cell3 ADC |Cell4 ADC |
  * | (Raw)    | (Raw)    | (Raw)    | (Raw)    |
  * +----------+----------+----------+----------+
+ * 
+ * 4) Calibration DataFlash Block (Subclass 0x4000 / MAC 0x4000) 프레임 맵 (총 35 바이트)
+ * +---------+---------+---------+---------+---------+---------+---------+---------+---------+
+ * | Byte 0  | Byte 1  | Byte 2  | Byte 3-4| Byte 5-6| Byte 7-8| Byte 9-12|Byte 13-16| ...    |
+ * +---------+---------+---------+---------+---------+---------+---------+---------+---------+
+ * | Length  | 0x00    | 0x40    | Cell 1  | BAT Gain| PACK Gain| CC Gain | Capacity| ...     |
+ * | (0x22)  | (EchoL) | (EchoH) | Gain    |         |         | (float) | Gain(flt)|        |
+ * +---------+---------+---------+---------+---------+---------+---------+---------+---------+
+ * | Byte 34 |
+ * +---------+
+ * | PEC     |
+ * | (CRC8)  |
+ * +---------+
  * =========================================================================================
  */
 
@@ -149,6 +162,29 @@ static const bq_dastatus2_offsets_t BQ40Z50_DASTATUS2_OFFSETS = {
     .cell2_raw_adc  = 25,
     .cell3_raw_adc  = 27,
     .cell4_raw_adc  = 29
+};
+
+/* ========================================================================= */
+/* 4. BQ40Z50 DataFlash 0x4000 Calibration Block Offset Configuration       */
+/* Note: EV2300 Wire-Level Offsets (Includes Byte 0 Length 0x22)             */
+/* Subclass Address: 0x4000 (CC Gain, Capacity Gain, Voltage Gains)          */
+/* ========================================================================= */
+typedef struct {
+    uint8_t min_len;
+    uint8_t cell1_gain;     ///< Cell 1 Gain 오프셋 (uint16_t, bytes 3-4)
+    uint8_t bat_gain;       ///< BAT Gain 오프셋 (uint16_t, bytes 5-6)
+    uint8_t pack_gain;      ///< PACK Gain 오프셋 (uint16_t, bytes 7-8)
+    uint8_t cc_gain;        ///< CC Gain 오프셋 (float32, bytes 9-12)
+    uint8_t capacity_gain;  ///< Capacity Gain 오프셋 (float32, bytes 13-16)
+} bq_df4000_offsets_t;
+
+static const bq_df4000_offsets_t BQ40Z50_DF4000_OFFSETS = {
+    .min_len        = 34,
+    .cell1_gain     = 3,
+    .bat_gain       = 5,
+    .pack_gain      = 7,
+    .cc_gain        = 9,
+    .capacity_gain  = 13
 };
 
 #endif // BQ40Z50_OFFSETS_H
