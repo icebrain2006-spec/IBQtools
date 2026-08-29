@@ -1,5 +1,5 @@
 # Build output
-firmware/build/
+firmware_rp2040/build/
 build/
 *.bin
 *.elf

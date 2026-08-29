@@ -7,7 +7,7 @@
 - Firmware Build (C/C++): CMake 기반 Pico SDK 빌드 (`mkdir build && cd build && cmake .. && make`)
 
 ## Directory Standards
-- **`firmware/`**: RP2040-Zero C/C++ SDK 소스코드. PIO 기반 SMBus 및 Relay 제어 로직 위치.
+- **`firmware_rp2040/`**: RP2040-Zero C/C++ SDK 소스코드. PIO 기반 SMBus 및 Relay 제어 로직 위치.
 - **`gui/`**: Python 기반 PC 프로그램 및 GUI 레이아웃 리소스 위치.
 
 ## Development Standards

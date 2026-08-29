@@ -83,7 +83,7 @@ def build_app():
     dist_assets = os.path.join('dist', 'IBQtools', 'assets')
     if os.path.exists(dist_assets):
         shutil.rmtree(dist_assets)
-    shutil.copytree('assets', dist_assets)
+    shutil.copytree(os.path.join('gui', 'assets'), dist_assets)
     
     print("Zipping the distribution folder...")
     zip_name = f'IBQtools_Release_v{current_ver}'

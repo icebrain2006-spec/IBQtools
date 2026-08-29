@@ -4,13 +4,13 @@
 본 문서는 RP2040-Zero를 이용한 IBQ Tool 개발 문서를 작성하는 곳입니다.
 
 ## 2. 하드웨어
-1. IBT-014 모듈을 사용 ([schematic.pdf](file:///d:/WinApp/python/IBQtools/Reference_Data/schematic.pdf))
-2. RP2040-Zero를 사용 ([RP2040_Zero.pdf](file:///d:/WinApp/python/IBQtools/Reference_Data/RP2040_Zero.pdf))
+1. IBT-014 모듈을 사용 ([schematic.pdf](file:///d:/WinApp/python/IBQtools/reference/schematic.pdf))
+2. RP2040-Zero를 사용 ([RP2040_Zero.pdf](file:///d:/WinApp/python/IBQtools/reference/RP2040_Zero.pdf))
 
 ## 3. 프로젝트 구조 (권장)
 ```
-├── Reference_Data/      # 하드웨어 회로도 및 칩 데이터시트
-├── firmware/            # RP2040-Zero C/C++ SDK 기반 펌웨어 소스코드
+├── reference/           # 하드웨어 회로도 및 칩 데이터시트
+├── firmware_rp2040/     # RP2040-Zero C/C++ SDK 기반 펌웨어 소스코드
 ├── gui/                 # PC용 Python GUI 프로그램 소스코드
 ├── AGENTS.md            # 개발 가이드 및 AI 에이전트 규칙
 └── Readme.md            # 프로젝트 개요 문서

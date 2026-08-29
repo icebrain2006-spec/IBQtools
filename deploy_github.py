@@ -4,7 +4,7 @@ import sys
 import subprocess
 
 def increment_version():
-    main_c_path = os.path.join("firmware", "src", "main.c")
+    main_c_path = os.path.join("firmware_rp2040", "src", "main.c")
     if not os.path.exists(main_c_path):
         print(f"[Error] Could not find {main_c_path}")
         return None
@@ -53,13 +53,13 @@ def main():
         
     # 2. Build firmware via make_uf2.py
     print("\n[*] Building firmware via make_uf2.py...")
-    firmware_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'firmware')
+    firmware_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'firmware_rp2040')
     build_res = subprocess.run(["uv", "run", "python", "make_uf2.py"], cwd=firmware_dir, shell=True)
     if build_res.returncode != 0:
         print("[!] Build failed. Aborting Git commit and Release.")
         sys.exit(1)
     
-    uf2_path = os.path.join("firmware", "build", "firmware.uf2")
+    uf2_path = os.path.join("firmware_rp2040", "build", "firmware.uf2")
     if not os.path.exists(uf2_path):
         print(f"[Error] UF2 file not found at {uf2_path}")
         sys.exit(1)
@@ -68,7 +68,7 @@ def main():
     
     # 3. Git Commit and Push
     print("\n[*] Committing changes to git...")
-    subprocess.run(["git", "add", "firmware/"], shell=True)
+    subprocess.run(["git", "add", "firmware_rp2040/"], shell=True)
     subprocess.run(["git", "commit", "-m", f"Auto-build and release firmware {version}"], shell=True)
     
     print("[*] Pushing to remote repository...")
