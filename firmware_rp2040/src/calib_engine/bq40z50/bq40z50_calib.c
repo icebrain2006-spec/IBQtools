@@ -91,9 +91,9 @@ static bool bq40z50_update_df_block_offset(uint8_t ch, uint16_t subclass_addr, u
     memcpy(g_cached_df4000[ch] + 2 + field_offset, new_data, data_len);
 
     // 2. Gain 값 무효화 방지용 안전 검사 (Cell1, Bat, Pack Gain이 정상 범위인지 확인)
-    uint8_t c1_idx = BQ40Z50_DF4000_OFFSETS.cell1_gain - 1; // Wire Offset 3 -> Payload Index 2
-    uint8_t bat_idx = BQ40Z50_DF4000_OFFSETS.bat_gain - 1;   // Wire Offset 5 -> Payload Index 4
-    uint8_t pack_idx = BQ40Z50_DF4000_OFFSETS.pack_gain - 1; // Wire Offset 7 -> Payload Index 6
+    uint8_t c1_idx   = get_payload_offset(BQ40Z50_DF4000_OFFSETS.cell1_gain);
+    uint8_t bat_idx  = get_payload_offset(BQ40Z50_DF4000_OFFSETS.bat_gain);
+    uint8_t pack_idx = get_payload_offset(BQ40Z50_DF4000_OFFSETS.pack_gain);
 
     uint16_t c1_g = df_block[c1_idx] | (df_block[c1_idx + 1] << 8);
     uint16_t bat_g = df_block[bat_idx] | (df_block[bat_idx + 1] << 8);
@@ -217,10 +217,10 @@ void bq40z50_run_calib_pipeline(uint8_t ch_mask, uint8_t mode, const uint16_t ta
                 uint8_t rx_buf[32];
                 uint8_t rx_len = 0;
                 if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK && rx_len >= BQ40Z50_ADC_OFFSETS.min_len) {
-                    uint8_t c1_off = BQ40Z50_ADC_OFFSETS.cell1 - 1;
-                    uint8_t pack_off = BQ40Z50_ADC_OFFSETS.pack - 1;
-                    uint8_t bat_off = BQ40Z50_ADC_OFFSETS.bat - 1;
-                    uint8_t cc_off = BQ40Z50_ADC_OFFSETS.current - 1;
+                    uint8_t c1_off   = get_payload_offset(BQ40Z50_ADC_OFFSETS.cell1);
+                    uint8_t pack_off = get_payload_offset(BQ40Z50_ADC_OFFSETS.pack);
+                    uint8_t bat_off  = get_payload_offset(BQ40Z50_ADC_OFFSETS.bat);
+                    uint8_t cc_off   = get_payload_offset(BQ40Z50_ADC_OFFSETS.current);
 
                     uint16_t cell1 = rx_buf[c1_off] | (rx_buf[c1_off + 1] << 8);
                     uint16_t pack  = rx_buf[pack_off] | (rx_buf[pack_off + 1] << 8);

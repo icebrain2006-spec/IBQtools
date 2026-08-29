@@ -66,6 +66,21 @@
 
 #include <stdint.h>
 
+/** 
+ * @brief SMBus Block Read 프로토콜 사용 시 Length 바이트(Byte 0) 분리로 인한 C 버퍼 페이로드 오프셋 시프트 값
+ * @note Physical Wire-Level Offset에서 1을 차감하면 C 배열 rx_buf 페이로드 인덱스가 됩니다.
+ */
+#define SMBUS_PAYLOAD_OFFSET_SHIFT (-1)
+
+/**
+ * @brief Physical Wire-Level Offset을 C 버퍼 페이로드 인덱스로 변환하는 도우미 함수
+ * @param wire_offset EV2300 / TI 데이터시트 물리 오프셋 값 (1-indexed)
+ * @return C 배열 페이로드 인덱스 (0-indexed)
+ */
+static inline uint8_t get_payload_offset(uint8_t wire_offset) {
+    return (uint8_t)(wire_offset + SMBUS_PAYLOAD_OFFSET_SHIFT);
+}
+
 /* ========================================================================= */
 /* 1. BQ40Z50 Raw ADC (MAC 0xF081) Output Byte Offset Configuration          */
 /* Note: EV2300 Wire-Level Offsets (Includes Byte 0 Length)                  */
