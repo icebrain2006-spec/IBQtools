@@ -168,10 +168,10 @@ void bq40z50_run_calib_pipeline(uint8_t ch_mask, uint8_t mode, const uint16_t ta
                 uint8_t rx_buf[32];
                 uint8_t rx_len = 0;
                 if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK && rx_len >= BQ40Z50_ADC_OFFSETS.min_len) {
-                    uint8_t c1_off = BQ40Z50_ADC_OFFSETS.cell1;
-                    uint8_t pack_off = BQ40Z50_ADC_OFFSETS.pack;
-                    uint8_t bat_off = BQ40Z50_ADC_OFFSETS.bat;
-                    uint8_t cc_off = BQ40Z50_ADC_OFFSETS.current;
+                    uint8_t c1_off = BQ40Z50_ADC_OFFSETS.cell1 - 1;
+                    uint8_t pack_off = BQ40Z50_ADC_OFFSETS.pack - 1;
+                    uint8_t bat_off = BQ40Z50_ADC_OFFSETS.bat - 1;
+                    uint8_t cc_off = BQ40Z50_ADC_OFFSETS.current - 1;
 
                     uint16_t cell1 = rx_buf[c1_off] | (rx_buf[c1_off + 1] << 8);
                     uint16_t pack  = rx_buf[pack_off] | (rx_buf[pack_off + 1] << 8);
