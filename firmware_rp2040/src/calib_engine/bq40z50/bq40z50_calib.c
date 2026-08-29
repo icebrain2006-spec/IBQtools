@@ -170,10 +170,10 @@ typedef struct {
  * @param ch_mask 채널 비트마스크
  * @param sums 샘플링 누적 결과 저장 구조체 포인터
  */
-static void bq40z50_collect_raw_adc_samples(uint8_t ch_mask, bq40z50_adc_sums_t *sums) {
-    memset(sums, 0, sizeof(bq40z50_adc_sums_t));
-
-    // 1. Raw ADC 모드 진입 (MAC 0xF081)
+/**
+ * @brief Raw ADC 모드 진입 (MAC 0xF081)
+ */
+static void bq40z50_start_raw_adc_mode(uint8_t ch_mask) {
     uint8_t raw_start_cmd[2] = {0x81, 0xF0};
     for (uint8_t ch = 1; ch <= 6; ch++) {
         if ((ch_mask & (1 << (ch - 1))) && !(calib_status.error_channels & (1 << (ch - 1)))) {
@@ -187,8 +187,17 @@ static void bq40z50_collect_raw_adc_samples(uint8_t ch_mask, bq40z50_adc_sums_t 
         }
     }
     sleep_ms(20);
+}
 
-    // 2. 6회 샘플링 수집
+/**
+ * @brief Raw ADC 6회 샘플링 수집 및 누적 합산 루프
+ */
+static void bq40z50_read_adc_samples_loop(uint8_t ch_mask, bq40z50_adc_sums_t *sums) {
+    uint8_t c1_off   = get_payload_offset(BQ40Z50_ADC_OFFSETS.cell1);
+    uint8_t pack_off = get_payload_offset(BQ40Z50_ADC_OFFSETS.pack);
+    uint8_t bat_off  = get_payload_offset(BQ40Z50_ADC_OFFSETS.bat);
+    uint8_t cc_off   = get_payload_offset(BQ40Z50_ADC_OFFSETS.current);
+
     for (int sample = 0; sample < 6; sample++) {
         uint32_t start_ms = to_ms_since_boot(get_absolute_time());
         for (uint8_t ch = 1; ch <= 6; ch++) {
@@ -196,11 +205,6 @@ static void bq40z50_collect_raw_adc_samples(uint8_t ch_mask, bq40z50_adc_sums_t 
                 uint8_t rx_buf[32];
                 uint8_t rx_len = 0;
                 if (smbus_read_block(ch, 0x0B, 0x44, rx_buf, &rx_len, false) == SMBUS_OK && rx_len >= BQ40Z50_ADC_OFFSETS.min_len) {
-                    uint8_t c1_off   = get_payload_offset(BQ40Z50_ADC_OFFSETS.cell1);
-                    uint8_t pack_off = get_payload_offset(BQ40Z50_ADC_OFFSETS.pack);
-                    uint8_t bat_off  = get_payload_offset(BQ40Z50_ADC_OFFSETS.bat);
-                    uint8_t cc_off   = get_payload_offset(BQ40Z50_ADC_OFFSETS.current);
-
                     uint16_t cell1 = rx_buf[c1_off] | (rx_buf[c1_off + 1] << 8);
                     uint16_t pack  = rx_buf[pack_off] | (rx_buf[pack_off + 1] << 8);
                     uint16_t bat   = rx_buf[bat_off] | (rx_buf[bat_off + 1] << 8);
@@ -223,6 +227,34 @@ static void bq40z50_collect_raw_adc_samples(uint8_t ch_mask, bq40z50_adc_sums_t 
             sleep_ms(200 - elapsed);
         }
     }
+}
+
+/**
+ * @brief Raw ADC 모드 정지 (MAC 0xF080) 및 CAL_EN 해제
+ */
+static void bq40z50_stop_raw_adc_mode(uint8_t ch_mask) {
+    uint8_t raw_stop_cmd[2] = {0x80, 0xF0};
+    for (uint8_t ch = 1; ch <= 6; ch++) {
+        if (ch_mask & (1 << (ch - 1))) {
+            smbus_write_word(ch, 0x0B, 0x00, 0xF080, false);
+            smbus_write_block(ch, 0x0B, 0x44, raw_stop_cmd, 2, false);
+            bq40z50_set_cal_en(ch, false);
+        }
+    }
+    sleep_ms(200);
+}
+
+/**
+ * @brief Raw ADC 모드 진입 및 6회 샘플링 데이터 수집 (Step 4 ~ 6 통합 실행)
+ */
+static void bq40z50_collect_raw_adc_samples(uint8_t ch_mask, bq40z50_adc_sums_t *sums) {
+    memset(sums, 0, sizeof(bq40z50_adc_sums_t));
+
+    // 1. Raw ADC 모드 시작 (MAC 0xF081)
+    bq40z50_start_raw_adc_mode(ch_mask);
+
+    // 2. 6회 샘플링 수집
+    bq40z50_read_adc_samples_loop(ch_mask, sums);
 
     // 3. 샘플링 개수 검증
     for (uint8_t ch = 1; ch <= 6; ch++) {
@@ -235,15 +267,7 @@ static void bq40z50_collect_raw_adc_samples(uint8_t ch_mask, bq40z50_adc_sums_t 
     }
 
     // 4. Raw ADC 모드 정지 (MAC 0xF080)
-    uint8_t raw_stop_cmd[2] = {0x80, 0xF0};
-    for (uint8_t ch = 1; ch <= 6; ch++) {
-        if (ch_mask & (1 << (ch - 1))) {
-            smbus_write_word(ch, 0x0B, 0x00, 0xF080, false);
-            smbus_write_block(ch, 0x0B, 0x44, raw_stop_cmd, 2, false);
-            bq40z50_set_cal_en(ch, false);
-        }
-    }
-    sleep_ms(200);
+    bq40z50_stop_raw_adc_mode(ch_mask);
 }
 
 /**
