@@ -53,23 +53,24 @@ extern volatile calib_status_t calib_status;
 void calib_engine_init(void);
 
 /**
- * @brief 지정된 채널, IC 타입 및 기준 목표 전압값으로 캘리브레이션 시작
+ * @brief 지정된 채널, IC 타입 및 기준 목표 전압/전류 값으로 캘리브레이션 시작
  * @param channel_mask 대상 채널 비트마스크 (bit 0~5)
  * @param mode 캘리브레이션 모드 (0: Voltage, 1: Current)
  * @param ic_type 타겟 IC 종류 (0: BQ40Z50, 1: BQ78350, 2: BQ40Z80)
  * @param target_cell1_mv 채널별 Cell 1 목표 전압 (mV) 배열
  * @param target_pack_mv 채널별 Pack 목표 전압 (mV) 배열
  * @param target_bat_mv 채널별 Bat 목표 전압 (mV) 배열
+ * @param target_current_ma 채널별 목표 전류 (mA, 예: -2000) 배열
  * @return 시작 성공 여부
  */
-bool calib_engine_start(uint8_t channel_mask, uint8_t mode, uint8_t ic_type, const uint16_t target_cell1_mv[7], const uint16_t target_pack_mv[7], const uint16_t target_bat_mv[7]);
+bool calib_engine_start(uint8_t channel_mask, uint8_t mode, uint8_t ic_type, const uint16_t target_cell1_mv[7], const uint16_t target_pack_mv[7], const uint16_t target_bat_mv[7], const int16_t target_current_ma[7]);
 
 /**
  * @brief BQ40Z50 IC의 CAL_EN (Calibration Enable 0x0057) 상태 설정
- * @param ch 대상 채널 번호 (1 ~ 6)
+ * @param ch_mask 대상 채널 비트마스크
  * @param enable 활성화 여부
  * @return 성공 여부
  */
-bool bq40z50_set_cal_en(uint8_t ch, bool enable);
+bool bq40z50_set_cal_en(uint8_t ch_mask, bool enable);
 
 #endif // CALIB_ENGINE_H

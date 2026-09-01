@@ -18,20 +18,21 @@ volatile calib_status_t calib_status = {
 static uint16_t g_target_cell1_mv[7];
 static uint16_t g_target_pack_mv[7];
 static uint16_t g_target_bat_mv[7];
+static int16_t  g_target_current_ma[7];
 
 static void run_calib_pipeline(void) {
     switch (calib_status.ic_type) {
         case IC_TYPE_BQ40Z50:
-            bq40z50_run_calib_pipeline(calib_status.active_channels, calib_status.mode, g_target_cell1_mv, g_target_pack_mv, g_target_bat_mv);
+            bq40z50_run_calib_pipeline(calib_status.active_channels, calib_status.mode, g_target_cell1_mv, g_target_pack_mv, g_target_bat_mv, g_target_current_ma);
             break;
         case IC_TYPE_BQ78350:
-            bq78350_run_calib_pipeline(calib_status.active_channels, calib_status.mode, g_target_cell1_mv, g_target_pack_mv, g_target_bat_mv);
+            bq78350_run_calib_pipeline(calib_status.active_channels, calib_status.mode, g_target_cell1_mv, g_target_pack_mv, g_target_bat_mv, g_target_current_ma);
             break;
         case IC_TYPE_BQ40Z80:
-            bq40z80_run_calib_pipeline(calib_status.active_channels, calib_status.mode, g_target_cell1_mv, g_target_pack_mv, g_target_bat_mv);
+            bq40z80_run_calib_pipeline(calib_status.active_channels, calib_status.mode, g_target_cell1_mv, g_target_pack_mv, g_target_bat_mv, g_target_current_ma);
             break;
         default:
-            bq40z50_run_calib_pipeline(calib_status.active_channels, calib_status.mode, g_target_cell1_mv, g_target_pack_mv, g_target_bat_mv);
+            bq40z50_run_calib_pipeline(calib_status.active_channels, calib_status.mode, g_target_cell1_mv, g_target_pack_mv, g_target_bat_mv, g_target_current_ma);
             break;
     }
 
@@ -47,7 +48,7 @@ void calib_engine_init(void) {
     calib_status.state = 0;
 }
 
-bool calib_engine_start(uint8_t channel_mask, uint8_t mode, uint8_t ic_type, const uint16_t target_cell1_mv[7], const uint16_t target_pack_mv[7], const uint16_t target_bat_mv[7]) {
+bool calib_engine_start(uint8_t channel_mask, uint8_t mode, uint8_t ic_type, const uint16_t target_cell1_mv[7], const uint16_t target_pack_mv[7], const uint16_t target_bat_mv[7], const int16_t target_current_ma[7]) {
     if (calib_status.state == 1) return false;
     calib_status.active_channels = channel_mask;
     calib_status.error_channels = 0;
@@ -59,6 +60,7 @@ bool calib_engine_start(uint8_t channel_mask, uint8_t mode, uint8_t ic_type, con
         g_target_cell1_mv[ch] = target_cell1_mv[ch];
         g_target_pack_mv[ch] = target_pack_mv[ch];
         g_target_bat_mv[ch] = target_bat_mv[ch];
+        g_target_current_ma[ch] = target_current_ma[ch];
     }
 
     multicore_reset_core1();

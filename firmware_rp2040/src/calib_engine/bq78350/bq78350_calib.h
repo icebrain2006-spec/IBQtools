@@ -9,6 +9,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-void bq78350_run_calib_pipeline(uint8_t active_channels, uint8_t mode, const uint16_t target_cell1_mv[7], const uint16_t target_pack_mv[7], const uint16_t target_bat_mv[7]);
+void bq78350_run_calib_pipeline(uint8_t active_channels, uint8_t mode, const uint16_t target_cell1_mv[7], const uint16_t target_pack_mv[7], const uint16_t target_bat_mv[7], const int16_t target_current_ma[7]);
 
 #endif // BQ78350_CALIB_H

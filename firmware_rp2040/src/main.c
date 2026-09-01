@@ -372,26 +372,31 @@ static void handle_packet(const rx_packet_t *pkt) {
     uint16_t t_cell1[7] = {0};
     uint16_t t_pack[7] = {0};
     uint16_t t_bat[7] = {0};
+    int16_t  t_cc[7] = {0};
 
     if (pkt->length >= 2 + (6 * 6)) { // 2 + 36 = 38 bytes payload for per-channel targets
       uint16_t idx = 2;
       for (uint8_t ch = 1; ch <= 6; ch++) {
-        t_cell1[ch] = read_u16_be(pkt->payload + idx); idx += 2;
+        uint16_t tc1 = read_u16_be(pkt->payload + idx); idx += 2;
         t_pack[ch] = read_u16_be(pkt->payload + idx); idx += 2;
         t_bat[ch] = read_u16_be(pkt->payload + idx); idx += 2;
+        t_cell1[ch] = tc1;
+        t_cc[ch] = (mode == 1) ? -(int16_t)tc1 : -2000;
       }
     } else {
       uint16_t target_cell1 = read_u16_be(pkt->payload + 2);
       uint16_t target_pack = read_u16_be(pkt->payload + 4);
       uint16_t target_bat = read_u16_be(pkt->payload + 6);
+      int16_t target_cc = (mode == 1) ? -(int16_t)target_cell1 : -2000;
       for (uint8_t ch = 1; ch <= 6; ch++) {
         t_cell1[ch] = target_cell1;
         t_pack[ch] = target_pack;
         t_bat[ch] = target_bat;
+        t_cc[ch] = target_cc;
       }
     }
 
-    bool ok = calib_engine_start(ch_mask, mode, IC_TYPE_BQ40Z50, t_cell1, t_pack, t_bat);
+    bool ok = calib_engine_start(ch_mask, mode, IC_TYPE_BQ40Z50, t_cell1, t_pack, t_bat, t_cc);
     resp_payload[0] = ok ? RESP_OK : RESP_ERR_BUSY;
     protocol_send_packet(CMD_CALIB_RUN, resp_payload, 1);
     break;
