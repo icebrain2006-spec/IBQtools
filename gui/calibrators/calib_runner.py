@@ -8,6 +8,7 @@ from PySide6.QtCore import QThread, Signal, Slot
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from updater_thread import make_packet, parse_response, RESP_OK, CMD_I2C_RAW, CMD_SMBUS_CMD, CMD_SMBUS_POLL_BLOCK, CMD_RELAY_SET, PROTOCOL_STX
 from calibrators.utils import detect_dataflash_offset, load_calibration_offsets, load_adc_offset_0xf081, load_dastatus1_offset_0x0071, load_dastatus2_offset_0x0072, crc8_smbus_byte, smbus_pec_calculate, float_to_xemics, xemics_to_float, format_df4000_breakdown
+from calibrators.verifiers import run_post_verify
 
 BQ_SMBUS_ADDR = 0x0B
 CMD_CALIB_RUN = 0x60
@@ -343,126 +344,7 @@ class CalibrationThread(QThread):
         return format_df4000_breakdown(df_bytes, label)
 
     def post_verify(self):
-        try:
-            run_mode = self.targets.get("run_mode", "voltage")
-            show_voltage = run_mode in ("voltage", "all")
-            show_temp = run_mode in ("temp", "temperature", "all")
-
-            if "BQ78350" in self.ic_name.upper():
-                if show_voltage:
-                    for i in range(self.active_cells):
-                        cmd = 0x3F - i
-                        val = self.smbus_read_word(cmd)
-                        if val:
-                            val = struct.unpack('<H', bytes(val))[0]
-                            self.emit_result(f"V_Cell {i+1}", f"V_Cell {i+1} (0x{cmd:02X})", "-", val, suffix=" mV")
-                            
-                    if self.targets.get('extaveragecellmv', 0) > 0:
-                        v_ext = self.smbus_read_word(0x4D)
-                        if v_ext:
-                            v_ext = struct.unpack('<H', bytes(v_ext))[0]
-                            self.emit_result("V_Ext", "Ext Ave Cell (0x4D)", "-", v_ext, suffix=" mV")
-                            
-                    if self.targets.get('vauxmv', 0) > 0:
-                        v_aux = self.smbus_read_word(0x2E)
-                        if v_aux:
-                            v_aux = struct.unpack('<H', bytes(v_aux))[0]
-                            self.emit_result("V_Aux", "VAux (0x2E)", "-", v_aux, suffix=" mV")
-                        
-                if show_temp:
-                    int_temp_raw = self.smbus_read_word(0x28) # InternalTemp is 0x28
-                    if int_temp_raw:
-                        val = struct.unpack('<H', bytes(int_temp_raw))[0]
-                        temp_c = round(val * 0.1 - 273.15, 1)
-                        if self.targets.get("inttempc_en", False):
-                            self.emit_result("Int Temp", "Int Temp (0x28)", "-", temp_c, suffix=" °C")
-                            
-                    for i, (name, cmd) in enumerate([("TS1", 0x5E), ("TS2", 0x5F), ("TS3", 0x60), ("TS4", 0x61)]):
-                        if self.targets.get(f"{name.lower()}tempc_en", False):
-                            raw = self.smbus_read_word(cmd)
-                            if raw:
-                                val = struct.unpack('<H', bytes(raw))[0]
-                                temp_c = round(val * 0.1 - 273.15, 1)
-                                self.emit_result(f"{name} Temp", f"{name} Temp (0x{cmd:02X})", "-", temp_c, suffix=" °C")
-                return True
-            else:
-                # Read standard SBS SMBus Voltage Commands for BQ40Z50
-                # 0x3F: Cell1, 0x3E: Cell2, 0x3D: Cell3, 0x3C: Cell4
-                # Read DAStatus 1 (0x0071) over 0x44 for distinct Cell 1..4, V_Bat (offset 10) and V_Pack (offset 12)
-                v_bat_val = None
-                v_pack_val = None
-                data1 = self.read_mac_block([0x71, 0x00])
-                if data1 and len(data1) >= 14:
-                    data_ok = True
-                    if show_voltage:
-                        v_c1 = struct.unpack_from('<H', data1, 2)[0]
-                        v_c2 = struct.unpack_from('<H', data1, 4)[0]
-                        v_c3 = struct.unpack_from('<H', data1, 6)[0]
-                        v_c4 = struct.unpack_from('<H', data1, 8)[0]
-                        v_cells = [v_c1, v_c2, v_c3, v_c4]
-                        for i in range(min(self.active_cells, len(v_cells))):
-                            self.emit_result(f"V_Cell {i+1}", f"V_Cell {i+1}", "-", v_cells[i], suffix=" mV")
-
-                    v_bat_val = struct.unpack_from('<H', data1, 10)[0]
-                    v_pack_val = struct.unpack_from('<H', data1, 12)[0]
-                else:
-                    if show_voltage:
-                        for i in range(self.active_cells):
-                            cmd = 0x3F - i
-                            val = self.smbus_read_word(cmd)
-                            if val:
-                                data_ok = True
-                                v_cell = struct.unpack('<H', bytes(val))[0]
-                                self.emit_result(f"V_Cell {i+1}", f"V_Cell {i+1}", "-", v_cell, suffix=" mV")
-
-                    val_pack = self.smbus_read_word(0x09)
-                    if val_pack:
-                        data_ok = True
-                        v_p = struct.unpack('<H', bytes(val_pack))[0]
-                        v_bat_val = v_p
-                        v_pack_val = v_p
-
-                if show_voltage and (v_pack_val is not None and v_bat_val is not None):
-                    ch_limits = self.limits_per_ch.get(self.ch, self.limits)
-                    diff_min, diff_max = ch_limits.get("V_Pack - V_Bat Diff", ch_limits.get("V_Pack / V_Bat Diff", (-20.0, 20.0)))
-                    v_diff = v_pack_val - v_bat_val
-                    force_diff_fail = (v_diff < diff_min or v_diff > diff_max)
-                    if force_diff_fail:
-                        self._log(f"FAIL: V_Pack/V_Bat diff={v_diff}mV exceeds limit ({diff_min}, {diff_max})")
-                    self.emit_result("V_Pack", "V_Pack", "-", v_pack_val, suffix=" mV", force_fail=force_diff_fail)
-                    self.emit_result("V_Bat", "V_Bat", "-", v_bat_val, suffix=" mV", force_fail=force_diff_fail)
-
-                data2 = self.read_mac_block([0x72, 0x00])
-                if data2 and len(data2) >= 16:
-                    int_temp = round(struct.unpack_from('<H', data2, 2)[0] * 0.1 - 273.15, 1)
-                    ts1 = round(struct.unpack_from('<H', data2, 4)[0] * 0.1 - 273.15, 1)
-                    ts2 = round(struct.unpack_from('<H', data2, 6)[0] * 0.1 - 273.15, 1)
-                    ts3 = round(struct.unpack_from('<H', data2, 8)[0] * 0.1 - 273.15, 1)
-                    ts4 = round(struct.unpack_from('<H', data2, 10)[0] * 0.1 - 273.15, 1)
-                    
-                    if show_temp:
-                        if self.targets.get("inttempc_en", False):
-                            self.emit_result("Int Temp", "Int Temp (0x0072)", "-", int_temp, suffix=" °C")
-                        if self.targets.get("ts1tempc_en", False):
-                            self.emit_result("TS1 Temp", "TS1 Temp (0x0072)", "-", ts1, suffix=" °C")
-                        if self.targets.get("ts2tempc_en", False):
-                            self.emit_result("TS2 Temp", "TS2 Temp (0x0072)", "-", ts2, suffix=" °C")
-                        if self.targets.get("ts3tempc_en", False):
-                            self.emit_result("TS3 Temp", "TS3 Temp (0x0072)", "-", ts3, suffix=" °C")
-                        if self.targets.get("ts4tempc_en", False):
-                            self.emit_result("TS4 Temp", "TS4 Temp (0x0072)", "-", ts4, suffix=" °C")
-                        
-                # Read and Dump 0x4000 DataFlash Block Content
-                df_4000 = self.read_mac_block([0x00, 0x40])
-                if df_4000:
-                    self._log(self.format_df4000_breakdown(df_4000, f"CH{self.ch} POST-VERIFY 0x4000 DF BLOCK"))
-
-                if not data_ok and not data2:
-                    return False
-                return True
-        except Exception as e:
-            self._log(f"CRASH in post_verify: {e}")
-            return False
+        return run_post_verify(self)
 
     def run(self):
         total_start_time = time.time()
