@@ -21,14 +21,12 @@ class CalibrationThread(QThread, SMBusCommunicatorMixin, FWDetectorMixin, HWCali
     finished_signal = Signal(bool)
     limits_update_signal = Signal(dict)
     
-    def __init__(self, port, channels, script_dir, script_base, targets, ic_name, limits=None, limits_per_ch=None):
+    def __init__(self, port, channels, targets, ic_name, limits=None, limits_per_ch=None):
         super().__init__()
         self.port = port
         self.channels = channels
         self.ch = channels[0] if channels else 1
         self.addr = BQ_SMBUS_ADDR
-        self.script_dir = script_dir
-        self.script_base = script_base
         self.targets = targets
         if isinstance(targets, dict) and "per_ch" in targets:
             self.targets_per_ch = targets["per_ch"]
@@ -40,6 +38,7 @@ class CalibrationThread(QThread, SMBusCommunicatorMixin, FWDetectorMixin, HWCali
         self.ser = None
         self._running = True
         self.relay_queue = []
+
         
         self.limits_update_signal.connect(self.on_limits_updated)
         

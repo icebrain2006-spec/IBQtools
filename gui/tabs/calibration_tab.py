@@ -147,10 +147,6 @@ class CalibrationTab(QWidget):
         super().__init__(parent)
         # Use explicitly named QSettings to match LimitsDialog and the rest of the application
         self.settings = QSettings("IBQ", "IBQtools")
-        import os, sys
-        self.script_dir = self.get_script_dir()
-        # Use the script base defined in IC_CONFIGS for the selected IC (default to first key)
-        self.script_base = "bq40z50"  # fallback; will be overridden when IC selected
         self.dynamic_inputs = {}
         self.dynamic_checks = {}
         self.current_channel = 1
@@ -158,20 +154,6 @@ class CalibrationTab(QWidget):
         self._init_ui()
         self.refresh_ports()
 
-    def get_script_dir(self):
-        import os, sys
-        if getattr(sys, 'frozen', False):
-            base_meipass = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
-            candidates = [
-                os.path.join(base_meipass, "gui", "calibrators", "scripts"),
-                os.path.join(base_meipass, "calibrators", "scripts"),
-                os.path.join(os.path.dirname(sys.executable), "gui", "calibrators", "scripts"),
-                os.path.join(os.path.dirname(sys.executable), "calibrators", "scripts"),
-            ]
-            for c in candidates:
-                if os.path.exists(c):
-                    return c
-        return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "calibrators", "scripts")
         
     def _init_ui(self):
         main_layout = QVBoxLayout(self)
@@ -1129,10 +1111,8 @@ class CalibrationTab(QWidget):
         ch2_pack_lim = limits_per_ch.get(2, {}).get('V_Pack')
         self.log(f"DEBUG Extracted Limits per Channel: CH1 V_Pack={ch1_pack_lim}, CH2 V_Pack={ch2_pack_lim}")
         
-        # Determine script base for the selected IC (fallback to default if missing)
-        script_base = IC_CONFIGS.get(ic, {}).get("script", "bq40z50")
         try:
-            self.cal_thread = CalibrationThread(port, selected_channels, self.script_dir, script_base, targets, ic, limits, limits_per_ch)
+            self.cal_thread = CalibrationThread(port, selected_channels, targets, ic, limits, limits_per_ch)
         except Exception as e:
             self.log(f"Error initializing CalibrationThread: {e}")
             return
