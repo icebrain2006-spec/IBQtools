@@ -3,6 +3,41 @@ import os
 import glob
 import csv
 import math
+import struct
+
+def format_df4000_breakdown(df_bytes, label="0x4000 DF DUMP"):
+    if not df_bytes or len(df_bytes) < 16:
+        return f"    [{label}] Invalid/Short block (len={len(df_bytes) if df_bytes else 0})"
+    
+    # Address header (0x00 0x40) check
+    if len(df_bytes) >= 18 and df_bytes[0] == 0x00 and df_bytes[1] == 0x40:
+        base = 2
+    else:
+        base = 0
+        
+    c1_g = struct.unpack_from('<H', df_bytes, base)[0]
+    bat_g = struct.unpack_from('<H', df_bytes, base + 2)[0]
+    pack_g = struct.unpack_from('<H', df_bytes, base + 4)[0]
+    cc_g = struct.unpack_from('<f', df_bytes, base + 6)[0]
+    cap_g = struct.unpack_from('<f', df_bytes, base + 10)[0]
+    
+    c1_hex = bytes(df_bytes[base:base+2]).hex(' ')
+    bat_hex = bytes(df_bytes[base+2:base+4]).hex(' ')
+    pack_hex = bytes(df_bytes[base+4:base+6]).hex(' ')
+    cc_hex = bytes(df_bytes[base+6:base+10]).hex(' ')
+    cap_hex = bytes(df_bytes[base+10:base+14]).hex(' ')
+    
+    mohm = (3.714528 / cc_g) if cc_g != 0 else 0.0
+    
+    lines = [
+        f"    [{label}]",
+        f"    ├── Cell1 Gain : {c1_g:<5d} (0x{c1_g:04X})  [Hex: {c1_hex}]",
+        f"    ├── Bat Gain   : {bat_g:<5d} (0x{bat_g:04X})  [Hex: {bat_hex}]",
+        f"    ├── Pack Gain  : {pack_g:<5d} (0x{pack_g:04X})  [Hex: {pack_hex}]",
+        f"    ├── CC Gain    : {cc_g:.6f} ({mohm:.3f} mOhm) [Hex: {cc_hex}]",
+        f"    └── Cap Gain   : {cap_g:.3f}  [Hex: {cap_hex}]"
+    ]
+    return "\n".join(lines)
 
 def float_to_xemics(v):
     if v == 0.0: return [0, 0, 0, 0]
