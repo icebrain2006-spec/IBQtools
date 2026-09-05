@@ -7,7 +7,12 @@ from PySide6.QtCore import QThread, Signal, Slot
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from updater_thread import make_packet, parse_response, RESP_OK, CMD_I2C_RAW, CMD_SMBUS_CMD, CMD_SMBUS_POLL_BLOCK, CMD_RELAY_SET, PROTOCOL_STX
-from calibrators.utils import detect_dataflash_offset, load_calibration_offsets, load_adc_offset_0xf081, load_dastatus1_offset_0x0071, load_dastatus2_offset_0x0072, crc8_smbus_byte, smbus_pec_calculate
+from calibrators.utils import detect_dataflash_offset, load_calibration_offsets, load_adc_offset_0xf081, load_dastatus1_offset_0x0071, load_dastatus2_offset_0x0072, crc8_smbus_byte, smbus_pec_calculate, float_to_xemics, xemics_to_float
+
+BQ_SMBUS_ADDR = 0x0B
+CMD_CALIB_RUN = 0x60
+CMD_CALIB_STATUS = 0x61
+CMD_CAL_EN_SET = 0x62
 
 class CalibrationThread(QThread):
     log_signal = Signal(str)
@@ -23,7 +28,7 @@ class CalibrationThread(QThread):
         self.port = port
         self.channels = channels
         self.ch = channels[0] if channels else 1
-        self.addr = 0x0B
+        self.addr = BQ_SMBUS_ADDR
         self.script_dir = script_dir
         self.script_base = script_base
         self.targets = targets
@@ -51,16 +56,51 @@ class CalibrationThread(QThread):
     def on_limits_updated(self, new_limits):
         self.limits = new_limits
         self._log(f"DEBUG THREAD: Received new limits via signal: V_Cell 2={self.limits.get('V_Cell 2')}")
-        
+
+    def _send_cmd(self, cmd: int, payload: bytes = b""):
+        """Sends command packet to RP2040 and parses response packet."""
+        if not self.ser or not self.ser.is_open:
+            return None, None
+        packet = make_packet(cmd, payload)
+        self.ser.reset_input_buffer()
+        self.ser.write(packet)
+        rx = self._read_packet()
+        return parse_response(rx)
+
+    def _apply_history_filter(self, param_key, param_name, raw_status):
+        """Applies sliding window / majority noise filtering to measurement status history."""
+        if param_name not in self.history:
+            self.history[param_name] = {}
+        if self.ch not in self.history[param_name]:
+            self.history[param_name][self.ch] = []
+            
+        ch_hist = self.history[param_name][self.ch]
+        ch_hist.append(raw_status)
+        if len(ch_hist) > 2:
+            ch_hist.pop(0)
+            
+        if "BQ78350" in self.ic_name.upper() and param_key.startswith("V_Cell"):
+            pass_count = ch_hist.count("PASS")
+            fail_count = ch_hist.count("FAIL")
+            if len(ch_hist) >= 3:
+                if pass_count >= 3:
+                    return "PASS"
+                elif fail_count >= 3:
+                    return "FAIL"
+                else:
+                    return "PASS" if pass_count >= fail_count else "FAIL"
+            else:
+                return raw_status
+        else:
+            return "FAIL" if "FAIL" in ch_hist else raw_status
+
     def emit_result(self, param_key, param_name, raw_adc, val, is_gain=False, suffix="", force_fail=False):
         raw_status = "PASS" if is_gain else "INFO"
         ch_limits = self.limits_per_ch.get(self.ch, self.limits)
-        if param_key in ch_limits:
-            min_val, max_val = ch_limits[param_key]
-            if min_val <= val <= max_val:
-                raw_status = "PASS"
-            else:
-                raw_status = "FAIL"
+        min_val, max_val = ch_limits.get(param_key, (None, None))
+        
+        if param_key in ch_limits and min_val is not None and max_val is not None:
+            raw_status = "PASS" if (min_val <= val <= max_val) else "FAIL"
                 
         if force_fail:
             raw_status = "FAIL"
@@ -68,43 +108,15 @@ class CalibrationThread(QThread):
         if is_gain:
             if raw_status == "FAIL":
                 self._log(f"FAIL: {param_key} val={val} limits=({min_val}, {max_val})")
-            # For gain rows, show the calculated gain value
             self.row_signal.emit(param_name, self.ch, str(raw_adc), raw_status)
         else:
-            # Apply 2-history sliding window for Voltage/Temp monitoring (1-second PASS recovery)
-            if param_name not in self.history:
-                self.history[param_name] = {}
-            if self.ch not in self.history[param_name]:
-                self.history[param_name][self.ch] = []
-                
-            ch_hist = self.history[param_name][self.ch]
-            ch_hist.append(raw_status)
-            if len(ch_hist) > 2:
-                ch_hist.pop(0)
-                
-            # Final status is FAIL if ANY of the last 2 measurements failed
-            if "BQ78350" in self.ic_name.upper() and param_key.startswith("V_Cell"):
-                pass_count = ch_hist.count("PASS")
-                fail_count = ch_hist.count("FAIL")
-                if len(ch_hist) >= 3:
-                    if pass_count >= 3:
-                        final_status = "PASS"
-                    elif fail_count >= 3:
-                        final_status = "FAIL"
-                    else:
-                        final_status = "PASS" if pass_count >= fail_count else "FAIL"
-                else:
-                    final_status = raw_status
-            else:
-                final_status = "FAIL" if "FAIL" in ch_hist else raw_status
-            
+            final_status = self._apply_history_filter(param_key, param_name, raw_status)
             if raw_status == "FAIL":
                 if final_status == "PASS":
                     self._log(f"    (Filtered Noise) {param_key} val={val} limits=({min_val}, {max_val}) - Ignored due to majority PASS")
                 else:
                     self._log(f"FAIL: {param_key} val={val} limits=({min_val}, {max_val})")
                     
-            # For validation rows, show the measured voltage/temp/current
             self.row_signal.emit(param_name, self.ch, f"{val}{suffix}", final_status)
             
         if self.ch not in self.cal_log_buffer:
@@ -113,25 +125,20 @@ class CalibrationThread(QThread):
         range_str = f"{min_v}{suffix} - {max_v}{suffix}" if min_v is not None and max_v is not None else "0 - 65535"
         if is_gain: range_str = "0 - 65535"
         
-        # The stored value should be raw_adc (if it's a gain row) or val (if it's a measurement)
         stored_val = raw_adc if is_gain else val
         self.cal_log_buffer[self.ch][param_key] = {
             'value': f"{stored_val}{suffix}",
             'range': range_str
         }
-            
-    def stop(self):
-        self._running = False
         
-    def _set_relay(self, on: bool):
-        mask = (1 << (self.ch - 1)) if on else 0
-        payload = bytes([mask])
-        packet = make_packet(CMD_RELAY_SET, payload)
-        self.ser.reset_input_buffer()
-        self.ser.write(packet)
-        # MUST read response to avoid UART buffer desync for subsequent commands!
-        rx = self._read_packet() 
-        self._log(f"    [Relay] {'ON' if on else 'OFF'} for CH{self.ch} (mask: 0x{mask:02X})")
+    def _set_relay(self, on: bool, mask: int = None):
+        if mask is None:
+            mask = (1 << (self.ch - 1)) if on else 0
+        elif not on:
+            mask = 0
+
+        self._send_cmd(CMD_RELAY_SET, bytes([mask]))
+        self._log(f"    [Relay] {'ON' if on else 'OFF'} (mask: 0x{mask:02X})")
         time.sleep(0.1) # Command process delay
         
     def _log(self, msg):
@@ -139,14 +146,10 @@ class CalibrationThread(QThread):
 
     def set_cal_en(self, ch_mask: int, enable: bool) -> bool:
         """
-        Sends CMD_CAL_EN_SET (0x62) to RP2040 firmware to set CAL_EN state with 0x0057 check & 3 retries.
+        Sends CMD_CAL_EN_SET (0x62) to RP2040 firmware to set CAL_EN state.
         """
         payload = bytes([ch_mask, 1 if enable else 0])
-        packet = make_packet(0x62, payload)
-        self.ser.reset_input_buffer()
-        self.ser.write(packet)
-        rx = self._read_packet()
-        cmd, resp = parse_response(rx)
+        cmd, resp = self._send_cmd(CMD_CAL_EN_SET, payload)
         if isinstance(resp, (bytes, bytearray)) and len(resp) > 0 and resp[0] == RESP_OK:
             self._log(f"    [CAL_EN] Set CAL_EN {'ENABLE' if enable else 'DISABLE'} (mask 0x{ch_mask:02X}) -> PASS")
             return True
@@ -158,27 +161,10 @@ class CalibrationThread(QThread):
         self.relay_queue.append((ch, on))
         
     def _float_to_xemics(self, v):
-        import math
-        if v == 0.0: return [0, 0, 0, 0]
-        exp = int(math.floor(math.log(abs(v), 2))) + 1
-        mant = int((abs(v) / (2**exp)) * (2**24))
-        exp += 128
-        b0 = exp
-        b1 = (mant >> 16) & 0x7F
-        if v < 0: b1 |= 0x80
-        b2 = (mant >> 8) & 0xFF
-        b3 = mant & 0xFF
-        return [b0, b1, b2, b3]
+        return float_to_xemics(v)
 
     def _xemics_to_float(self, data):
-        if not data or len(data) < 4: return 0.0
-        b0, b1, b2, b3 = data[0], data[1], data[2], data[3]
-        if b0 == 0 and b1 == 0 and b2 == 0 and b3 == 0: return 0.0
-        exp = b0 - 128
-        mant = (((b1 & 0x7F) | 0x80) << 16) | (b2 << 8) | b3
-        v = (mant / (2**24)) * (2**exp)
-        if b1 & 0x80: v = -v
-        return v
+        return xemics_to_float(data)
         
     def parse_val(self, s):
         if s.lower().startswith('0x'):
@@ -187,11 +173,7 @@ class CalibrationThread(QThread):
 
     def smbus_write_word(self, reg, val):
         payload = struct.pack('<BBBBBBH', self.ch, self.addr, reg, 0, 2, 0, val)
-        tx_pkt = make_packet(CMD_SMBUS_CMD, payload)
-        self.ser.write(tx_pkt)
-        rx = self._read_packet()
-        self._log(f"    [RAW IO] TX({len(tx_pkt)}b): {tx_pkt.hex(' ')} | RX({len(rx)}b): {rx.hex(' ')}")
-        cmd, resp = parse_response(rx)
+        cmd, resp = self._send_cmd(CMD_SMBUS_CMD, payload)
         return isinstance(resp, (bytes, bytearray)) and len(resp) > 0 and resp[0] == RESP_OK
         
     def smbus_write_block_raw(self, cmd_reg, data_bytes, use_pec=True):
@@ -202,11 +184,7 @@ class CalibrationThread(QThread):
             tx_data.append(pec)
             
         payload = bytes([self.ch, self.addr, len(tx_data), 0]) + tx_data
-        tx_pkt = make_packet(CMD_I2C_RAW, payload)
-        self.ser.write(tx_pkt)
-        rx = self._read_packet()
-        self._log(f"    [RAW IO] TX({len(tx_pkt)}b): {tx_pkt.hex(' ')} | RX({len(rx)}b): {rx.hex(' ')}")
-        cmd, resp = parse_response(rx)
+        cmd, resp = self._send_cmd(CMD_I2C_RAW, payload)
         return isinstance(resp, (bytes, bytearray)) and len(resp) > 0 and resp[0] == RESP_OK
 
     def _read_packet(self):
@@ -232,12 +210,7 @@ class CalibrationThread(QThread):
 
     def smbus_read_word(self, cmd_reg):
         payload = bytes([self.ch, self.addr, cmd_reg, 1, 2, 0, 0])
-        tx_pkt = make_packet(CMD_SMBUS_CMD, payload)
-        self.ser.reset_input_buffer()
-        self.ser.write(tx_pkt)
-        rx = self._read_packet()
-        self._log(f"    [RAW IO] TX({len(tx_pkt)}b): {tx_pkt.hex(' ')} | RX({len(rx)}b): {rx.hex(' ')}")
-        cmd, resp = parse_response(rx)
+        cmd, resp = self._send_cmd(CMD_SMBUS_CMD, payload)
         if isinstance(resp, (bytes, bytearray)) and len(resp) > 0 and resp[0] == RESP_OK:
             return resp[1:3]
         return None
@@ -247,12 +220,7 @@ class CalibrationThread(QThread):
         for attempt in range(10):
             if not self._running: return None
             payload = bytes([self.ch, self.addr, cmd_reg, 1, 32, 0, 0])
-            tx_pkt = make_packet(CMD_SMBUS_CMD, payload)
-            self.ser.reset_input_buffer()
-            self.ser.write(tx_pkt)
-            rx = self._read_packet()
-            self._log(f"    [RAW IO] Attempt {attempt+1} TX({len(tx_pkt)}b): {tx_pkt.hex(' ')} | RX({len(rx)}b): {rx.hex(' ')}")
-            cmd, resp = parse_response(rx)
+            cmd, resp = self._send_cmd(CMD_SMBUS_CMD, payload)
             if cmd is None:
                 time.sleep(0.05)
                 continue
@@ -275,14 +243,10 @@ class CalibrationThread(QThread):
 
     def _exit_rom_mode(self):
         payload = bytes([self.ch, 0x0B, 1, 0, 0x08])
-        tx_pkt = make_packet(CMD_I2C_RAW, payload)
-        self.ser.reset_input_buffer()
-        self.ser.write(tx_pkt)
-        self._read_packet()
+        self._send_cmd(CMD_I2C_RAW, payload)
         time.sleep(0.01)
 
     def _read_mfg_info(self):
-        import struct
         serial_num = "Unknown"
         mfg_date = "Unknown"
         try:
@@ -309,82 +273,73 @@ class CalibrationThread(QThread):
             self._log(f"Error reading Mfg Info: {e}")
         return serial_num, mfg_date
 
-    def detect_firmware_and_config(self):
-        # 1. Read MAC 0x0002
-        self.smbus_write_block_raw(0x44, [0x02, 0x00])
+    def _find_header(self, data, header_bytes):
+        """Locates header_bytes inside SMBus response data to prevent byte-shift errors."""
+        if not data or len(data) < len(header_bytes):
+            return -1
+        return bytes(data).find(bytes(header_bytes))
+
+    def read_mac_block(self, sub_cmd_bytes):
+        """Writes sub-command bytes to 0x44 and reads back response block."""
+        self.smbus_write_block_raw(0x44, sub_cmd_bytes)
         time.sleep(0.05)
-        data = self.smbus_read_block(0x44)
+        return self.smbus_read_block(0x44)
+
+    def _read_firmware_version(self):
+        """Reads BQ IC firmware version via MAC 0x0002. Returns (device, version, major, minor) or None."""
+        data = self.read_mac_block([0x02, 0x00])
         
         if not data:
             self._log("Failed to detect firmware version (0x0002).")
-            return False
+            return None
             
         self._log(f"MAC 0x0002 Raw Read: {data.hex(' ')}")
         
-        # Find the echo of 0x02 0x00
-        idx = -1
-        for i in range(len(data) - 1):
-            if data[i] == 0x02 and data[i+1] == 0x00:
-                idx = i
-                break
+        idx = self._find_header(data, [0x02, 0x00])
+        if idx == -1:
+            self._log("Warning: 0x0002 echo not found, using index 0")
+            idx = 0
                 
-        if idx == -1 or idx + 5 < len(data):
-            # Fallback to index 0 if echo is somehow not found or at the end
-            if idx == -1:
-                self._log("Warning: 0x0002 echo not found, using index 0")
-                idx = 0
-            
-            # MAC 0x0002 returns Device and Version in Big Endian (or Byte-wise: [Major, Minor])
+        if idx + 5 < len(data):
             device = struct.unpack_from('>H', data, idx + 2)[0]
-            
             major = data[idx + 4]
             minor = data[idx + 5]
             version = (major << 8) | minor
-            
             self._log(f"Detected Firmware: Device 0x{device:04X}, Version V{major}.{minor:02d}")
+            return device, version, major, minor
         else:
             self._log("Failed to parse firmware version due to invalid length.")
-            return False
-            
-        # 2. Look up DataFlash offset
+            return None
+
+    def _load_dataflash_map(self, version, major, minor):
+        """Looks up DataFlash offset and loads parameter offsets dictionary."""
         offset, csv_name = detect_dataflash_offset(self.ic_name, version, "DA Configuration")
         if offset is None:
             self._log(f"Warning: Could not find DA Configuration offset for {self.ic_name} V{major}.{minor:02d}. Defaulting to 0x4000.")
-            da_addr = 0x4000
+            return 0x4000
         else:
             self.csv_name = csv_name
             self.df_offsets = load_calibration_offsets(csv_name)
             self._log(f"Loaded CSV: {csv_name}, DA Config Offset: {offset}")
-            # All these gauges (BQ40Z50, BQ78350) use 0x4000 as the base for DataFlash access
-            da_addr = 0x4000 + offset
-                
-        # 3. Read DA Configuration
+            return 0x4000 + offset
+
+    def _detect_active_cells(self, da_addr):
+        """Reads DA Configuration and determines active cell count for the pack."""
         self._log(f"Reading DA Configuration at 0x{da_addr:04X}...")
         addr_bytes = [da_addr & 0xFF, (da_addr >> 8) & 0xFF]
-        self.smbus_write_block_raw(0x44, addr_bytes)
-        time.sleep(0.05)
-        da_data = self.smbus_read_block(0x44)
+        da_data = self.read_mac_block(addr_bytes)
         
         if da_data:
             self._log(f"DA Config Raw Read: {da_data.hex(' ')}")
             
-            # Find the echo of our address (e.g., 0x84 0x4F)
-            echo_bytes = bytes(addr_bytes)
-            idx = -1
-            for i in range(len(da_data) - 1):
-                if da_data[i] == echo_bytes[0] and da_data[i+1] == echo_bytes[1]:
-                    idx = i
-                    break
-                    
+            idx = self._find_header(da_data, addr_bytes)
             if idx == -1 and len(da_data) >= 4:
                 self._log("Warning: Address echo not found in DA Config read, falling back to index 0.")
                 idx = 0
                     
             if idx != -1 and idx + 3 < len(da_data):
-                # Data starts right after the echo
                 da_val = struct.unpack_from('<H', da_data, idx + 2)[0]
                 if "BQ78350" in self.ic_name.upper():
-                    # For BQ78350, DA Config is 1 byte, AFE Cell Map is the next 2 bytes (Big Endian)
                     da_val = struct.unpack_from('>H', da_data, idx + 3)[0]
                     self.afe_cell_map = da_val
                     self.active_cells = bin(da_val).count('1')
@@ -392,7 +347,6 @@ class CalibrationThread(QThread):
                 else:
                     cc0 = (da_val >> 0) & 1
                     cc1 = (da_val >> 1) & 1
-                    # Bits: cc1 cc0 -> 00=1 cell, 01=2 cells, 10=3 cells, 11=4 cells
                     self.active_cells = ((cc1 << 1) | cc0) + 1
                     self._log(f"Parsed DA_VAL: 0x{da_val:04X} -> Detected {self.active_cells} active cells (CC1={cc1}, CC0={cc0}).")
                 return True
@@ -402,6 +356,16 @@ class CalibrationThread(QThread):
         self._log("Failed to read DA Configuration. Assuming 4 cells.")
         self.active_cells = 4
         return True
+
+    def detect_firmware_and_config(self):
+        """Orchestrates firmware detection, DataFlash offset mapping, and cell count detection."""
+        fw_info = self._read_firmware_version()
+        if not fw_info:
+            return False
+
+        device, version, major, minor = fw_info
+        da_addr = self._load_dataflash_map(version, major, minor)
+        return self._detect_active_cells(da_addr)
 
     def format_df4000_breakdown(self, df_bytes, label="0x4000 DF DUMP"):
         if not df_bytes or len(df_bytes) < 16:
@@ -1021,9 +985,7 @@ class CalibrationThread(QThread):
                 # Read DAStatus 1 (0x0071) over 0x44 for distinct Cell 1..4, V_Bat (offset 10) and V_Pack (offset 12)
                 v_bat_val = None
                 v_pack_val = None
-                self.smbus_write_block_raw(0x44, [0x71, 0x00])
-                time.sleep(0.05)
-                data1 = self.smbus_read_block(0x44)
+                data1 = self.read_mac_block([0x71, 0x00])
                 if data1 and len(data1) >= 14:
                     data_ok = True
                     if show_voltage:
@@ -1064,9 +1026,7 @@ class CalibrationThread(QThread):
                     self.emit_result("V_Pack", "V_Pack", "-", v_pack_val, suffix=" mV", force_fail=force_diff_fail)
                     self.emit_result("V_Bat", "V_Bat", "-", v_bat_val, suffix=" mV", force_fail=force_diff_fail)
 
-                self.smbus_write_block_raw(0x44, [0x72, 0x00])
-                time.sleep(0.05)
-                data2 = self.smbus_read_block(0x44)
+                data2 = self.read_mac_block([0x72, 0x00])
                 if data2 and len(data2) >= 16:
                     int_temp = round(struct.unpack_from('<H', data2, 2)[0] * 0.1 - 273.15, 1)
                     ts1 = round(struct.unpack_from('<H', data2, 4)[0] * 0.1 - 273.15, 1)
@@ -1087,9 +1047,7 @@ class CalibrationThread(QThread):
                             self.emit_result("TS4 Temp", "TS4 Temp (0x0072)", "-", ts4, suffix=" °C")
                         
                 # Read and Dump 0x4000 DataFlash Block Content
-                self.smbus_write_block_raw(0x44, [0x00, 0x40])
-                time.sleep(0.05)
-                df_4000 = self.smbus_read_block(0x44)
+                df_4000 = self.read_mac_block([0x00, 0x40])
                 if df_4000:
                     self._log(self.format_df4000_breakdown(df_4000, f"CH{self.ch} POST-VERIFY 0x4000 DF BLOCK"))
 
@@ -1135,21 +1093,15 @@ class CalibrationThread(QThread):
 
                 # Pre-calibration 0x4000 DF Dump Checkpoint
                 for ch in self.channels:
-                    self.smbus_write_block_raw(0x44, [0x00, 0x40])
-                    time.sleep(0.05)
-                    df_pre = self.smbus_read_block(0x44)
+                    df_pre = self.read_mac_block([0x00, 0x40])
                     if df_pre:
                         stage_tag = "1. BEFORE VOLTAGE" if mode_name == "voltage" else "3. BEFORE CURRENT"
                         self._log(self.format_df4000_breakdown(df_pre, f"CH{ch} {stage_tag} CALIBRATION 0x4000 DF BLOCK"))
 
                 # Set Relay state: OFF for Voltage mode, ON for Current mode
                 relay_mask = ch_mask if mode_name == "current" else 0
-                pkt_relay = make_packet(CMD_RELAY_SET, bytes([relay_mask]))
-                self.ser.reset_input_buffer()
-                self.ser.write(pkt_relay)
-                self._read_packet()
-                self._log(f"    [Relay] Set mask 0x{relay_mask:02X} for {mode_name.upper()} mode")
-                time.sleep(0.5)
+                self._set_relay(mode_name == "current", mask=relay_mask)
+                time.sleep(0.4)
 
                 payload_bytes = bytearray([ch_mask, mode_code])
                 for ch in range(1, 7):
@@ -1172,16 +1124,10 @@ class CalibrationThread(QThread):
                 self._log(f"--- Sending Hardware Calibration Command to RP2040 ({mode_name.upper()} mode, Channels: {self.channels}) ---")
                 
                 # Send CMD_CALIB_RUN (0x60) packet
-                pkt = make_packet(0x60, bytes(payload_bytes))
-                self.ser.reset_input_buffer()
-                self.ser.write(pkt)
-                
-                # Read ACK response
-                rx = self._read_packet()
-                cmd, resp = parse_response(rx)
+                cmd, resp = self._send_cmd(CMD_CALIB_RUN, bytes(payload_bytes))
                 if not isinstance(resp, (bytes, bytearray)) or len(resp) == 0 or resp[0] != RESP_OK:
                     err_code = resp[0] if isinstance(resp, (bytes, bytearray)) and len(resp) > 0 else resp
-                    self._log(f"Error: RP2040 rejected hardware calibration start command for {mode_name}. (Resp Code: {err_code}, Cmd: {cmd}, RAW: {rx.hex(' ') if rx else 'Empty'})")
+                    self._log(f"Error: RP2040 rejected hardware calibration start command for {mode_name}. (Resp Code: {err_code}, Cmd: {cmd})")
                     self.finished_signal.emit(False)
                     return
 
@@ -1191,12 +1137,7 @@ class CalibrationThread(QThread):
                     if not self._running: break
                     time.sleep(0.1)
                     
-                    pkt_status = make_packet(0x61, b"")
-                    self.ser.reset_input_buffer()
-                    self.ser.write(pkt_status)
-                    
-                    rx_st = self._read_packet()
-                    st_cmd, st_resp = parse_response(rx_st)
+                    st_cmd, st_resp = self._send_cmd(CMD_CALIB_STATUS, b"")
                     if isinstance(st_resp, (bytes, bytearray)) and st_resp[0] == RESP_OK:
                         state = st_resp[1]
                         active_channels = st_resp[2]
@@ -1231,9 +1172,7 @@ class CalibrationThread(QThread):
                                     if ch_status_map[ch] and mode_name != "current":
                                         self.ch = ch
                                         self._log(f"    [CH{ch} RP2040 HW Result] PASS -> Cell1 Gain: {cell1_g}, Pack Gain: {pack_g}, Bat Gain: {bat_g}")
-                                        self.smbus_write_block_raw(0x44, [0x00, 0x40])
-                                        time.sleep(0.05)
-                                        df_b = self.smbus_read_block(0x44)
+                                        df_b = self.read_mac_block([0x00, 0x40])
                                         if df_b:
                                             self._log(self.format_df4000_breakdown(df_b, f"CH{ch} 2. AFTER VOLTAGE CALIBRATION 0x4000 DF BLOCK"))
                                         self.emit_result("Cell 1 Gain", "Cell 1 Gain", str(cell1_g), cell1_g, is_gain=True)
@@ -1263,9 +1202,7 @@ class CalibrationThread(QThread):
                                     if ch_status_map.get(ch, False):
                                         self.ch = ch
                                         # Read updated 0x4000 block for THIS channel to extract IEEE 754 CC Gain & Capacity Gain
-                                        self.smbus_write_block_raw(0x44, [0x00, 0x40])
-                                        time.sleep(0.05)
-                                        df_b = self.smbus_read_block(0x44)
+                                        df_b = self.read_mac_block([0x00, 0x40])
                                         if df_b and len(df_b) >= 16:
                                             self._log(f"    [CH{ch} 0x4000 RAW READ BACK ({len(df_b)}b)] {bytes(df_b).hex(' ')}")
                                             base = 2 if (len(df_b) >= 18 and df_b[0] == 0x00 and df_b[1] == 0x40) else 0
@@ -1291,11 +1228,7 @@ class CalibrationThread(QThread):
 
                 # Ensure Relays are turned OFF after Current mode
                 if mode_name == "current":
-                    pkt_off = make_packet(CMD_RELAY_SET, bytes([0]))
-                    self.ser.reset_input_buffer()
-                    self.ser.write(pkt_off)
-                    self._read_packet()
-                    self._log("    [Relay] Turn OFF all relays after Current mode")
+                    self._set_relay(False, mask=0)
 
             total_cal_time = time.time() - total_start_time
             self._log(f"[TIME] Total Pure RP2040 Hardware Calibration Time (All Channels): {total_cal_time:.3f} sec")

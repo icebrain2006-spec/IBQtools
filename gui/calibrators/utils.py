@@ -2,6 +2,29 @@ import sys
 import os
 import glob
 import csv
+import math
+
+def float_to_xemics(v):
+    if v == 0.0: return [0, 0, 0, 0]
+    exp = int(math.floor(math.log(abs(v), 2))) + 1
+    mant = int((abs(v) / (2**exp)) * (2**24))
+    exp += 128
+    b0 = exp
+    b1 = (mant >> 16) & 0x7F
+    if v < 0: b1 |= 0x80
+    b2 = (mant >> 8) & 0xFF
+    b3 = mant & 0xFF
+    return [b0, b1, b2, b3]
+
+def xemics_to_float(data):
+    if not data or len(data) < 4: return 0.0
+    b0, b1, b2, b3 = data[0], data[1], data[2], data[3]
+    if b0 == 0 and b1 == 0 and b2 == 0 and b3 == 0: return 0.0
+    exp = b0 - 128
+    mant = (((b1 & 0x7F) | 0x80) << 16) | (b2 << 8) | b3
+    v = (mant / (2**24)) * (2**exp)
+    if b1 & 0x80: v = -v
+    return v
 
 def crc8_smbus_byte(crc, data):
     crc ^= data
