@@ -208,3 +208,41 @@ def load_dastatus2_offset_0x0072(ic_name="BQ40Z50"):
         except Exception:
             pass
     return defaults
+
+def write_calibration_log_file(path, ch, serial_num, mfg_date, ch_data, overall_success):
+    """Writes calibration log results to CSV file."""
+    if not path or not ch_data:
+        return
+    import csv
+    from datetime import datetime
+    
+    params = list(ch_data.keys())
+    header_row1 = ["Timestamp", "Serial Number", "Manufacture Date"] + params + ["Overall Result"]
+    header_row2 = ["", "", ""] + [ch_data[p]['range'] for p in params] + [""]
+    data_row = [datetime.now().strftime("%Y-%m-%d %H:%M:%S"), serial_num, mfg_date] + [ch_data[p]['value'] for p in params] + ["PASS" if overall_success else "FAIL"]
+    
+    write_header = False
+    if not os.path.exists(path):
+        write_header = True
+    else:
+        try:
+            with open(path, "r", encoding="utf-8", newline="") as f:
+                reader = list(csv.reader(f))
+                last_ranges = None
+                for row in reversed(reader):
+                    if len(row) > 3 and row[0] == "" and row[1] == "":
+                        last_ranges = row
+                        break
+                if last_ranges != header_row2:
+                    write_header = True
+        except Exception:
+            write_header = True
+            
+    with open(path, "a", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        if write_header:
+            if os.path.exists(path) and os.path.getsize(path) > 0:
+                writer.writerow([])
+            writer.writerow(header_row1)
+            writer.writerow(header_row2)
+        writer.writerow(data_row)
