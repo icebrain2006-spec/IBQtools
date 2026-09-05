@@ -7,23 +7,7 @@ from PySide6.QtCore import QThread, Signal, Slot
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from updater_thread import make_packet, parse_response, RESP_OK, CMD_I2C_RAW, CMD_SMBUS_CMD, CMD_SMBUS_POLL_BLOCK, CMD_RELAY_SET, PROTOCOL_STX
-from calibrators.utils import detect_dataflash_offset, load_calibration_offsets, load_adc_offset_0xf081, load_dastatus1_offset_0x0071, load_dastatus2_offset_0x0072
-
-def crc8_smbus_byte(crc, data):
-    crc ^= data
-    for _ in range(8):
-        if crc & 0x80:
-            crc = (crc << 1) ^ 0x07
-        else:
-            crc = (crc << 1)
-        crc &= 0xFF
-    return crc
-
-def smbus_pec_calculate(data_bytes):
-    crc = 0
-    for b in data_bytes:
-        crc = crc8_smbus_byte(crc, b)
-    return crc
+from calibrators.utils import detect_dataflash_offset, load_calibration_offsets, load_adc_offset_0xf081, load_dastatus1_offset_0x0071, load_dastatus2_offset_0x0072, crc8_smbus_byte, smbus_pec_calculate
 
 class CalibrationThread(QThread):
     log_signal = Signal(str)

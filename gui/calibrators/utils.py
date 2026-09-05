@@ -3,6 +3,22 @@ import os
 import glob
 import csv
 
+def crc8_smbus_byte(crc, data):
+    crc ^= data
+    for _ in range(8):
+        if crc & 0x80:
+            crc = (crc << 1) ^ 0x07
+        else:
+            crc = (crc << 1)
+        crc &= 0xFF
+    return crc
+
+def smbus_pec_calculate(data_bytes):
+    crc = 0
+    for b in data_bytes:
+        crc = crc8_smbus_byte(crc, b)
+    return crc
+
 def get_dataflash_dir():
     if getattr(sys, 'frozen', False):
         base_meipass = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
