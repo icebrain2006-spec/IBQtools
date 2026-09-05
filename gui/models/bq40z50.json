@@ -1,0 +1,20 @@
+{
+  "name": "BQ40Z50",
+  "script": "bq40z50",
+  "voltage": {
+    "Cell 1 (mV)": "3200",
+    "PACK (mV)": "12780",
+    "BAT (mV)": "12780"
+  },
+  "current": {
+    "Current (mA)": "-1000",
+    "Shunt Resistor (mOhm)": "1.0"
+  },
+  "temperature": {
+    "Int Temp (°C)": { "val": "25.0", "check": true },
+    "TS1 Temp (°C)": { "val": "25.0", "check": true },
+    "TS2 Temp (°C)": { "val": "25.0", "check": true },
+    "TS3 Temp (°C)": { "val": "25.0", "check": true },
+    "TS4 Temp (°C)": { "val": "25.0", "check": true }
+  }
+}

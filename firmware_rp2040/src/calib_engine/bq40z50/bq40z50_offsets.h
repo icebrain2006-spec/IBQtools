@@ -193,6 +193,15 @@ typedef struct {
     uint8_t capacity_gain;  ///< Capacity Gain 오프셋 (float32, bytes 13-16)
 } bq_df4000_offsets_t;
 
+static const bq_df4000_offsets_t BQ40Z50_DF4000_OFFSETS = {
+    .min_len        = 34,
+    .cell1_gain     = 3,
+    .bat_gain       = 5,
+    .pack_gain      = 7,
+    .cc_gain        = 9,
+    .capacity_gain  = 13
+};
+
 #include "bq40z50_v3_09_offsets.h"
 #include "bq40z50_v4_02_offsets.h"
 #include "bq40z50_v5_05_offsets.h"

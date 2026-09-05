@@ -1,0 +1,14 @@
+{
+  "name": "BQ34Z100",
+  "script": "bq34z100",
+  "voltage": {
+    "Voltage (mV)": "37888"
+  },
+  "current": {
+    "Current (mA)": "-2000",
+    "CC Offset": ""
+  },
+  "temperature": {
+    "Temperature (°C)": "25.0"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "BQ4050",
+  "script": "bq4050",
+  "voltage": {
+    "Cell 1 (mV)": "3200",
+    "BAT (mV)": "12780",
+    "PACK (mV)": "12780"
+  },
+  "current": {
+    "Current (mA)": "-1000",
+    "Shunt Resistor (mOhm)": "1.0"
+  },
+  "temperature": {
+    "Internal (°C)": "25.0",
+    "External 1 (°C)": "25.0",
+    "External 2 (°C)": "25.0",
+    "External 3 (°C)": "25.0",
+    "External 4 (°C)": "25.0"
+  }
+}

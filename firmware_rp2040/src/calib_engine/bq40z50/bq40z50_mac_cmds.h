@@ -50,6 +50,8 @@
 #define BQ40Z50_MAC_AFE_REGISTER        0x0058
 
 // Calibration & RAW ADC Commands
+#define BQ40Z50_MAC_DASTATUS1           0x0071  // DAStatus1 (Cell Voltages, Currents, Powers)
+#define BQ40Z50_MAC_DASTATUS2           0x0072  // DAStatus2 (Temperatures, Raw ADCs)
 #define BQ40Z50_MAC_RAW_ADC_STOP        0xF080  // Disable RAW ADC Mode
 #define BQ40Z50_MAC_RAW_ADC_START       0xF081  // Enable RAW ADC Mode
 

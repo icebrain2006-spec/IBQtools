@@ -20,86 +20,41 @@ import serial
 
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), "calib_config.json")
 
-IC_CONFIGS = {
-    "BQ40Z50": {
-        "voltage": {
-            "Cell 1 (mV)": "3200",
-            "PACK (mV)": "12780", 
-            "BAT (mV)": "12780"
-        },
-        "current": {
-            "Current (mA)": "-1000",
-            "Shunt Resistor (mOhm)": "1.0"
-        },
-        "temperature": {
-            "Int Temp (°C)": {"val": "25.0", "check": True}, 
-            "TS1 Temp (°C)": {"val": "25.0", "check": True},
-            "TS2 Temp (°C)": {"val": "25.0", "check": True}, 
-            "TS3 Temp (°C)": {"val": "25.0", "check": True},
-            "TS4 Temp (°C)": {"val": "25.0", "check": True}
-        },
-        "script": "bq40z50" # runner will append _voltage.calib, _temp.calib, _current.calib
-    },
-    "BQ4050": {
-        "voltage": {
-            "Cell 1 (mV)": "3200", "BAT (mV)": "12780", "PACK (mV)": "12780"
-        },
-        "current": {
-            "Current (mA)": "-1000",
-            "Shunt Resistor (mOhm)": "1.0"
-        },
-        "temperature": {
-            "Internal (°C)": "25.0", "External 1 (°C)": "25.0",
-            "External 2 (°C)": "25.0", "External 3 (°C)": "25.0",
-            "External 4 (°C)": "25.0"
-        },
-        "script": "bq4050"
-    },
-    "BQ34Z100": {
-        "voltage": {
-            "Voltage (mV)": "37888"
-        },
-        "current": {
-            "Current (mA)": "-2000",
-            "CC Offset": ""
-        },
-        "temperature": {
-            "Temperature (°C)": "25.0"
-        },
-        "script": "bq34z100"
-    },
-    "BQ78350": {
-        "voltage": {
-            "Cell 1 (mV)": "3200", "Cell 2 (mV)": "3200", "Cell 3 (mV)": "3200", "Cell 4 (mV)": "3200",
-            "Cell 5 (mV)": "3200", "Cell 6 (mV)": "3200", "Cell 7 (mV)": "3200", "Cell 8 (mV)": "3200",
-            "Cell 9 (mV)": "3200", "Cell 10 (mV)": "3200", "Cell 11 (mV)": "3200", "Cell 12 (mV)": "3200",
-            "Cell 13 (mV)": "3200", "Cell 14 (mV)": "3200", "Cell 15 (mV)": "3200",
-            "Ext Average Cell (mV)": "3200", "VAUX (mV)": "3200"
-        },
-        "current": {
-            "Current (mA)": "-1000",
-            "Shunt Resistor (mOhm)": "1.0"
-        },
-        "temperature": {
-            "Sensor 1 (°C)": "25.0", "Sensor 2 (°C)": "25.0", "Sensor 3 (°C)": "25.0", "Internal Sensor (°C)": "25.0"
-        },
-        "script": "bq78350"
-    },
-    "BQ40Z80": {
-        "voltage": {
-            "Cell 1 (mV)": "3200", "VC6-VSS (mV)": "3200", "Cell-7 Positive (mV)": "3200", "PACK (mV)": "12780"
-        },
-        "current": {
-            "Current (mA)": "-1000"
-        },
-        "temperature": {
-            "Internal (°C)": "25.0", "External 1 (°C)": "25.0",
-            "External 2 (°C)": "25.0", "External 3 (°C)": "25.0",
-            "External 4 (°C)": "25.0"
-        },
-        "script": "bq40z80"
-    }
-}
+def load_ic_configs():
+    import json
+    import glob
+    
+    if getattr(sys, 'frozen', False):
+        base_meipass = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+        candidates = [
+            os.path.join(base_meipass, "gui", "models"),
+            os.path.join(base_meipass, "models"),
+            os.path.join(os.path.dirname(sys.executable), "gui", "models"),
+            os.path.join(os.path.dirname(sys.executable), "models"),
+        ]
+        models_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
+        for c in candidates:
+            if os.path.exists(c):
+                models_dir = c
+                break
+    else:
+        models_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
+        
+    configs = {}
+    json_files = glob.glob(os.path.join(models_dir, "*.json"))
+    for json_file in sorted(json_files):
+        try:
+            with open(json_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                ic_name = data.get("name")
+                if ic_name:
+                    configs[ic_name] = data
+        except Exception:
+            pass
+            
+    return configs
+
+IC_CONFIGS = load_ic_configs()
 
 class CustomHeader(QHeaderView):
     def __init__(self, parent=None):

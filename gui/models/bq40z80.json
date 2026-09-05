@@ -1,0 +1,20 @@
+{
+  "name": "BQ40Z80",
+  "script": "bq40z80",
+  "voltage": {
+    "Cell 1 (mV)": "3200",
+    "VC6-VSS (mV)": "3200",
+    "Cell-7 Positive (mV)": "3200",
+    "PACK (mV)": "12780"
+  },
+  "current": {
+    "Current (mA)": "-1000"
+  },
+  "temperature": {
+    "Internal (°C)": "25.0",
+    "External 1 (°C)": "25.0",
+    "External 2 (°C)": "25.0",
+    "External 3 (°C)": "25.0",
+    "External 4 (°C)": "25.0"
+  }
+}

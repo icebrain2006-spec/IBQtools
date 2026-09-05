@@ -26,6 +26,8 @@ add_executable(firmware
     src/calib_engine/bq40z50/bq40z50_calib.c
     src/calib_engine/bq40z50/bq40z50_adc_helper.c
     src/calib_engine/bq78350/bq78350_calib.c
+    src/calib_engine/bq78350/bq78350_df_helper.c
+    src/calib_engine/bq78350/bq78350_adc_helper.c
     src/calib_engine/bq40z80/bq40z80_calib.c
     src/led/ws2812_control.c
 )

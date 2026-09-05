@@ -1,0 +1,33 @@
+{
+  "name": "BQ78350",
+  "script": "bq78350",
+  "voltage": {
+    "Cell 1 (mV)": "3200",
+    "Cell 2 (mV)": "3200",
+    "Cell 3 (mV)": "3200",
+    "Cell 4 (mV)": "3200",
+    "Cell 5 (mV)": "3200",
+    "Cell 6 (mV)": "3200",
+    "Cell 7 (mV)": "3200",
+    "Cell 8 (mV)": "3200",
+    "Cell 9 (mV)": "3200",
+    "Cell 10 (mV)": "3200",
+    "Cell 11 (mV)": "3200",
+    "Cell 12 (mV)": "3200",
+    "Cell 13 (mV)": "3200",
+    "Cell 14 (mV)": "3200",
+    "Cell 15 (mV)": "3200",
+    "Ext Average Cell (mV)": "3200",
+    "VAUX (mV)": "3200"
+  },
+  "current": {
+    "Current (mA)": "-1000",
+    "Shunt Resistor (mOhm)": "1.0"
+  },
+  "temperature": {
+    "Sensor 1 (°C)": "25.0",
+    "Sensor 2 (°C)": "25.0",
+    "Sensor 3 (°C)": "25.0",
+    "Internal Sensor (°C)": "25.0"
+  }
+}
