@@ -20,41 +20,8 @@ import serial
 
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), "calib_config.json")
 
-def load_ic_configs():
-    import json
-    import glob
-    
-    if getattr(sys, 'frozen', False):
-        base_meipass = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
-        candidates = [
-            os.path.join(base_meipass, "gui", "models"),
-            os.path.join(base_meipass, "models"),
-            os.path.join(os.path.dirname(sys.executable), "gui", "models"),
-            os.path.join(os.path.dirname(sys.executable), "models"),
-        ]
-        models_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
-        for c in candidates:
-            if os.path.exists(c):
-                models_dir = c
-                break
-    else:
-        models_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
-        
-    configs = {}
-    json_files = glob.glob(os.path.join(models_dir, "*.json"))
-    for json_file in sorted(json_files):
-        try:
-            with open(json_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                ic_name = data.get("name")
-                if ic_name:
-                    configs[ic_name] = data
-        except Exception:
-            pass
-            
-    return configs
-
-IC_CONFIGS = load_ic_configs()
+from models import IC_CONFIGS
+from styles import Colors
 
 class CustomHeader(QHeaderView):
     def __init__(self, parent=None):
@@ -72,21 +39,21 @@ class CustomHeader(QHeaderView):
         
         # Background
         if logicalIndex == 0:
-            painter.fillRect(rect, QColor("#1e1e1e"))
+            painter.fillRect(rect, Colors.BG_DARK)
         elif logicalIndex in self.active_cols:
-            painter.fillRect(rect, QColor("#2d5a2d")) # Active Green
+            painter.fillRect(rect, Colors.BG_ACTIVE_GREEN) # Active Green
         else:
-            painter.fillRect(rect, QColor("#222222")) # Inactive Gray
+            painter.fillRect(rect, Colors.BG_INACTIVE) # Inactive Gray
             
         # Border
-        painter.setPen(QColor("#3a3a3a"))
+        painter.setPen(Colors.BORDER_DARK)
         painter.drawRect(rect.adjusted(0, 0, -1, -1))
         
         # Text
         if logicalIndex == 0 or logicalIndex in self.active_cols:
-            painter.setPen(QColor("white"))
+            painter.setPen(Colors.TEXT_WHITE)
         else:
-            painter.setPen(QColor("#888888"))
+            painter.setPen(Colors.TEXT_MUTED)
             
         text = self.model().headerData(logicalIndex, Qt.Horizontal, Qt.DisplayRole)
         if text:
@@ -695,7 +662,7 @@ class CalibrationTab(QWidget):
             item = self.table_data.item(r, ch)
             if item:
                 item.setText("")
-                item.setForeground(QColor("#E0E0E0"))
+                item.setForeground(Colors.TEXT_ROW)
 
     @Slot(str, int, str, str)
     def update_or_add_table_row(self, param, ch, value, status):
@@ -763,11 +730,11 @@ class CalibrationTab(QWidget):
                 
             item_val.setText(value)
             if status == "FAIL":
-                item_val.setForeground(QColor("#FF4444"))
+                item_val.setForeground(Colors.FAIL)
             elif status == "PASS":
-                item_val.setForeground(QColor("#00FF00"))
+                item_val.setForeground(Colors.SUCCESS)
             else:
-                item_val.setForeground(QColor("#E0E0E0"))
+                item_val.setForeground(Colors.TEXT_ROW)
         else:
             # Find insertion position based on strict param order
             insert_pos = self.table_data.rowCount()

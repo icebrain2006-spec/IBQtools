@@ -23,6 +23,7 @@
   - 300줄을 초과하는 거대 클래스는 역할(통신, 감지, HW 캘리브레이션 등)에 따라 Mixin 클래스로 분리합니다.
   - 특정 IC/장치별 분기 조건문은 단일 파일 내 거대 조건문 대신 서브 패키지(예: `verifiers/`)로 모듈화하고 디스패처 패턴을 적용합니다.
 - **File I/O Isolation (관심사 분리)**: CSV 로그 파일 생성/저장 등 파일 시스템 I/O 로직은 스레드 클래스 내부에서 직접 작성하지 않고 `utils.py` 등의 독립 유틸리티 함수로 분리합니다.
+- **Centralized Styling & Design Tokens (스타일/디자인 토큰 중앙 관리)**: UI 하드코딩 색상(`QColor("#1e1e1e")` 등) 및 디자인 토큰은 코드 곳곳에 직접 작성하지 않고 `gui/styles.py` (`Colors` 클래스)에서 중앙 집중 관리하여 디자인 일관성과 유지보수성을 보장합니다.
 - **Compilation Verification**: 모듈 분리 및 수정 후에는 반드시 `uv run python -m py_compile <files...>` 명령으로 구문 및 교차 참조 오류를 검증합니다.
 
 
