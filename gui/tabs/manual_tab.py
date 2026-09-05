@@ -1,12 +1,15 @@
+import sys
+import os
 import serial
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
                                QGridLayout, QLabel, QComboBox, QLineEdit, 
                                QPushButton, QTextBrowser, QMessageBox)
 from PySide6.QtGui import QRegularExpressionValidator
 from PySide6.QtCore import QRegularExpression
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from widgets import PortComboBox
 from updater_thread import make_packet, parse_response, CMD_I2C_RAW, RESP_OK
-from tabs.updater_tab import PortComboBox
-import serial.tools.list_ports
 import re
 
 class ManualTab(QWidget):
@@ -22,21 +25,6 @@ class ManualTab(QWidget):
         
         ctrl_layout.addWidget(QLabel("COM Port:"), 0, 0)
         self.man_port = PortComboBox()
-        
-        # Initial population
-        active_ports = []
-        for p in serial.tools.list_ports.comports():
-            hwid = str(p.hwid).upper()
-            desc = str(p.description).upper()
-            if "BTHENUM" in hwid or "BLUETOOTH" in desc or "BTHENUM" in desc: continue
-            if "USB" not in hwid and "USB" not in desc: continue
-            active_ports.append(p.device)
-            
-        if active_ports:
-            self.man_port.addItems(active_ports)
-        else:
-            self.man_port.addItem("None")
-            
         ctrl_layout.addWidget(self.man_port, 0, 1)
         
         ctrl_layout.addWidget(QLabel("Channel (1-6):"), 0, 2)

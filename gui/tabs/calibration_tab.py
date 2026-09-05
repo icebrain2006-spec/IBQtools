@@ -22,6 +22,8 @@ CONFIG_FILE = os.path.join(os.path.dirname(__file__), "calib_config.json")
 
 from models import IC_CONFIGS
 from styles import Colors
+from strings import UIStrings
+from widgets import PortComboBox
 
 class CustomHeader(QHeaderView):
     def __init__(self, parent=None):
@@ -82,12 +84,11 @@ class CalibrationTab(QWidget):
         
         # --- Top: Port & Channel Selection ---
         top_layout = QHBoxLayout()
-        from tabs.updater_tab import PortComboBox
         self.combo_port = PortComboBox()
         self.combo_port.setMinimumWidth(120)
         self.combo_port.currentTextChanged.connect(lambda t: self.settings.setValue("calib_last_port", t) if t and t != "Select COM" else None)
         
-        self.btn_refresh_ports = QPushButton("Refresh")
+        self.btn_refresh_ports = QPushButton(UIStrings.BTN_REFRESH)
         self.btn_refresh_ports.clicked.connect(self.refresh_ports)
         
         self.combo_ic = QComboBox()
@@ -98,11 +99,11 @@ class CalibrationTab(QWidget):
         self.combo_ic.currentTextChanged.connect(self._build_dynamic_ui)
         self.combo_ic.currentTextChanged.connect(lambda t: self.settings.setValue("calib_last_ic", t))
         
-        top_layout.addWidget(QLabel("COM Port:"))
+        top_layout.addWidget(QLabel(UIStrings.LBL_COM_PORT))
         top_layout.addWidget(self.combo_port)
         top_layout.addWidget(self.btn_refresh_ports)
         top_layout.addSpacing(20)
-        top_layout.addWidget(QLabel("Target IC:"))
+        top_layout.addWidget(QLabel(UIStrings.LBL_TARGET_IC))
         top_layout.addWidget(self.combo_ic)
         top_layout.addSpacing(20)
         self.selected_channels = set()
@@ -152,11 +153,11 @@ class CalibrationTab(QWidget):
         
         # Limit Button Header
         header_layout = QHBoxLayout()
-        note_label = QLabel("Note: Click on a table header (CH1~CH6) to activate/deactivate channels.")
+        note_label = QLabel(UIStrings.NOTE_CHANNEL_TOGGLE)
         note_label.setStyleSheet("color: #AAAAAA; font-style: italic;")
         header_layout.addWidget(note_label)
         header_layout.addStretch()
-        self.btn_limits = QPushButton("Set Limits")
+        self.btn_limits = QPushButton(UIStrings.BTN_SET_LIMITS)
         self.btn_limits.setStyleSheet("background-color: #333333; color: white; padding: 5px 15px;")
         self.btn_limits.clicked.connect(self.on_open_limits)
         header_layout.addWidget(self.btn_limits)
@@ -205,7 +206,7 @@ class CalibrationTab(QWidget):
         self.table_overall.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         
         # Initialize Overall Result row
-        item_param = QTableWidgetItem("Overall Result")
+        item_param = QTableWidgetItem(UIStrings.LBL_OVERALL_RESULT)
         item_param.setTextAlignment(Qt.AlignCenter)
         font = QFont()
         font.setBold(True)
@@ -234,53 +235,8 @@ class CalibrationTab(QWidget):
         self.refresh_ports()
 
     def refresh_ports(self):
-        current_text = self.combo_port.currentText()
-        self.combo_port.clear()
-        
-        rp2040_ports = []
-        other_usb_ports = []
-        
-        for p in serial.tools.list_ports.comports():
-            hwid = str(p.hwid).upper()
-            desc = str(p.description).upper()
-            if "BTHENUM" in hwid or "BLUETOOTH" in desc:
-                continue
-            # Strictly require USB CDC device (excludes internal motherboard COM1)
-            if "USB" not in hwid and "USB" not in desc:
-                continue
-            
-            # Helper to extract port number for natural sorting (e.g. COM6 -> 6)
-            port_num = 9999
-            if p.device.upper().startswith("COM"):
-                try:
-                    port_num = int(p.device[3:])
-                except ValueError:
-                    pass
-                    
-            # Identify RP2040 Pico USB Serial device (VID 2E8A)
-            if "2E8A" in hwid or "RP2040" in desc or "PICO" in desc:
-                rp2040_ports.append((port_num, p.device))
-            else:
-                other_usb_ports.append((port_num, p.device))
-                
-        # Sort RP2040 ports by smallest port number first (Index 0)
-        rp2040_ports.sort(key=lambda x: x[0])
-        other_usb_ports.sort(key=lambda x: x[0])
-        
-        sorted_ports = [dev for _, dev in rp2040_ports] + [dev for _, dev in other_usb_ports]
-            
-        if not sorted_ports:
-            sorted_ports = ["Select COM"]
-            
-        self.combo_port.addItems(sorted_ports)
-        
-        # Always default to the smallest RP2040 port at Index 0 if present
-        if rp2040_ports:
-            self.combo_port.setCurrentIndex(0)
-        elif current_text and current_text in sorted_ports:
-            self.combo_port.setCurrentText(current_text)
-        elif sorted_ports and sorted_ports[0] != "Select COM":
-            self.combo_port.setCurrentIndex(0)
+        if hasattr(self, 'combo_port'):
+            self.combo_port.refresh_ports()
         
     def _save_current_channel_inputs(self):
         ic_name = self.combo_ic.currentText()
@@ -396,7 +352,7 @@ class CalibrationTab(QWidget):
         
         # 1. Voltage Group
         if "voltage" in config and config["voltage"]:
-            group_vt = QGroupBox("Voltage Calibration")
+            group_vt = QGroupBox(UIStrings.GRP_VOLTAGE_CALIB)
             grid_vt = QGridLayout()
             
             v_cols = 3 if len(config["voltage"]) > 10 else 2
@@ -421,7 +377,7 @@ class CalibrationTab(QWidget):
             
         # 2. Temperature Group
         if "temperature" in config and config["temperature"]:
-            group_temp = QGroupBox("Temperature Calibration")
+            group_temp = QGroupBox(UIStrings.GRP_TEMP_CALIB)
             grid_temp = QGridLayout()
             for i, (label_text, default_data) in enumerate(config["temperature"].items()):
                 row = i // 2
@@ -457,7 +413,7 @@ class CalibrationTab(QWidget):
             
         # 3. Current Group
         if "current" in config and config["current"]:
-            group_c = QGroupBox("Current Calibration")
+            group_c = QGroupBox(UIStrings.GRP_CURRENT_CALIB)
             grid_c = QGridLayout()
             for i, (label_text, default_data) in enumerate(config["current"].items()):
                 row = i // 2
@@ -495,19 +451,19 @@ class CalibrationTab(QWidget):
                 }}
             """
             
-        self.btn_cal_v = QPushButton("Start Voltage")
+        self.btn_cal_v = QPushButton(UIStrings.BTN_START_VOLTAGE)
         self.btn_cal_v.setStyleSheet(get_btn_style("#232a35", "#3a5070"))
         
-        self.btn_cal_t = QPushButton("Start Temp")
+        self.btn_cal_t = QPushButton(UIStrings.BTN_START_TEMP)
         self.btn_cal_t.setStyleSheet(get_btn_style("#352335", "#703a70"))
         
-        self.btn_cal_c = QPushButton("Start Current")
+        self.btn_cal_c = QPushButton(UIStrings.BTN_START_CURRENT)
         self.btn_cal_c.setStyleSheet(get_btn_style("#353223", "#70663a"))
         
-        self.btn_cal_all = QPushButton("Start All")
+        self.btn_cal_all = QPushButton(UIStrings.BTN_START_ALL)
         self.btn_cal_all.setStyleSheet(get_btn_style("#2b2b2b", "#555555"))
         
-        self.btn_quick_start = QPushButton("Quick Start")
+        self.btn_quick_start = QPushButton(UIStrings.BTN_QUICK_START)
         self.btn_quick_start.setCheckable(True)
         self.btn_quick_start.setStyleSheet("""
             QPushButton {
@@ -524,7 +480,7 @@ class CalibrationTab(QWidget):
                 border: 1px solid #00e676;
             }
         """)
-        self.btn_quick_start.setToolTip("Enable this to trigger 'Start All' using the configured hotkey")
+        self.btn_quick_start.setToolTip(UIStrings.TOOLTIP_QUICK_START)
         
         self.btn_cal_v.clicked.connect(lambda: self.on_start_calib("voltage"))
         self.btn_cal_t.clicked.connect(lambda: self.on_start_calib("temp"))

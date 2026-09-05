@@ -6,6 +6,9 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import QSettings, Qt
 
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from strings import UIStrings
+
 class LimitsDialog(QDialog):
     def __init__(self, ic_name, default_targets, parent=None, settings=None):
         super().__init__(parent)
@@ -116,9 +119,9 @@ class LimitsDialog(QDialog):
         layout.addWidget(scroll)
         
         btn_layout = QHBoxLayout()
-        btn_save = QPushButton("Save && Close")
+        btn_save = QPushButton(UIStrings.BTN_SAVE_CLOSE)
         btn_save.clicked.connect(self.save_and_close)
-        btn_cancel = QPushButton("Cancel")
+        btn_cancel = QPushButton(UIStrings.BTN_CANCEL)
         btn_cancel.clicked.connect(self.reject)
         
         btn_layout.addStretch()

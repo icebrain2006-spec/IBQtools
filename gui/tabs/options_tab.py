@@ -5,7 +5,9 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
                                QLineEdit, QPushButton, QFormLayout, QMessageBox,
                                QFileDialog, QLabel, QProgressBar, QDialog, QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox)
 from PySide6.QtCore import QThread, Signal, Qt
-import csv
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from widgets import get_available_ports
 from config import config, setup_error_logging
 from fw_updater import get_latest_github_release, download_file, find_rp2040_drive
 from updater_thread import get_fw_version
@@ -25,16 +27,8 @@ class CheckUpdateWorker(QThread):
             
             # 2. Get current board version by scanning active COM ports
             current_ver = "Not Connected"
-            import serial.tools.list_ports
-            active_ports = []
-            for p in serial.tools.list_ports.comports():
-                hwid = str(p.hwid).upper()
-                desc = str(p.description).upper()
-                if "BTHENUM" in hwid or "BLUETOOTH" in desc or "BTHENUM" in desc:
-                    continue
-                if "USB" not in hwid and "USB" not in desc:
-                    continue
-                active_ports.append(p.device)
+            active_ports, _ = get_available_ports(include_none=False)
+            active_ports = [p for p in active_ports if p != "Select COM"]
                 
             versions = []
             valid_ports = []

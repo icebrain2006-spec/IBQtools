@@ -1,9 +1,12 @@
+import sys
+import os
 import serial
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
                                QComboBox, QPushButton, QLabel, QMessageBox)
 from PySide6.QtCore import Qt
-import serial.tools.list_ports
 
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from widgets import PortComboBox
 from updater_thread import make_packet, CMD_RELAY_SET
 
 class RelayWindow(QWidget):
@@ -14,7 +17,6 @@ class RelayWindow(QWidget):
         self.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint | Qt.Tool) # 툴 윈도우 스타일 추가
         
         # 메인 창의 기본 테마를 불러오되 살짝 다르게(고급스러운 다크 블루/퍼플 톤) 오버라이드
-        import os
         qss_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "style.qss")
         if os.path.exists(qss_path):
             with open(qss_path, "r", encoding="utf-8") as f:
@@ -47,7 +49,7 @@ class RelayWindow(QWidget):
         row_com = QHBoxLayout()
         row_com.setContentsMargins(0,0,0,0)
         row_com.addWidget(QLabel("COM:"))
-        self.combo_ports = QComboBox()
+        self.combo_ports = PortComboBox()
         row_com.addWidget(self.combo_ports, 1)
         layout_port.addLayout(row_com)
         
@@ -92,12 +94,8 @@ class RelayWindow(QWidget):
         layout.addWidget(self.lbl_status)
 
     def refresh_ports(self):
-        self.combo_ports.clear()
-        ports = serial.tools.list_ports.comports()
-        for p in ports:
-            if "BTHENUM" in str(p.hwid).upper():
-                continue
-            self.combo_ports.addItem(p.device)
+        if hasattr(self, 'combo_ports'):
+            self.combo_ports.refresh_ports()
 
     def on_relay_toggled(self, checked):
         # Update text for the button that was just clicked

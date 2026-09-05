@@ -1,7 +1,11 @@
+import sys
+import os
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
                                QLineEdit, QPushButton, QTextBrowser, QFileDialog, QLabel, QListWidget, QProgressBar, QMessageBox)
 from PySide6.QtCore import Qt
-import serial.tools.list_ports
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from widgets import get_available_ports
 from updater_thread import UploadWorker, ScanWorker
 
 class UploadTab(QWidget):
@@ -86,15 +90,8 @@ class UploadTab(QWidget):
         self.target_ports = []
         self.progress_bar.setValue(0)
         self.progress_bar.setFormat("Scanning...")
-        ports = []
-        for p in serial.tools.list_ports.comports():
-            hwid = str(p.hwid).upper()
-            desc = str(p.description).upper()
-            # Skip Bluetooth or virtual ports that might cause serial.Serial to hang
-            if "BTHENUM" in hwid or "BLUETOOTH" in desc or "USB" not in hwid:
-                self.log_msg(f"Skipping non-USB/BT port: {p.device} ({p.description})")
-                continue
-            ports.append(p.device)
+        ports, _ = get_available_ports(include_none=False)
+        ports = [p for p in ports if p != "Select COM"]
             
         self.scan_worker = ScanWorker(ports)
         self.scan_worker.log_msg.connect(self.log_msg)

@@ -27,53 +27,7 @@ class ClickableProgressBar(QProgressBar):
             self.clicked.emit(self.ch_idx)
         super().mousePressEvent(event)
 
-class PortComboBox(QComboBox):
-    def showPopup(self):
-        import serial.tools.list_ports
-        current_text = self.currentText()
-        self.clear()
-        
-        rp2040_ports = []
-        other_usb_ports = []
-        
-        for p in serial.tools.list_ports.comports():
-            hwid = str(p.hwid).upper()
-            desc = str(p.description).upper()
-            if "BTHENUM" in hwid or "BLUETOOTH" in desc:
-                continue
-            # Strictly require USB CDC device (excludes internal motherboard COM1)
-            if "USB" not in hwid and "USB" not in desc:
-                continue
-                
-            port_num = 9999
-            if p.device.upper().startswith("COM"):
-                try:
-                    port_num = int(p.device[3:])
-                except ValueError:
-                    pass
-                    
-            if "2E8A" in hwid or "RP2040" in desc or "PICO" in desc:
-                rp2040_ports.append((port_num, p.device))
-            else:
-                other_usb_ports.append((port_num, p.device))
-                
-        rp2040_ports.sort(key=lambda x: x[0])
-        other_usb_ports.sort(key=lambda x: x[0])
-        
-        sorted_ports = [dev for _, dev in rp2040_ports] + [dev for _, dev in other_usb_ports]
-            
-        if not sorted_ports:
-            sorted_ports = ["Select COM"]
-            
-        self.addItems(sorted_ports)
-        if rp2040_ports:
-            self.setCurrentIndex(0)
-        elif current_text and current_text in sorted_ports:
-            self.setCurrentText(current_text)
-        elif sorted_ports and sorted_ports[0] != "Select COM":
-            self.setCurrentIndex(0)
-            
-        super().showPopup()
+from widgets import PortComboBox
 
 class RP2040BoardWidget(QGroupBox):
     board_finished = Signal()
