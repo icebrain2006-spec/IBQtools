@@ -1,20 +1,70 @@
-import sys
 import os
+import re
 import serial
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
                                QGridLayout, QLabel, QComboBox, QLineEdit, 
                                QPushButton, QTextBrowser, QMessageBox)
 from PySide6.QtGui import QRegularExpressionValidator
-from PySide6.QtCore import QRegularExpression
+from PySide6.QtCore import QRegularExpression, QThread, Signal
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from widgets import PortComboBox
+from widgets.port_combobox import PortComboBox
+from styles import Colors, Styles
+from utils import is_error_status
 from updater_thread import make_packet, parse_response, CMD_I2C_RAW, RESP_OK
-import re
+
+class ManualCommandWorker(QThread):
+    log_msg = Signal(str)
+    finished = Signal(bool)
+
+    def __init__(self, port, ch, addr, tx_data, rx_len, parent=None):
+        super().__init__(parent)
+        self.port = port
+        self.ch = ch
+        self.addr = addr
+        self.tx_data = tx_data
+        self.rx_len = rx_len
+
+    def run(self):
+        tx_len = len(self.tx_data)
+        payload = bytes([self.ch, self.addr, tx_len, self.rx_len]) + bytes(self.tx_data)
+        packet = make_packet(CMD_I2C_RAW, payload)
+        
+        self.log_msg.emit(f"\n[TX] Port:{self.port} CH:{self.ch} Addr:{self.addr:#04x} TX:{self.tx_data} Expected_RX:{self.rx_len}")
+        
+        try:
+            with serial.Serial(self.port, 115200, timeout=1.0) as ser:
+                ser.write(packet)
+                rx = ser.read(128)
+                
+                if not rx:
+                    self.log_msg.emit("[ERROR] No response from RP2040 (Timeout)")
+                    self.finished.emit(False)
+                    return
+                    
+                cmd, resp_payload = parse_response(rx)
+                if cmd == CMD_I2C_RAW:
+                    status = resp_payload[0]
+                    if status == RESP_OK:
+                        rx_bytes = resp_payload[1:]
+                        hex_rx = " ".join([f"{b:02X}" for b in rx_bytes])
+                        self.log_msg.emit(f"[RX] Success: {hex_rx}")
+                        self.finished.emit(True)
+                    else:
+                        self.log_msg.emit(f"[ERROR] I2C Error Code: {status:#04x}")
+                        self.finished.emit(False)
+                else:
+                    self.log_msg.emit(f"[ERROR] Unexpected response command: {cmd:#04x}")
+                    self.finished.emit(False)
+                    
+        except Exception as e:
+            self.log_msg.emit(f"[CRITICAL] Serial Error: {e}")
+            self.finished.emit(False)
+
 
 class ManualTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.worker = None
         self._init_ui()
         
     def _init_ui(self):
@@ -60,6 +110,7 @@ class ManualTab(QWidget):
         layout.addWidget(ctrl_group)
         
         self.man_console = QTextBrowser()
+        self.man_console.setStyleSheet(Styles.LOG_CONSOLE)
         self.man_console.append("Ready for manual I2C commands.")
         layout.addWidget(self.man_console, stretch=1)
 
@@ -71,7 +122,19 @@ class ManualTab(QWidget):
         self.man_tx.setText(spaced)
         self.man_tx.blockSignals(False)
 
+    def log_msg(self, msg):
+        if is_error_status(msg) or "[CRITICAL]" in msg or "[ERROR]" in msg:
+            self.man_console.append(f'<span style="color: {Colors.HEX_FAIL};">{msg}</span>')
+        elif "[RX] Success" in msg:
+            self.man_console.append(f'<span style="color: {Colors.HEX_PASS_GREEN};">{msg}</span>')
+        else:
+            self.man_console.append(msg)
+
     def _send_manual_command(self):
+        if self.worker and self.worker.isRunning():
+            self.log_msg("[WARNING] Command already running. Please wait.")
+            return
+
         port = self.man_port.currentText()
         ch = int(self.man_ch.currentText())
         
@@ -95,34 +158,15 @@ class ManualTab(QWidget):
             except ValueError:
                 QMessageBox.warning(self, "Input Error", "Invalid TX Data (must be space-separated Hex)")
                 return
-                
-        tx_len = len(tx_data)
-        
-        payload = bytes([ch, addr, tx_len, rx_len]) + bytes(tx_data)
-        packet = make_packet(CMD_I2C_RAW, payload)
-        
-        self.man_console.append(f"\n[TX] Port:{port} CH:{ch} Addr:{addr:#04x} TX:{tx_data} Expected_RX:{rx_len}")
-        
-        try:
-            with serial.Serial(port, 115200, timeout=1.0) as ser:
-                ser.write(packet)
-                rx = ser.read(128)
-                
-                if not rx:
-                    self.man_console.append("[ERROR] No response from RP2040 (Timeout)")
-                    return
-                    
-                cmd, resp_payload = parse_response(rx)
-                if cmd == CMD_I2C_RAW:
-                    status = resp_payload[0]
-                    if status == RESP_OK:
-                        rx_bytes = resp_payload[1:]
-                        hex_rx = " ".join([f"{b:02X}" for b in rx_bytes])
-                        self.man_console.append(f"[RX] Success: {hex_rx}")
-                    else:
-                        self.man_console.append(f"[ERROR] I2C Error Code: {status:#04x}")
-                else:
-                    self.man_console.append(f"[ERROR] Unexpected response command: {cmd:#04x}")
-                    
-        except Exception as e:
-            self.man_console.append(f"[CRITICAL] Serial Error: {e}")
+
+        self.btn_send_cmd.setEnabled(False)
+        self.btn_send_cmd.setText("SENDING...")
+
+        self.worker = ManualCommandWorker(port, ch, addr, tx_data, rx_len)
+        self.worker.log_msg.connect(self.log_msg)
+        self.worker.finished.connect(self._on_command_finished)
+        self.worker.start()
+
+    def _on_command_finished(self, success):
+        self.btn_send_cmd.setEnabled(True)
+        self.btn_send_cmd.setText("SEND COMMAND")
