@@ -475,34 +475,44 @@ class RP2040BoardWidget(QGroupBox):
 
         append_work_log(config.get_work_log_path(), self.board_id, ch_idx, slfs_file, wrote_sn, date_str, ch_sn_str, result_str)
 
-    def _on_worker_finished(self, success):
-
+    def _restore_board_ui_controls(self):
+        """Restores interactive UI controls after worker thread finishes."""
         self.combo_port.setEnabled(True)
         self.btn_refresh.setEnabled(True)
         for chk in self.ch_checkboxes:
             chk.setEnabled(True)
-            
-        port = self.combo_port.currentText().strip()
-        if success:
-            set_led_state(port, self.led_color, 0, 0) # Normal Solid
-        else:
-            set_led_state(port, self.led_color, 1, 10) # Error Blink for 10s
-            self.start_blink(10) # Blink GUI background as well
-            
-        self.log_callback(f"[Board {self.board_id}] Thread finished.")
-        self.board_finished.emit()
 
-        # Start Disconnection Monitor for passed channels
+    def _apply_finish_notifications(self, success: bool, port: str):
+        """Applies hardware LED states and GUI blink notifications based on worker outcome."""
+        if success:
+            set_led_state(port, self.led_color, 0, 0)  # Normal Solid
+        else:
+            set_led_state(port, self.led_color, 1, 10)  # Error Blink for 10s
+            self.start_blink(10)  # Blink GUI background as well
+
+    def _start_disconnection_monitor_if_needed(self, port: str):
+        """Launches the DisconnectionMonitor if passed channels exist; enables start button otherwise."""
         if self.passed_channels:
-            self.btn_start_board.setEnabled(False) # 비활성화
-            port = self.combo_port.currentText().strip()
+            self.btn_start_board.setEnabled(False)
             self.disconnect_monitor = DisconnectionMonitor(port, self.passed_channels)
             self.disconnect_monitor.channel_disconnected.connect(self._on_channel_disconnected)
             self.disconnect_monitor.log_msg.connect(lambda msg: self.log_callback(f"[Board {self.board_id} MON] {msg}"))
             self.disconnect_monitor.start()
         else:
-            # 성공한 채널이 하나도 없으면 버튼 다시 활성화
             self.btn_start_board.setEnabled(True)
+
+    def _on_worker_finished(self, success):
+        """Orchestrates worker finish logic: UI restoration, LED notification, signals, and disconnection monitoring."""
+        self._restore_board_ui_controls()
+
+        port = self.combo_port.currentText().strip()
+        self._apply_finish_notifications(success, port)
+
+        self.log_callback(f"[Board {self.board_id}] Thread finished.")
+        self.board_finished.emit()
+
+        self._start_disconnection_monitor_if_needed(port)
+
 
     def _on_channel_disconnected(self, ch_idx):
         # UI 상태를 대기(Waiting)로 초기화
