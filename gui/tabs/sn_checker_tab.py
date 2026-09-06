@@ -28,6 +28,7 @@ class ClickableProgressBar(QProgressBar):
         super().mousePressEvent(event)
 
 from widgets import PortComboBox
+from styles import Colors, Styles
 
 class RP2040BoardWidget(QGroupBox):
     board_finished = Signal()
@@ -51,36 +52,16 @@ class RP2040BoardWidget(QGroupBox):
         layout.setSpacing(2)
         
         lbl_title = QLabel(f"RP2040 Board {board_id}")
-        lbl_title.setStyleSheet("background: transparent; color: white; font-weight: bold; font-size: 13px; margin-left: 2px; margin-bottom: 2px;")
+        lbl_title.setStyleSheet(Styles.BOARD_TITLE_LABEL)
         layout.addWidget(lbl_title)
         
         # Board LED Colors: Cyan(1), Green(2), Magenta(3), Yellow(4)
-        colors = [0x0000FFFF, 0x0000FF00, 0x00FF00FF, 0x00FFFF00]
-        bg_colors = [
-            "rgba(0, 255, 255, 0.25)",
-            "rgba(0, 255, 0, 0.25)",
-            "rgba(255, 0, 255, 0.25)",
-            "rgba(255, 255, 0, 0.25)"
-        ]
-        border_colors = [
-            "rgba(0, 255, 255, 0.6)",
-            "rgba(0, 255, 0, 0.6)",
-            "rgba(255, 0, 255, 0.6)",
-            "rgba(255, 255, 0, 0.6)"
-        ]
-        self.led_color = colors[(self.board_id - 1) % 4]
-        self.bg_color = bg_colors[(self.board_id - 1) % 4]
-        self.border_color = border_colors[(self.board_id - 1) % 4]
+        self.led_color = Colors.BOARD_LED_COLORS[(self.board_id - 1) % 4]
+        self.bg_color = Colors.BOARD_BG_COLORS[(self.board_id - 1) % 4]
+        self.border_color = Colors.BOARD_BORDER_COLORS[(self.board_id - 1) % 4]
         
         self.setObjectName(f"board_group_{self.board_id}")
-        self.default_style = f"""
-            QGroupBox#board_group_{self.board_id} {{ 
-                background-color: {self.bg_color}; 
-                border: 1px solid {self.border_color}; 
-                border-radius: 5px; 
-                margin-top: 2px; 
-            }}
-        """
+        self.default_style = Styles.get_board_group_style(self.board_id, self.bg_color, self.border_color)
         self.setStyleSheet(self.default_style)
         
         # Blink Timer for UI
@@ -94,28 +75,12 @@ class RP2040BoardWidget(QGroupBox):
         com_layout.setContentsMargins(5, 0, 5, 0)
         
         self.btn_start_board = QPushButton("▶ Start")
-        btn_style = f"""
-            QPushButton {{
-                background-color: rgba(0, 0, 0, 0.4);
-                border: 1px solid {self.border_color};
-                border-radius: 4px;
-                color: white;
-                font-weight: bold;
-                padding: 4px 15px;
-            }}
-            QPushButton:hover {{
-                background-color: {self.border_color};
-            }}
-            QPushButton:pressed {{
-                background-color: rgba(0, 0, 0, 0.8);
-            }}
-        """
-        self.btn_start_board.setStyleSheet(btn_style)
+        self.btn_start_board.setStyleSheet(Styles.get_board_start_btn_style(self.border_color))
         self.btn_start_board.clicked.connect(lambda: self.request_start.emit(self))
         com_layout.addWidget(self.btn_start_board)
         
         lbl_port = QLabel("COM Port:")
-        lbl_port.setStyleSheet("background: transparent; color: white; font-weight: bold;")
+        lbl_port.setStyleSheet(Styles.BOARD_LABEL)
         com_layout.addWidget(lbl_port)
         
         self.combo_port = PortComboBox()
@@ -141,28 +106,16 @@ class RP2040BoardWidget(QGroupBox):
         com_layout.addWidget(self.combo_port)
         
         self.btn_refresh = QPushButton("Refresh")
-        refresh_style = """
-            QPushButton {
-                background-color: rgba(0, 0, 0, 0.4);
-                border: 1px solid #777;
-                border-radius: 4px;
-                color: white;
-                padding: 4px 10px;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.1);
-            }
-        """
-        self.btn_refresh.setStyleSheet(refresh_style)
+        self.btn_refresh.setStyleSheet(Styles.BOARD_REFRESH_BTN)
         self.btn_refresh.clicked.connect(self.refresh_info)
         com_layout.addWidget(self.btn_refresh)
         
         self.lbl_fw_ver = QLabel("FW: -")
-        self.lbl_fw_ver.setStyleSheet("background: transparent; color: #EEEEEE; font-weight: bold; margin-left: 10px;")
+        self.lbl_fw_ver.setStyleSheet(Styles.BOARD_FW_LABEL)
         com_layout.addWidget(self.lbl_fw_ver)
         
         self.lbl_slfs_info = QLabel("SLFS: Unknown")
-        self.lbl_slfs_info.setStyleSheet("background: transparent; color: #EEEEEE; font-weight: bold; margin-left: 15px;")
+        self.lbl_slfs_info.setStyleSheet(Styles.BOARD_SLFS_LABEL)
         com_layout.addWidget(self.lbl_slfs_info)
         
         com_layout.addStretch()
@@ -181,13 +134,13 @@ class RP2040BoardWidget(QGroupBox):
         for i in range(6):
             ch_idx = i + 1
             box = QGroupBox("")
-            box.setStyleSheet("QGroupBox { border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; background-color: rgba(0, 0, 0, 0.2); }")
+            box.setStyleSheet(Styles.BOARD_CH_BOX)
             box_layout = QVBoxLayout(box)
             box_layout.setContentsMargins(5, 5, 5, 5)
             box_layout.setSpacing(2)
             
             lbl_ch = QLabel(f"CH {ch_idx}")
-            lbl_ch.setStyleSheet("background: transparent; color: #AAAAAA; font-weight: bold; font-size: 11px;")
+            lbl_ch.setStyleSheet(Styles.BOARD_CH_TITLE)
             box_layout.addWidget(lbl_ch)
             
             chk = QCheckBox("Enable")
@@ -221,10 +174,11 @@ class RP2040BoardWidget(QGroupBox):
         if not checked:
             self.ch_progress[idx].setValue(0)
             self.ch_status[idx].setText("Status: Disabled")
-            self.ch_status[idx].setStyleSheet("color: #555555;")
+            self.ch_status[idx].setStyleSheet(f"color: {Colors.HEX_TEXT_DISABLED};")
         else:
             self.ch_status[idx].setText("Status: Waiting")
-            self.ch_status[idx].setStyleSheet("color: #AAAAAA;")
+            self.ch_status[idx].setStyleSheet(f"color: {Colors.HEX_TEXT_MUTED};")
+
 
     def refresh_info(self):
         port = self.combo_port.currentText()
@@ -442,7 +396,7 @@ class RP2040BoardWidget(QGroupBox):
         if 1 <= ch_idx <= 6:
             lower_text = status_text.lower()
             if "error" in lower_text or "fail" in lower_text or "오류" in lower_text:
-                self.ch_status[ch_idx - 1].setText(f'Status: <span style="color: #FF4444;">{status_text}</span>')
+                self.ch_status[ch_idx - 1].setText(f'Status: <span style="color: {Colors.HEX_FAIL};">{status_text}</span>')
             else:
                 self.ch_status[ch_idx - 1].setText(f"Status: {status_text}")
             self.ch_status[ch_idx - 1].setStyleSheet("") # Reset style
@@ -464,7 +418,7 @@ class RP2040BoardWidget(QGroupBox):
                 current_text = self.ch_status[ch_idx - 1].text().lower()
                 if not ("error" in current_text or "fail" in current_text or "오류" in current_text):
                     self.ch_status[ch_idx - 1].setText("Verify: ERROR")
-                    self.ch_status[ch_idx - 1].setStyleSheet("color: #FF4444; font-weight: bold;")
+                    self.ch_status[ch_idx - 1].setStyleSheet(f"color: {Colors.HEX_FAIL}; font-weight: bold;")
             else:
                 if sn_fmt == "HEX":
                     sn_str = f"0x{sn_int:04X}"
@@ -489,13 +443,14 @@ class RP2040BoardWidget(QGroupBox):
                     
                 if date_match and sn_match:
                     self.ch_status[ch_idx - 1].setText(f"PASS (M:{date_str} SN:{sn_str})")
-                    self.ch_status[ch_idx - 1].setStyleSheet("color: #69F0AE; font-weight: bold;")
+                    self.ch_status[ch_idx - 1].setStyleSheet(f"color: {Colors.HEX_PASS_GREEN}; font-weight: bold;")
                     result_str = "PASS"
                     self.passed_channels.add(ch_idx)
                 else:
                     self.ch_status[ch_idx - 1].setText(f"FAIL (M:{date_str} SN:{sn_str})")
-                    self.ch_status[ch_idx - 1].setStyleSheet("color: #FF4444; font-weight: bold;")
+                    self.ch_status[ch_idx - 1].setStyleSheet(f"color: {Colors.HEX_FAIL}; font-weight: bold;")
                     result_str = "FAIL"
+
                     
             try:
                 work_log = config.get_work_log_path()
@@ -552,8 +507,9 @@ class RP2040BoardWidget(QGroupBox):
         if 1 <= ch_idx <= 6:
             self.ch_progress[ch_idx - 1].setValue(0)
             self.ch_status[ch_idx - 1].setText("Status: Waiting (Swapped)")
-            self.ch_status[ch_idx - 1].setStyleSheet("color: #AAAAAA;")
+            self.ch_status[ch_idx - 1].setStyleSheet(f"color: {Colors.HEX_TEXT_MUTED};")
             self.passed_channels.discard(ch_idx)
+
             
             # 모든 채널이 교체 완료되면 시작 버튼 다시 활성화
             if not self.passed_channels:
@@ -669,21 +625,7 @@ class SNCheckerTab(QWidget):
         
         self.btn_quick_start = QPushButton("Quick Start")
         self.btn_quick_start.setCheckable(True)
-        self.btn_quick_start.setStyleSheet("""
-            QPushButton {
-                background-color: #222222;
-                color: #AAAAAA;
-                border: 1px solid #444444;
-                border-radius: 4px;
-                padding: 4px 15px;
-                font-weight: bold;
-            }
-            QPushButton:checked {
-                background-color: #004d40;
-                color: white;
-                border: 1px solid #00e676;
-            }
-        """)
+        self.btn_quick_start.setStyleSheet(Styles.QUICK_START_BTN)
         self.btn_quick_start.setToolTip("Enable this to trigger 'START ALL' using the configured hotkey")
         
         self.btn_start.clicked.connect(self._start_all)
@@ -702,8 +644,9 @@ class SNCheckerTab(QWidget):
         
         # Log Console
         self.log_console = QTextBrowser()
-        self.log_console.setStyleSheet("background-color: #1A1A1A; color: #69F0AE; font-family: Consolas;")
+        self.log_console.setStyleSheet(Styles.LOG_CONSOLE)
         self.log_console.append("Welcome to Multi-Board BQ40Z50 Updater GUI.")
+
         left_layout.addWidget(self.log_console, stretch=1)
         
         layout.addWidget(left_panel)
@@ -881,9 +824,9 @@ class SNCheckerTab(QWidget):
         safe_msg = msg.replace("<", "&lt;").replace(">", "&gt;")
         if is_error:
             # Wrap with red span for errors
-            self.log_console.append(f'<span style="color: #FF4444;">{safe_msg}</span>')
+            self.log_console.append(f'<span style="color: {Colors.HEX_FAIL};">{safe_msg}</span>')
         else:
-            self.log_console.append(f'<span style="color: #69F0AE;">{safe_msg}</span>')
+            self.log_console.append(f'<span style="color: {Colors.HEX_PASS_GREEN};">{safe_msg}</span>')
 
     def _check_all(self):
         if self.active_workers > 0:
@@ -945,7 +888,7 @@ class SNCheckerTab(QWidget):
 
     def _on_global_preflight_finished(self, success, all_errors):
         if not success:
-            self.log_console.append(f'<span style="color: #FF4444;">[SYS] START ALL Aborted due to pre-flight failure.</span>')
+            self.log_console.append(f'<span style="color: {Colors.HEX_FAIL};">[SYS] START ALL Aborted due to pre-flight failure.</span>')
             
             # Update UI for all boards
             for board in self.boards:
@@ -960,11 +903,12 @@ class SNCheckerTab(QWidget):
                     ch_idx = i + 1
                     if ch_idx in error_channels:
                         stat.setText("SMBus Error")
-                        stat.setStyleSheet("color: #FF4444; font-weight: bold;")
+                        stat.setStyleSheet(f"color: {Colors.HEX_FAIL}; font-weight: bold;")
                         has_error = True
                     else:
                         stat.setText("Preflight OK (Aborted)")
-                        stat.setStyleSheet("color: #18FFFF; font-weight: bold;")
+                        stat.setStyleSheet(f"color: {Colors.HEX_WARN_CYAN}; font-weight: bold;")
+
                         
                 port = board.combo_port.currentText().strip()
                 if has_error:
@@ -1000,7 +944,8 @@ class SNCheckerTab(QWidget):
         except Exception as e:
             import traceback
             err_str = traceback.format_exc()
-            self.log_console.append(f'<span style="color: #FF4444;">[EXCEPTION] {err_str}</span>')
+            self.log_console.append(f'<span style="color: {Colors.HEX_FAIL};">[EXCEPTION] {err_str}</span>')
+
 
     def _stop_all(self):
         self.log_console.append("\n[SYS] STOP ALL REQUESTED...")
