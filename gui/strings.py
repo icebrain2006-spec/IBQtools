@@ -5,6 +5,15 @@ class UIStrings:
 
     _STRINGS = {
         "en": {
+            # --- Main Window & Tabs ---
+            "BTN_OPEN_RELAY": "🚀 Open Mini Relay Controller",
+            "TAB_SN_INSPECTION": "SN & Inspection",
+            "TAB_CALIBRATION": "Calibration",
+            "TAB_MANUAL_DEBUG": "Manual I2C Debug",
+            "TAB_SLFS_FLASHER": "SLFS Flasher",
+            "TAB_CSV_VIEWER": "CSV to SLFS",
+            "TAB_OPTIONS": "Options",
+
             # --- Common Actions & Buttons ---
             "BTN_REFRESH": "Refresh",
             "BTN_BROWSE": "Browse...",
@@ -26,6 +35,9 @@ class UIStrings:
             "LBL_SEARCH": "Search:",
             "LBL_STATUS": "Status:",
             "LBL_READY": "Ready.",
+            "LBL_PARAM": "Parameter",
+            "LBL_MIN_OFFSET": "Min (or -Offset)",
+            "LBL_MAX_OFFSET": "Max (or +Offset)",
 
             # --- Options Tab ---
             "GRP_DATA_LOGGING": "Data Logging Settings (CSV)",
@@ -89,6 +101,15 @@ class UIStrings:
             "NOTE_CHANNEL_TOGGLE": "Note: Click on a table header (CH1~CH6) to activate/deactivate channels.",
         },
         "ko": {
+            # --- Main Window & Tabs ---
+            "BTN_OPEN_RELAY": "🚀 미니 릴레이 컨트롤러 열기",
+            "TAB_SN_INSPECTION": "시리얼 번호 및 검사",
+            "TAB_CALIBRATION": "캘리브레이션",
+            "TAB_MANUAL_DEBUG": "수동 I2C 디버깅",
+            "TAB_SLFS_FLASHER": "SLFS 플래셔",
+            "TAB_CSV_VIEWER": "CSV 로그 뷰어",
+            "TAB_OPTIONS": "옵션 및 설정",
+
             # --- Common Actions & Buttons ---
             "BTN_REFRESH": "새로고침",
             "BTN_BROWSE": "찾아보기...",
@@ -110,6 +131,9 @@ class UIStrings:
             "LBL_SEARCH": "검색:",
             "LBL_STATUS": "상태:",
             "LBL_READY": "준비됨.",
+            "LBL_PARAM": "파라미터",
+            "LBL_MIN_OFFSET": "최소값 (또는 -오프셋)",
+            "LBL_MAX_OFFSET": "최대값 (또는 +오프셋)",
 
             # --- Options Tab ---
             "GRP_DATA_LOGGING": "데이터 로깅 설정 (CSV)",

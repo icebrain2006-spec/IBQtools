@@ -4,14 +4,16 @@ from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, Q
 from PySide6.QtGui import QIcon
 from PySide6.QtCore import Qt
 
-from tabs.sn_checker_tab import SNCheckerTab
-from tabs.calibration_tab import CalibrationTab
-from tabs.manual_tab import ManualTab
-from tabs.slfs_flasher_tab import SLFSFlasherTab
-from tabs.csv_tab import CsvTab
-from tabs.options_tab import OptionsTab
-from tabs.relay_tab import RelayWindow
-from version import __version__
+from gui.tabs.sn_checker_tab import SNCheckerTab
+from gui.tabs.calibration_tab import CalibrationTab
+from gui.tabs.manual_tab import ManualTab
+from gui.tabs.slfs_flasher_tab import SLFSFlasherTab
+from gui.tabs.csv_tab import CsvTab
+from gui.tabs.options_tab import OptionsTab
+from gui.tabs.relay_tab import RelayWindow
+from gui.version import __version__
+from gui.strings import UIStrings
+from gui.styles import Colors
 
 
 def handle_exception(exc_type, exc_value, exc_traceback):
@@ -24,7 +26,10 @@ def handle_exception(exc_type, exc_value, exc_traceback):
 
 sys.excepthook = handle_exception
 
+
 class BqUpdaterMainWindow(QMainWindow):
+    """Main Application Window for IBQtools BQ40Z50 Programmer."""
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"IBQtools v{__version__} (Multi BQ Firmware Programmer)")
@@ -52,8 +57,8 @@ class BqUpdaterMainWindow(QMainWindow):
         
         # Top Bar for independent tools
         self.top_bar = QHBoxLayout()
-        self.btn_open_relay = QPushButton("🚀 Open Mini Relay Controller")
-        self.btn_open_relay.setStyleSheet("font-weight: bold; background-color: #2E7D32; color: white; padding: 5px 15px;")
+        self.btn_open_relay = QPushButton(UIStrings.get("BTN_OPEN_RELAY"))
+        self.btn_open_relay.setStyleSheet(f"font-weight: bold; background-color: #2E7D32; color: {Colors.HEX_WHITE}; padding: 5px 15px;")
         self.btn_open_relay.clicked.connect(self.open_relay_window)
         self.top_bar.addStretch()
         self.top_bar.addWidget(self.btn_open_relay)
@@ -72,25 +77,24 @@ class BqUpdaterMainWindow(QMainWindow):
         self.csv_tab = CsvTab()
         self.options_tab = OptionsTab()
         
-        self.tabs.addTab(self.sn_checker_tab, "SN & Inspection")
-        self.tabs.addTab(self.calibration_tab, "Calibration")
-        self.tabs.addTab(self.manual_tab, "Manual I2C Debug")
-        self.tabs.addTab(self.slfs_flasher_tab, "SLFS Flasher")
-        self.tabs.addTab(self.csv_tab, "CSV to SLFS")
-        self.tabs.addTab(self.options_tab, "Options")
+        self.tabs.addTab(self.sn_checker_tab, UIStrings.get("TAB_SN_INSPECTION"))
+        self.tabs.addTab(self.calibration_tab, UIStrings.get("TAB_CALIBRATION"))
+        self.tabs.addTab(self.manual_tab, UIStrings.get("TAB_MANUAL_DEBUG"))
+        self.tabs.addTab(self.slfs_flasher_tab, UIStrings.get("TAB_SLFS_FLASHER"))
+        self.tabs.addTab(self.csv_tab, UIStrings.get("TAB_CSV_VIEWER"))
+        self.tabs.addTab(self.options_tab, UIStrings.get("TAB_OPTIONS"))
         
         self.tabs.currentChanged.connect(self.on_tab_changed)
         
         # Setup Global Hotkey for Quick Start
         from PySide6.QtGui import QKeySequence, QShortcut
-        from config import config
+        from gui.config import config
         self.start_shortcut = QShortcut(QKeySequence(config.get_start_hotkey()), self)
         self.start_shortcut.setContext(Qt.ApplicationShortcut)
         self.start_shortcut.activated.connect(self._on_global_hotkey_pressed)
         
         # Load UI states in the SN checker tab
         self.sn_checker_tab.load_ui_states()
-
 
     def open_relay_window(self):
         if not hasattr(self, 'relay_window') or not self.relay_window.isVisible():
@@ -115,7 +119,6 @@ class BqUpdaterMainWindow(QMainWindow):
                     self.calibration_tab.trigger_start_all()
 
     def on_tab_changed(self, index):
-        # Turn off Quick Start buttons when tab changes
         if hasattr(self.updater_tab, 'btn_quick_start'):
             self.updater_tab.btn_quick_start.setChecked(False)
         if hasattr(self.calibration_tab, 'btn_quick_start'):
@@ -134,7 +137,6 @@ class BqUpdaterMainWindow(QMainWindow):
     def closeEvent(self, event):
         self.updater_tab.save_ui_states()
         
-        # Stop UpdaterTab threads
         try:
             self.updater_tab._stop_all()
             for board in self.updater_tab.boards:
@@ -148,15 +150,16 @@ class BqUpdaterMainWindow(QMainWindow):
             self.calibration_tab.cal_thread.wait(1000)
         event.accept()
 
+
 def main():
     app = QApplication(sys.argv)
-    
-    # Initialize error logging right at startup
+    from gui.config import config, setup_error_logging
     setup_error_logging(config.get_error_log_path())
     
     window = BqUpdaterMainWindow()
     window.show()
     sys.exit(app.exec())
+
 
 if __name__ == "__main__":
     main()

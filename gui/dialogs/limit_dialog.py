@@ -2,14 +2,17 @@ import os
 import sys
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QGridLayout, QLabel, 
-    QLineEdit, QPushButton, QScrollArea, QWidget, QHBoxLayout
+    QLineEdit, QPushButton, QScrollArea, QWidget, QHBoxLayout, QMessageBox
 )
 from PySide6.QtCore import QSettings, Qt
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from strings import UIStrings
+from gui.strings import UIStrings
+from gui.styles import Colors
+
 
 class LimitsDialog(QDialog):
+    """Dialog for configuring calibration limits for targeted ICs."""
+
     def __init__(self, ic_name, default_targets, parent=None, settings=None):
         super().__init__(parent)
         self.setWindowTitle(f"Calibration Limits - {ic_name}")
@@ -44,7 +47,6 @@ class LimitsDialog(QDialog):
             ]
         
         self.inputs = {}
-        
         self._build_ui()
         
     def _build_ui(self):
@@ -55,18 +57,16 @@ class LimitsDialog(QDialog):
         content_widget = QWidget()
         grid = QGridLayout(content_widget)
         
-        # Headers
-        grid.addWidget(QLabel("<b>Parameter</b>"), 0, 0)
-        grid.addWidget(QLabel("<b>Min (or -Offset)</b>"), 0, 1)
-        grid.addWidget(QLabel("<b>Max (or +Offset)</b>"), 0, 2)
+        # Dynamic i18n Headers
+        grid.addWidget(QLabel(f"<b>{UIStrings.get('LBL_PARAM')}</b>"), 0, 0)
+        grid.addWidget(QLabel(f"<b>{UIStrings.get('LBL_MIN_OFFSET')}</b>"), 0, 1)
+        grid.addWidget(QLabel(f"<b>{UIStrings.get('LBL_MAX_OFFSET')}</b>"), 0, 2)
         
         for i, key in enumerate(self.limit_keys):
             row = i + 1
             lbl = QLabel(key)
             grid.addWidget(lbl, row, 0)
             
-            # Default to the target value if it matches some common naming
-            # or default to a wide range for gains
             default_min = ""
             default_max = ""
             
@@ -84,7 +84,6 @@ class LimitsDialog(QDialog):
                     default_min = "-128"
                     default_max = "127"
             else:
-                # Voltage/Temp default limits (from targets)
                 target_key = key.lower().replace(" ", "").replace("_", "")
                 if "shunt" in target_key:
                     default_min = "-0.05"
@@ -107,11 +106,6 @@ class LimitsDialog(QDialog):
             
             self.inputs[key] = (edit_min, edit_max)
             
-            # --- LIVE UPDATE INJECTION ---
-            def make_live_updater(k, emin, emax):
-                pass
-            # -----------------------------
-            
             grid.addWidget(edit_min, row, 1)
             grid.addWidget(edit_max, row, 2)
             
@@ -119,9 +113,9 @@ class LimitsDialog(QDialog):
         layout.addWidget(scroll)
         
         btn_layout = QHBoxLayout()
-        btn_save = QPushButton(UIStrings.BTN_SAVE_CLOSE)
+        btn_save = QPushButton(UIStrings.get("BTN_SAVE_CLOSE"))
         btn_save.clicked.connect(self.save_and_close)
-        btn_cancel = QPushButton(UIStrings.BTN_CANCEL)
+        btn_cancel = QPushButton(UIStrings.get("BTN_CANCEL"))
         btn_cancel.clicked.connect(self.reject)
         
         btn_layout.addStretch()
@@ -132,7 +126,6 @@ class LimitsDialog(QDialog):
         
     def accept(self):
         try:
-            # Rebuild limits dict from current thread if it exists
             new_lim = None
             if hasattr(self.parent(), 'cal_thread') and self.parent().cal_thread:
                 new_lim = dict(self.parent().cal_thread.limits)
@@ -143,7 +136,6 @@ class LimitsDialog(QDialog):
                 self.settings.setValue(f"limit_{self.ic_name}_{key}_min", vmin_txt)
                 self.settings.setValue(f"limit_{self.ic_name}_{key}_max", vmax_txt)
                 
-                # Update background thread dynamically if running
                 if new_lim is not None:
                     try:
                         v_min = float(vmin_txt)
@@ -159,7 +151,6 @@ class LimitsDialog(QDialog):
                             if "shunt" in target_key:
                                 base_target = float(self.default_targets.get("shuntresistormohm", 1.0))
                             elif "vcell" in target_key:
-                                # extract cell index
                                 import re
                                 m = re.search(r'vcell(\d+)', target_key)
                                 if m:
@@ -187,12 +178,11 @@ class LimitsDialog(QDialog):
                                 elif "ts4" in target_key:
                                     base_target = float(self.default_targets.get("ts4tempc", 25.0))
                             elif "ccoffset" in target_key or "coulomb" in target_key:
-                                is_offset = False # these are pure limits, not offsets from a target in the UI!
+                                is_offset = False
                                 
                         if "Offset" in key and "Cell" in key:
-                            is_offset = False # Offsets calculated in chip are saved as pure values in limits, e.g. -2 to +2
+                            is_offset = False
 
-                                    
                         if is_offset:
                             new_lim[key] = (base_target + v_min, base_target + v_max)
                         else:
@@ -204,12 +194,10 @@ class LimitsDialog(QDialog):
                 self.parent().cal_thread.limits = new_lim
                 self.parent().log("DEBUG: Updated limits on Save & Close.")
                 
-            # Force flush to registry so CalibrationTab can instantly read it
             self.settings.sync()
-            self.setResult(1) # Force Accepted
+            self.setResult(1)
             super().accept()
         except Exception as e:
-            from PySide6.QtWidgets import QMessageBox
             QMessageBox.critical(self, "Error in accept", str(e))
         
     def save_and_close(self):

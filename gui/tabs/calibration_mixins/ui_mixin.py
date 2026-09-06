@@ -7,13 +7,10 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from models import IC_CONFIGS
-from styles import Styles
-from strings import UIStrings
-from widgets import PortComboBox
+from gui.models import IC_CONFIGS
+from gui.styles import Styles, Colors
+from gui.strings import UIStrings
+from gui.widgets import PortComboBox
 from .table_mixin import CustomHeader
 
 
@@ -29,7 +26,7 @@ class CalibrationUIMixin:
         self.combo_port.setMinimumWidth(120)
         self.combo_port.currentTextChanged.connect(lambda t: self.settings.setValue("calib_last_port", t) if t and t != "Select COM" else None)
         
-        self.btn_refresh_ports = QPushButton(UIStrings.BTN_REFRESH)
+        self.btn_refresh_ports = QPushButton(UIStrings.get("BTN_REFRESH"))
         self.btn_refresh_ports.clicked.connect(self.refresh_ports)
         
         self.combo_ic = QComboBox()
@@ -40,11 +37,11 @@ class CalibrationUIMixin:
         self.combo_ic.currentTextChanged.connect(self._build_dynamic_ui)
         self.combo_ic.currentTextChanged.connect(lambda t: self.settings.setValue("calib_last_ic", t))
         
-        top_layout.addWidget(QLabel(UIStrings.LBL_COM_PORT))
+        top_layout.addWidget(QLabel(UIStrings.get("LBL_COM_PORT")))
         top_layout.addWidget(self.combo_port)
         top_layout.addWidget(self.btn_refresh_ports)
         top_layout.addSpacing(20)
-        top_layout.addWidget(QLabel(UIStrings.LBL_TARGET_IC))
+        top_layout.addWidget(QLabel(UIStrings.get("LBL_TARGET_IC")))
         top_layout.addWidget(self.combo_ic)
         top_layout.addSpacing(20)
         self.selected_channels = set()
@@ -90,11 +87,11 @@ class CalibrationUIMixin:
         
         # Limit Button Header
         header_layout = QHBoxLayout()
-        note_label = QLabel(UIStrings.NOTE_CHANNEL_TOGGLE)
+        note_label = QLabel(UIStrings.get("NOTE_CHANNEL_TOGGLE"))
         note_label.setStyleSheet("color: #AAAAAA; font-style: italic;")
         header_layout.addWidget(note_label)
         header_layout.addStretch()
-        self.btn_limits = QPushButton(UIStrings.BTN_SET_LIMITS)
+        self.btn_limits = QPushButton(UIStrings.get("BTN_SET_LIMITS"))
         self.btn_limits.setStyleSheet("background-color: #333333; color: white; padding: 5px 15px;")
         self.btn_limits.clicked.connect(self.on_open_limits)
         header_layout.addWidget(self.btn_limits)
@@ -105,12 +102,12 @@ class CalibrationUIMixin:
         self.custom_header = CustomHeader(self.table_data)
         self.table_data.setHorizontalHeader(self.custom_header)
         
-        self._update_headers() # Set initial header texts
+        self._update_headers()
         self.table_data.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         for i in range(1, 7):
             self.table_data.horizontalHeader().setSectionResizeMode(i, QHeaderView.Stretch)
         self.table_data.verticalHeader().setDefaultAlignment(Qt.AlignCenter)
-        self.table_data.verticalHeader().setDefaultSectionSize(22) # Compress row height
+        self.table_data.verticalHeader().setDefaultSectionSize(22)
         self.table_data.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table_data.setAlternatingRowColors(True)
         self.table_data.setStyleSheet("""
@@ -132,7 +129,7 @@ class CalibrationUIMixin:
         
         right_layout.addWidget(self.table_data, stretch=1)
         
-        # Overall Result Table (Fixed at bottom)
+        # Overall Result Table
         self.table_overall = QTableWidget(1, 7)
         self.table_overall.horizontalHeader().hide()
         self.table_overall.verticalHeader().setDefaultAlignment(Qt.AlignCenter)
@@ -142,15 +139,13 @@ class CalibrationUIMixin:
         self.table_overall.setMaximumHeight(35)
         self.table_overall.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         
-        # Initialize Overall Result row
-        item_param = QTableWidgetItem(UIStrings.LBL_OVERALL_RESULT)
+        item_param = QTableWidgetItem(UIStrings.get("LBL_OVERALL_RESULT"))
         item_param.setTextAlignment(Qt.AlignCenter)
         font = QFont()
         font.setBold(True)
         item_param.setFont(font)
         self.table_overall.setItem(0, 0, item_param)
         
-        # Sync column widths
         for i in range(7):
             self.table_overall.horizontalHeader().setSectionResizeMode(i, self.table_data.horizontalHeader().sectionResizeMode(i))
             
@@ -163,16 +158,14 @@ class CalibrationUIMixin:
         
         right_layout.addWidget(self.table_overall)
         
-        # Add to splitter
         splitter.addWidget(left_container)
         splitter.addWidget(self.right_widget)
-        splitter.setSizes([400, 600]) # Initial sizes
+        splitter.setSizes([400, 600])
         
         main_layout.addWidget(splitter)
         self.refresh_ports()
 
     def _build_dynamic_ui(self, ic_name):
-        # Clear existing dynamic widgets
         while self.left_layout.count():
             item = self.left_layout.takeAt(0)
             if item.widget():
@@ -211,7 +204,7 @@ class CalibrationUIMixin:
         btn_next.setStyleSheet(Styles.CH_NAV_BTN)
         btn_next.clicked.connect(self._on_next_ch)
         
-        ch_label = QLabel(UIStrings.LBL_TARGET_CH)
+        ch_label = QLabel(UIStrings.get("LBL_TARGET_CH"))
         ch_label.setStyleSheet(Styles.CH_TITLE)
         
         ch_bar_layout.addStretch()
@@ -225,7 +218,7 @@ class CalibrationUIMixin:
         
         # 1. Voltage Group
         if "voltage" in config and config["voltage"]:
-            group_vt = QGroupBox(UIStrings.GRP_VOLTAGE_CALIB)
+            group_vt = QGroupBox(UIStrings.get("GRP_VOLTAGE_CALIB"))
             grid_vt = QGridLayout()
             
             v_cols = 3 if len(config["voltage"]) > 10 else 2
@@ -250,7 +243,7 @@ class CalibrationUIMixin:
             
         # 2. Temperature Group
         if "temperature" in config and config["temperature"]:
-            group_temp = QGroupBox(UIStrings.GRP_TEMP_CALIB)
+            group_temp = QGroupBox(UIStrings.get("GRP_TEMP_CALIB"))
             grid_temp = QGridLayout()
             for i, (label_text, default_data) in enumerate(config["temperature"].items()):
                 row = i // 2
@@ -259,7 +252,6 @@ class CalibrationUIMixin:
                 global_fallback = self.settings.value(f"calib_{ic_name}_{label_text}_val", val)
                 saved_val = self.settings.value(f"calib_ch{self.current_channel}_{ic_name}_{label_text}_val", global_fallback)
                 
-                # Checkbox
                 if isinstance(default_data, dict) and default_data.get("check"):
                     chk = QCheckBox(label_text)
                     global_chk_fallback = self.settings.value(f"calib_{ic_name}_{label_text}_chk", "true")
@@ -285,7 +277,7 @@ class CalibrationUIMixin:
             
         # 3. Current Group
         if "current" in config and config["current"]:
-            group_c = QGroupBox(UIStrings.GRP_CURRENT_CALIB)
+            group_c = QGroupBox(UIStrings.get("GRP_CURRENT_CALIB"))
             grid_c = QGridLayout()
             for i, (label_text, default_data) in enumerate(config["current"].items()):
                 row = i // 2
@@ -305,7 +297,7 @@ class CalibrationUIMixin:
             group_c.setLayout(layout_c)
             self.left_layout.addWidget(group_c)
             
-        # Add 4 Buttons
+        # Buttons
         btn_layout = QHBoxLayout()
         
         def get_btn_style(bg_col, border_col):
@@ -323,19 +315,19 @@ class CalibrationUIMixin:
                 }}
             """
             
-        self.btn_cal_v = QPushButton(UIStrings.BTN_START_VOLTAGE)
+        self.btn_cal_v = QPushButton(UIStrings.get("BTN_START_VOLTAGE"))
         self.btn_cal_v.setStyleSheet(get_btn_style("#232a35", "#3a5070"))
         
-        self.btn_cal_t = QPushButton(UIStrings.BTN_START_TEMP)
+        self.btn_cal_t = QPushButton(UIStrings.get("BTN_START_TEMP"))
         self.btn_cal_t.setStyleSheet(get_btn_style("#352335", "#703a70"))
         
-        self.btn_cal_c = QPushButton(UIStrings.BTN_START_CURRENT)
+        self.btn_cal_c = QPushButton(UIStrings.get("BTN_START_CURRENT"))
         self.btn_cal_c.setStyleSheet(get_btn_style("#353223", "#70663a"))
         
-        self.btn_cal_all = QPushButton(UIStrings.BTN_START_ALL)
+        self.btn_cal_all = QPushButton(UIStrings.get("BTN_START_ALL"))
         self.btn_cal_all.setStyleSheet(get_btn_style("#2b2b2b", "#555555"))
         
-        self.btn_quick_start = QPushButton(UIStrings.BTN_QUICK_START)
+        self.btn_quick_start = QPushButton(UIStrings.get("BTN_QUICK_START"))
         self.btn_quick_start.setCheckable(True)
         self.btn_quick_start.setStyleSheet("""
             QPushButton {
@@ -352,7 +344,7 @@ class CalibrationUIMixin:
                 border: 1px solid #00e676;
             }
         """)
-        self.btn_quick_start.setToolTip(UIStrings.TOOLTIP_QUICK_START)
+        self.btn_quick_start.setToolTip(UIStrings.get("TOOLTIP_QUICK_START"))
         
         self.btn_cal_v.clicked.connect(lambda: self.on_start_calib("voltage"))
         self.btn_cal_t.clicked.connect(lambda: self.on_start_calib("temp"))
