@@ -8,7 +8,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from widgets import get_available_ports
 from updater_thread import UploadWorker, ScanWorker
 
-class UploadTab(QWidget):
+class SLFSFlasherTab(QWidget):
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.worker = None
@@ -164,3 +165,7 @@ class UploadTab(QWidget):
             
         self.current_upload_idx += 1
         self._upload_next()
+
+# Backwards compatibility alias
+UploadTab = SLFSFlasherTab
+

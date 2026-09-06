@@ -4,15 +4,15 @@ from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, Q
 from PySide6.QtGui import QIcon
 from PySide6.QtCore import Qt
 
-from config import config, setup_error_logging
-from tabs.updater_tab import UpdaterTab
+from tabs.sn_checker_tab import SNCheckerTab
 from tabs.calibration_tab import CalibrationTab
 from tabs.manual_tab import ManualTab
-from tabs.upload_tab import UploadTab
+from tabs.slfs_flasher_tab import SLFSFlasherTab
 from tabs.csv_tab import CsvTab
 from tabs.options_tab import OptionsTab
 from tabs.relay_tab import RelayWindow
 from version import __version__
+
 
 def handle_exception(exc_type, exc_value, exc_traceback):
     if issubclass(exc_type, KeyboardInterrupt):
@@ -63,17 +63,19 @@ class BqUpdaterMainWindow(QMainWindow):
         self.main_layout.addWidget(self.tabs)
         
         # Instantiate Tabs
-        self.updater_tab = UpdaterTab()
+        self.sn_checker_tab = SNCheckerTab()
+        self.updater_tab = self.sn_checker_tab  # Backwards compatibility alias
         self.calibration_tab = CalibrationTab()
         self.manual_tab = ManualTab()
-        self.upload_tab = UploadTab()
+        self.slfs_flasher_tab = SLFSFlasherTab()
+        self.upload_tab = self.slfs_flasher_tab  # Backwards compatibility alias
         self.csv_tab = CsvTab()
         self.options_tab = OptionsTab()
         
-        self.tabs.addTab(self.updater_tab, "Firmware Update (Main)")
+        self.tabs.addTab(self.sn_checker_tab, "SN & Inspection")
         self.tabs.addTab(self.calibration_tab, "Calibration")
         self.tabs.addTab(self.manual_tab, "Manual I2C Debug")
-        self.tabs.addTab(self.upload_tab, "SLFS Upload")
+        self.tabs.addTab(self.slfs_flasher_tab, "SLFS Flasher")
         self.tabs.addTab(self.csv_tab, "CSV to SLFS")
         self.tabs.addTab(self.options_tab, "Options")
         
@@ -86,8 +88,9 @@ class BqUpdaterMainWindow(QMainWindow):
         self.start_shortcut.setContext(Qt.ApplicationShortcut)
         self.start_shortcut.activated.connect(self._on_global_hotkey_pressed)
         
-        # Load UI states in the updater tab
-        self.updater_tab.load_ui_states()
+        # Load UI states in the SN checker tab
+        self.sn_checker_tab.load_ui_states()
+
 
     def open_relay_window(self):
         if not hasattr(self, 'relay_window') or not self.relay_window.isVisible():

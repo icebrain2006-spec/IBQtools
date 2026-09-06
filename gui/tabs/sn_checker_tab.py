@@ -560,8 +560,9 @@ class RP2040BoardWidget(QGroupBox):
                 self.btn_start_board.setEnabled(True)
 
 
-class UpdaterTab(QWidget):
+class SNCheckerTab(QWidget):
     update_sn_ui_signal = Signal(str)
+
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1074,3 +1075,7 @@ class UpdaterTab(QWidget):
                     chk.setChecked(ch_str == "true")
         except Exception as e:
             logging.getLogger('IBQtools').error(f"Failed to load UI states: {e}")
+
+# Backwards compatibility alias
+UpdaterTab = SNCheckerTab
+
