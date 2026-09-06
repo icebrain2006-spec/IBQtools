@@ -1,14 +1,17 @@
-import sys
-import os
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
-                               QLineEdit, QPushButton, QTextBrowser, QFileDialog, QLabel, QListWidget, QProgressBar, QMessageBox)
-from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
+    QLineEdit, QPushButton, QTextBrowser, QFileDialog, 
+    QLabel, QListWidget, QProgressBar, QMessageBox
+)
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from widgets import get_available_ports
-from updater_thread import UploadWorker, ScanWorker
+from gui.widgets import get_available_ports
+from gui.updater_thread import UploadWorker, ScanWorker
+from gui.styles import Colors, Styles
+from gui.utils import is_error_status
+
 
 class SLFSFlasherTab(QWidget):
+    """SLFS Batch Firmware Upload (Multi-Board) Tab."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -64,7 +67,9 @@ class SLFSFlasherTab(QWidget):
         
         layout.addWidget(group)
         
+        # Console output with centralized styling
         self.upload_console = QTextBrowser()
+        self.upload_console.setStyleSheet(Styles.LOG_CONSOLE)
         layout.addWidget(self.upload_console, stretch=1)
 
     def browse_file(self):
@@ -72,11 +77,11 @@ class SLFSFlasherTab(QWidget):
         if file_path:
             self.upload_file_path.setText(file_path)
             
-    def log_msg(self, msg):
-        if "ERROR" in msg or "Failed" in msg:
-            self.upload_console.append(f'<span style="color: #FF4444;">{msg}</span>')
+    def log_msg(self, msg: str):
+        if is_error_status(msg):
+            self.upload_console.append(f'<span style="color: {Colors.HEX_FAIL};">{msg}</span>')
         elif "SUCCESS" in msg:
-            self.upload_console.append(f'<span style="color: #00FF00;">{msg}</span>')
+            self.upload_console.append(f'<span style="color: {Colors.HEX_PASS_GREEN};">{msg}</span>')
         else:
             self.upload_console.append(msg)
 
@@ -129,7 +134,7 @@ class SLFSFlasherTab(QWidget):
             
         self.upload_console.clear()
         self.btn_upload.setText("STOP UPLOAD")
-        self.btn_upload.setStyleSheet("background-color: #FF4444; color: white;")
+        self.btn_upload.setStyleSheet(f"background-color: {Colors.HEX_FAIL}; color: white;")
         
         self.current_upload_idx = 0
         self._upload_next()
@@ -166,6 +171,6 @@ class SLFSFlasherTab(QWidget):
         self.current_upload_idx += 1
         self._upload_next()
 
+
 # Backwards compatibility alias
 UploadTab = SLFSFlasherTab
-
