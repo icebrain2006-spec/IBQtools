@@ -900,58 +900,53 @@ class SNCheckerTab(QWidget):
         self.preflight_worker.finished_check.connect(self._on_global_preflight_finished)
         self.preflight_worker.start()
 
+    def _handle_preflight_failure_ui(self, all_errors: dict):
+        """Updates board UI labels, stylesheets, and hardware LED states when preflight check fails."""
+        for board in self.boards:
+            b_id = board.board_id
+            error_channels = all_errors.get(b_id, [])
+
+            has_error = False
+            for i, stat in enumerate(board.ch_status):
+                if not board.ch_checkboxes[i].isChecked():
+                    continue
+
+                ch_idx = i + 1
+                if ch_idx in error_channels:
+                    stat.setText("SMBus Error")
+                    stat.setStyleSheet(f"color: {Colors.HEX_FAIL}; font-weight: bold;")
+                    has_error = True
+                else:
+                    stat.setText("Preflight OK (Aborted)")
+                    stat.setStyleSheet(f"color: {Colors.HEX_WARN_CYAN}; font-weight: bold;")
+
+            port = board.combo_port.currentText().strip()
+            if has_error:
+                set_led_state(port, board.led_color, 1, 10)  # Error Blink for 10s
+                board.start_blink(10)
+            else:
+                set_led_state(port, board.led_color, 0, 0)  # Normal Solid
+
+    def _launch_all_board_workers(self) -> int:
+        """Launches main workers across all boards with skip_preflight=True and returns launched worker count."""
+        active_count = 0
+        self.start_time = time.time()
+        for board in self.boards:
+            if board.start_worker(self.loops, skip_preflight=True):
+                active_count += 1
+        return active_count
+
     def _on_global_preflight_finished(self, success, all_errors):
+        """Orchestrates preflight outcome: failure handling or launching board workers."""
         if not success:
             self.log_console.append(f'<span style="color: {Colors.HEX_FAIL};">[SYS] START ALL Aborted due to pre-flight failure.</span>')
-            
-            # Update UI for all boards
-            for board in self.boards:
-                b_id = board.board_id
-                error_channels = all_errors.get(b_id, [])
-                
-                has_error = False
-                for i, stat in enumerate(board.ch_status):
-                    if not board.ch_checkboxes[i].isChecked():
-                        continue
-                        
-                    ch_idx = i + 1
-                    if ch_idx in error_channels:
-                        stat.setText("SMBus Error")
-                        stat.setStyleSheet(f"color: {Colors.HEX_FAIL}; font-weight: bold;")
-                        has_error = True
-                    else:
-                        stat.setText("Preflight OK (Aborted)")
-                        stat.setStyleSheet(f"color: {Colors.HEX_WARN_CYAN}; font-weight: bold;")
-
-                        
-                port = board.combo_port.currentText().strip()
-                if has_error:
-                    set_led_state(port, board.led_color, 1, 10) # Error Blink for 10s
-                    board.start_blink(10)
-                else:
-                    set_led_state(port, board.led_color, 0, 0) # Normal Solid
-            
+            self._handle_preflight_failure_ui(all_errors)
             self._set_master_ui_enabled(True)
-            
-            try:
-                wav_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "assets", "wav", "testFail.wav")
-                if os.path.exists(wav_path):
-                    winsound.PlaySound(wav_path, winsound.SND_FILENAME)
-                else:
-                    winsound.Beep(350, 80)
-                    time.sleep(0.03)
-                    winsound.Beep(350, 80)
-            except: pass
-            
+            self._play_completion_sound(is_error=True)
             return
-            
+
         try:
-            self.active_workers = 0
-            self.start_time = time.time()
-            for board in self.boards:
-                if board.start_worker(self.loops, skip_preflight=True):
-                    self.active_workers += 1
-                    
+            self.active_workers = self._launch_all_board_workers()
             if self.active_workers == 0:
                 self._log_to_console("[SYS] Failed to launch workers.")
                 self._set_master_ui_enabled(True)
@@ -959,6 +954,7 @@ class SNCheckerTab(QWidget):
             import traceback
             err_str = traceback.format_exc()
             self.log_console.append(f'<span style="color: {Colors.HEX_FAIL};">[EXCEPTION] {err_str}</span>')
+
 
 
     def _stop_all(self):
