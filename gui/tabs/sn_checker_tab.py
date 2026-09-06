@@ -747,30 +747,33 @@ class SNCheckerTab(QWidget):
                 sn_text = self.input_exp_sn.text().strip() or "0"
                 self.cached_sn_int = int(sn_text, 16) if self.cached_fmt == "HEX" else int(sn_text)
 
+    def _increment_and_format_sn(self, fmt: str) -> tuple[int, str]:
+        """Increments cached SN, applies format overflow boundary checks, and returns updated int and formatted string."""
+        self.cached_sn_int += 1
+        if fmt == "DEC" and self.cached_sn_int > 9999:
+            self.cached_sn_int = 0
+        elif fmt == "HEX" and self.cached_sn_int > 65535:
+            self.cached_sn_int = 0
+
+        formatted_sn = f"{self.cached_sn_int:X}" if fmt == "HEX" else str(self.cached_sn_int)
+        return self.cached_sn_int, formatted_sn
+
     def _get_expected_values(self, is_writing=False):
+        """Resolves cached target expected values and increments SN if writing with auto-increment enabled."""
         with self.sn_lock:
             exp_date = self.cached_exp_date
             fmt = self.cached_fmt
             should_write_sn = self.cached_should_write
             should_write_date = getattr(self, 'cached_should_write_date', False)
             should_inc = self.cached_should_inc
-            ui_sn_int = self.cached_sn_int
-            
-            chip_sn_int = ui_sn_int
-            
+            chip_sn_int = self.cached_sn_int
+
             if is_writing and should_write_sn and should_inc:
-                self.cached_sn_int += 1
-                if fmt == "DEC" and self.cached_sn_int > 9999:
-                    self.cached_sn_int = 0
-                elif fmt == "HEX" and self.cached_sn_int > 65535:
-                    self.cached_sn_int = 0
-                    
-                if fmt == "HEX":
-                    self.update_sn_ui_signal.emit(f"{self.cached_sn_int:X}")
-                else:
-                    self.update_sn_ui_signal.emit(str(self.cached_sn_int))
-                    
+                _, formatted_sn_str = self._increment_and_format_sn(fmt)
+                self.update_sn_ui_signal.emit(formatted_sn_str)
+
             return exp_date, chip_sn_int, fmt, should_write_sn, should_write_date
+
 
     def _check_any_board_has_error(self) -> bool:
         """Iterates over all boards and channels to check if any channel has a failure/error status."""
