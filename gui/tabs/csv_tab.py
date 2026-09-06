@@ -1,167 +1,147 @@
 import os
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
-                               QLabel, QComboBox, QLineEdit, QPushButton, 
-                               QFileDialog, QTextBrowser, QMessageBox)
-from PySide6.QtCore import QThread, Signal
+import csv
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
+    QPushButton, QLabel, QLineEdit, QTableWidget, 
+    QTableWidgetItem, QFileDialog, QMessageBox, QHeaderView
+)
+from PySide6.QtCore import Qt
 
-from styles import Colors
-from utils import convert_csv_to_slfs, load_bq_ic_info, is_error_status
+from gui.styles import Colors
+from gui.strings import UIStrings
 
-class ConversionWorker(QThread):
-    finished = Signal(bool, str)
-    log_msg = Signal(str)
-
-    def __init__(self, input_path, output_path, ic_type, version, parent=None):
-        super().__init__(parent)
-        self.input_path = input_path
-        self.output_path = output_path
-        self.ic_type = ic_type
-        self.version = version
-
-    def run(self):
-        success, count, msg = convert_csv_to_slfs(
-            self.input_path, self.output_path, self.ic_type, self.version, log_callback=self.log_msg.emit
-        )
-        self.finished.emit(success, msg)
 
 class CsvTab(QWidget):
+    """CSV Log File Viewer and Data Exporter Tab."""
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.worker = None
+        self.current_csv_path = None
         self._init_ui()
-        self._load_ic_data()
-        
+
     def _init_ui(self):
         layout = QVBoxLayout(self)
-        
-        # IC Selection Group
-        ic_group = QGroupBox("IC Configuration")
-        ic_layout = QHBoxLayout(ic_group)
-        
-        ic_layout.addWidget(QLabel("IC Type:"))
-        self.combo_ic = QComboBox()
-        self.combo_ic.currentIndexChanged.connect(self._update_versions)
-        ic_layout.addWidget(self.combo_ic, stretch=1)
-        
-        ic_layout.addSpacing(20)
-        
-        ic_layout.addWidget(QLabel("Version:"))
-        self.combo_version = QComboBox()
-        ic_layout.addWidget(self.combo_version, stretch=1)
-        
-        layout.addWidget(ic_group)
-        
-        # File Selection Group
-        file_group = QGroupBox("File Paths")
-        file_layout = QVBoxLayout(file_group)
-        
-        # Input row
-        in_row = QHBoxLayout()
-        in_row.addWidget(QLabel("Input CSV:"))
-        self.input_path = QLineEdit()
-        self.input_path.setReadOnly(True)
-        self.btn_browse_in = QPushButton("Browse...")
-        self.btn_browse_in.clicked.connect(self._browse_input)
-        in_row.addWidget(self.input_path, stretch=1)
-        in_row.addWidget(self.btn_browse_in)
-        file_layout.addLayout(in_row)
-        
-        # Output row
-        out_row = QHBoxLayout()
-        out_row.addWidget(QLabel("Output SLFS:"))
-        self.output_path = QLineEdit()
-        self.btn_browse_out = QPushButton("Browse...")
-        self.btn_browse_out.clicked.connect(self._browse_output)
-        out_row.addWidget(self.output_path, stretch=1)
-        out_row.addWidget(self.btn_browse_out)
-        file_layout.addLayout(out_row)
-        
-        layout.addWidget(file_group)
-        
-        # Action Group
-        action_layout = QHBoxLayout()
-        action_layout.addStretch()
-        self.btn_convert = QPushButton("CONVERT TO SLFS")
-        self.btn_convert.setObjectName("startBtn")
-        self.btn_convert.setMinimumWidth(200)
-        self.btn_convert.clicked.connect(self._start_conversion)
-        action_layout.addWidget(self.btn_convert)
-        action_layout.addStretch()
-        layout.addLayout(action_layout)
-        
-        # Console
-        self.console = QTextBrowser()
-        layout.addWidget(self.console, stretch=1)
-        
-    def _load_ic_data(self):
-        info_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "BQ_Information.csv")
-        self.ic_dict = load_bq_ic_info(info_path)
-        
-        if not self.ic_dict:
-            self.log_msg(f"[ERROR] Could not load BQ_Information.csv or file is empty.")
+
+        # Control Panel
+        group_control = QGroupBox(UIStrings.get("GRP_CSV_VIEWER"))
+        layout_control = QVBoxLayout(group_control)
+
+        top_bar = QHBoxLayout()
+        self.btn_open = QPushButton(UIStrings.get("BTN_OPEN_CSV"))
+        self.btn_open.clicked.connect(self._open_csv_dialog)
+        top_bar.addWidget(self.btn_open)
+
+        self.lbl_file_info = QLabel("No file loaded.")
+        self.lbl_file_info.setStyleSheet(f"color: {Colors.HEX_TEXT_MUTED}; font-style: italic;")
+        top_bar.addWidget(self.lbl_file_info, stretch=1)
+        layout_control.addLayout(top_bar)
+
+        # Search / Filter Bar
+        search_layout = QHBoxLayout()
+        search_layout.addWidget(QLabel(UIStrings.get("LBL_SEARCH")))
+        self.input_search = QLineEdit()
+        self.input_search.setPlaceholderText(UIStrings.get("PH_CSV_SEARCH"))
+        self.input_search.textChanged.connect(self._filter_table)
+        search_layout.addWidget(self.input_search)
+
+        self.btn_export = QPushButton(UIStrings.get("BTN_EXPORT_LOG"))
+        self.btn_export.clicked.connect(self._export_filtered_csv)
+        search_layout.addWidget(self.btn_export)
+        layout_control.addLayout(search_layout)
+
+        layout.addWidget(group_control)
+
+        # Table Display
+        self.table = QTableWidget()
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setStyleSheet(f"""
+            QTableWidget {{
+                background-color: {Colors.HEX_BG_DARK};
+                color: {Colors.TEXT_ROW.name()};
+                gridline-color: {Colors.HEX_BORDER_LIGHT};
+            }}
+            QHeaderView::section {{
+                background-color: {Colors.HEX_BG_PANEL};
+                color: {Colors.HEX_WHITE};
+                padding: 4px;
+                border: 1px solid {Colors.HEX_BORDER_LIGHT};
+            }}
+        """)
+        layout.addWidget(self.table, stretch=1)
+
+    def load_csv_file(self, file_path: str):
+        if not os.path.exists(file_path):
+            QMessageBox.warning(self, "Error", f"File not found: {file_path}")
             return
 
-        # Sort and populate combo box
-        for ic in sorted(self.ic_dict.keys(), reverse=True):
-            self.combo_ic.addItem(ic)
-                
-    def _update_versions(self):
-        self.combo_version.clear()
-        ic = self.combo_ic.currentText()
-        if ic in self.ic_dict:
-            for v in sorted(list(self.ic_dict[ic])):
-                self.combo_version.addItem(v)
-                
-    def _browse_input(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Select Logic i2cdata.csv", "", "CSV Files (*.csv);;All Files (*)")
-        if path:
-            self.input_path.setText(path)
-            
-            # Auto-generate output path
-            base = os.path.basename(path)
-            name, _ = os.path.splitext(base)
-            output_name = f"BQU_{name}.slfs"
-            output_dir = os.path.dirname(path)
-            output_path = os.path.join(output_dir, output_name)
-            self.output_path.setText(os.path.normpath(output_path))
-            
-    def _browse_output(self):
-        path, _ = QFileDialog.getSaveFileName(self, "Save SLFS file as", self.output_path.text(), "SLFS Files (*.slfs);;All Files (*)")
-        if path:
-            self.output_path.setText(path)
-            
-    def log_msg(self, msg):
-        if is_error_status(msg):
-            self.console.append(f'<span style="color: {Colors.HEX_FAIL};">{msg}</span>')
-        elif "SUCCESS" in msg or "successfully" in msg.lower():
-            self.console.append(f'<span style="color: {Colors.HEX_PASS_GREEN};">{msg}</span>')
-        else:
-            self.console.append(msg)
-            
-    def _start_conversion(self):
-        in_path = self.input_path.text().strip()
-        out_path = self.output_path.text().strip()
-        ic_type = self.combo_ic.currentText()
-        version = self.combo_version.currentText()
-        
-        if not in_path or not out_path:
-            QMessageBox.warning(self, "Warning", "Please specify both input and output files.")
+        try:
+            with open(file_path, "r", newline="", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                data = list(reader)
+
+            if not data:
+                QMessageBox.information(self, "Info", "The selected CSV file is empty.")
+                return
+
+            self.current_csv_path = file_path
+            self.lbl_file_info.setText(f"File: {os.path.basename(file_path)} ({len(data)} rows)")
+
+            self.table.setRowCount(len(data))
+            self.table.setColumnCount(max(len(row) for row in data))
+
+            for row_idx, row_data in enumerate(data):
+                for col_idx, col_data in enumerate(row_data):
+                    if " - " in col_data:
+                        col_data = col_data.replace(" - ", "\n~\n")
+                    item = QTableWidgetItem(col_data)
+                    item.setTextAlignment(Qt.AlignCenter)
+                    self.table.setItem(row_idx, col_idx, item)
+
+            self.table.resizeColumnsToContents()
+            for col in range(self.table.columnCount()):
+                if self.table.columnWidth(col) > 160:
+                    self.table.setColumnWidth(col, 160)
+            self.table.resizeRowsToContents()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to read CSV file:\n{e}")
+
+    def _open_csv_dialog(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Open Log CSV", "", "CSV Files (*.csv);;All Files (*)")
+        if file_path:
+            self.load_csv_file(file_path)
+
+    def _filter_table(self, text: str):
+        search_text = text.lower()
+        for row in range(self.table.rowCount()):
+            match = False
+            for col in range(self.table.columnCount()):
+                item = self.table.item(row, col)
+                if item and search_text in item.text().lower():
+                    match = True
+                    break
+            self.table.setRowHidden(row, not match)
+
+    def _export_filtered_csv(self):
+        if not self.current_csv_path or self.table.rowCount() == 0:
+            QMessageBox.warning(self, "Warning", "No active CSV data to export.")
             return
-            
-        self.console.clear()
-        self.btn_convert.setEnabled(False)
-        self.btn_convert.setText("CONVERTING...")
-        
-        self.worker = ConversionWorker(in_path, out_path, ic_type, version)
-        self.worker.log_msg.connect(self.log_msg)
-        self.worker.finished.connect(self._on_conversion_finished)
-        self.worker.start()
-        
-    def _on_conversion_finished(self, success, msg):
-        self.btn_convert.setEnabled(True)
-        self.btn_convert.setText("CONVERT TO SLFS")
-        
-        if success:
-            self.log_msg(f"[SUCCESS] {msg}")
-        else:
-            self.log_msg(f"[ERROR] {msg}")
+
+        save_path, _ = QFileDialog.getSaveFileName(self, "Export Filtered Log", "filtered_log.csv", "CSV Files (*.csv)")
+        if not save_path:
+            return
+
+        try:
+            with open(save_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                for row in range(self.table.rowCount()):
+                    if not self.table.isRowHidden(row):
+                        row_data = [
+                            self.table.item(row, col).text() if self.table.item(row, col) else ""
+                            for col in range(self.table.columnCount())
+                        ]
+                        writer.writerow(row_data)
+            QMessageBox.information(self, "Success", f"Filtered log successfully saved to:\n{save_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to export CSV:\n{e}")

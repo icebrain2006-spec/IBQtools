@@ -8,6 +8,7 @@ from gui.widgets import get_available_ports
 from gui.updater_thread import UploadWorker, ScanWorker
 from gui.styles import Colors, Styles
 from gui.utils import is_error_status
+from gui.strings import UIStrings
 
 
 class SLFSFlasherTab(QWidget):
@@ -24,13 +25,13 @@ class SLFSFlasherTab(QWidget):
     def _init_ui(self):
         layout = QVBoxLayout(self)
         
-        group = QGroupBox("SLFS Batch Upload (Multi-Board)")
+        group = QGroupBox(UIStrings.get("GRP_SLFS_BATCH"))
         glayout = QVBoxLayout(group)
         
         # COM Port Scanning
         com_layout = QHBoxLayout()
-        com_layout.addWidget(QLabel("Detected RP2040 Boards:"))
-        self.btn_scan = QPushButton("SCAN BOARDS")
+        com_layout.addWidget(QLabel(UIStrings.get("LBL_DETECTED_BOARDS")))
+        self.btn_scan = QPushButton(UIStrings.get("BTN_SCAN_BOARDS"))
         self.btn_scan.clicked.connect(self.start_scan)
         com_layout.addStretch()
         com_layout.addWidget(self.btn_scan)
@@ -43,9 +44,9 @@ class SLFSFlasherTab(QWidget):
         # File Selection
         file_layout = QHBoxLayout()
         self.upload_file_path = QLineEdit()
-        self.upload_file_path.setPlaceholderText("Select .slfs file...")
+        self.upload_file_path.setPlaceholderText(UIStrings.get("PH_SELECT_SLFS"))
         self.upload_file_path.setReadOnly(True)
-        self.btn_browse = QPushButton("Browse")
+        self.btn_browse = QPushButton(UIStrings.get("BTN_BROWSE"))
         self.btn_browse.clicked.connect(self.browse_file)
         file_layout.addWidget(self.upload_file_path)
         file_layout.addWidget(self.btn_browse)
@@ -57,7 +58,7 @@ class SLFSFlasherTab(QWidget):
         self.progress_bar.setValue(0)
         self.progress_bar.setTextVisible(True)
         
-        self.btn_upload = QPushButton("UPLOAD TO ALL")
+        self.btn_upload = QPushButton(UIStrings.get("BTN_UPLOAD_ALL"))
         self.btn_upload.setObjectName("startBtn")
         self.btn_upload.clicked.connect(self.start_batch_upload)
         
@@ -90,7 +91,7 @@ class SLFSFlasherTab(QWidget):
             self.scan_worker.stop()
             return
             
-        self.btn_scan.setText("STOP SCAN")
+        self.btn_scan.setText(UIStrings.get("BTN_STOP_SCAN"))
         self.list_ports.clear()
         self.upload_console.clear()
         self.target_ports = []
@@ -106,7 +107,7 @@ class SLFSFlasherTab(QWidget):
         self.scan_worker.start()
         
     def _on_scan_finished(self, valid_ports):
-        self.btn_scan.setText("SCAN BOARDS")
+        self.btn_scan.setText(UIStrings.get("BTN_SCAN_BOARDS"))
         self.progress_bar.setFormat("%p%")
         self.target_ports = valid_ports
         for p in valid_ports:
@@ -119,7 +120,7 @@ class SLFSFlasherTab(QWidget):
     def start_batch_upload(self):
         if self.worker and self.worker.isRunning():
             self.worker.stop()
-            self.btn_upload.setText("UPLOAD TO ALL")
+            self.btn_upload.setText(UIStrings.get("BTN_UPLOAD_ALL"))
             self.btn_upload.setStyleSheet("")
             return
             
@@ -133,7 +134,7 @@ class SLFSFlasherTab(QWidget):
             return
             
         self.upload_console.clear()
-        self.btn_upload.setText("STOP UPLOAD")
+        self.btn_upload.setText(UIStrings.get("BTN_STOP_UPLOAD"))
         self.btn_upload.setStyleSheet(f"background-color: {Colors.HEX_FAIL}; color: white;")
         
         self.current_upload_idx = 0
@@ -141,7 +142,7 @@ class SLFSFlasherTab(QWidget):
         
     def _upload_next(self):
         if self.current_upload_idx >= len(self.target_ports):
-            self.btn_upload.setText("UPLOAD TO ALL")
+            self.btn_upload.setText(UIStrings.get("BTN_UPLOAD_ALL"))
             self.btn_upload.setStyleSheet("")
             self.log_msg("[SUCCESS] Batch Upload Completed for all boards!")
             self.progress_bar.setFormat("Done")
@@ -163,7 +164,7 @@ class SLFSFlasherTab(QWidget):
     def _on_single_upload_finished(self, success):
         if not success:
             self.log_msg(f"[ERROR] Upload Failed or Stopped on {self.target_ports[self.current_upload_idx]}.")
-            self.btn_upload.setText("UPLOAD TO ALL")
+            self.btn_upload.setText(UIStrings.get("BTN_UPLOAD_ALL"))
             self.btn_upload.setStyleSheet("")
             self.progress_bar.setFormat("Error")
             return

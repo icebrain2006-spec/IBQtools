@@ -11,6 +11,7 @@ from gui.config import config, setup_error_logging
 from gui.dialogs.csv_viewer_dialog import CsvViewerDialog
 from gui.workers.fw_update_worker import CheckUpdateWorker, DownloadUpdateWorker, RebootBootselWorker
 from gui.styles import Colors
+from gui.strings import UIStrings
 
 
 class OptionsTab(QWidget):
@@ -27,53 +28,53 @@ class OptionsTab(QWidget):
         layout_options = QVBoxLayout(self)
         
         # --- Data Logging Settings ---
-        group_log_settings = QGroupBox("Data Logging Settings (CSV)")
+        group_log_settings = QGroupBox(UIStrings.get("GRP_DATA_LOGGING"))
         layout_log = QFormLayout(group_log_settings)
         
         self.input_work_log = QLineEdit()
-        self.btn_browse_work = QPushButton("Browse...")
-        self.btn_view_work = QPushButton("Viewer")
+        self.btn_browse_work = QPushButton(UIStrings.get("BTN_BROWSE"))
+        self.btn_view_work = QPushButton(UIStrings.get("BTN_VIEWER"))
         work_layout = QHBoxLayout()
         work_layout.addWidget(self.input_work_log)
         work_layout.addWidget(self.btn_browse_work)
         work_layout.addWidget(self.btn_view_work)
         
         self.input_cal_log = QLineEdit()
-        self.btn_browse_cal = QPushButton("Browse...")
-        self.btn_view_cal = QPushButton("Viewer")
+        self.btn_browse_cal = QPushButton(UIStrings.get("BTN_BROWSE"))
+        self.btn_view_cal = QPushButton(UIStrings.get("BTN_VIEWER"))
         cal_layout = QHBoxLayout()
         cal_layout.addWidget(self.input_cal_log)
         cal_layout.addWidget(self.btn_browse_cal)
         cal_layout.addWidget(self.btn_view_cal)
         
         self.input_error_log = QLineEdit()
-        self.btn_browse_error = QPushButton("Browse...")
+        self.btn_browse_error = QPushButton(UIStrings.get("BTN_BROWSE"))
         error_layout = QHBoxLayout()
         error_layout.addWidget(self.input_error_log)
         error_layout.addWidget(self.btn_browse_error)
         
-        layout_log.addRow("Work Log:", work_layout)
-        layout_log.addRow("Calibration Log:", cal_layout)
+        layout_log.addRow(UIStrings.get("LBL_WORK_LOG"), work_layout)
+        layout_log.addRow(UIStrings.get("LBL_CAL_LOG"), cal_layout)
         
         # --- Error & Debug Settings ---
-        group_error_settings = QGroupBox("Error & Debug Settings")
+        group_error_settings = QGroupBox(UIStrings.get("GRP_ERROR_DEBUG"))
         layout_error = QFormLayout(group_error_settings)
-        layout_error.addRow("Error Log (TXT):", error_layout)
+        layout_error.addRow(UIStrings.get("LBL_ERROR_LOG"), error_layout)
         
-        self.cb_global_debug_log = QCheckBox("Show Detailed / Debug Logs in Console (All Tabs)")
+        self.cb_global_debug_log = QCheckBox(UIStrings.get("CB_GLOBAL_DEBUG_LOG"))
         self.cb_global_debug_log.setChecked(config.settings.value("global_debug_log_en", "false") == "true")
-        layout_error.addRow("Console Output:", self.cb_global_debug_log)
+        layout_error.addRow(UIStrings.get("LBL_CONSOLE_OUTPUT"), self.cb_global_debug_log)
         
         # --- Production Settings ---
-        group_prod_settings = QGroupBox("Production Settings")
+        group_prod_settings = QGroupBox(UIStrings.get("GRP_PRODUCTION"))
         layout_prod = QFormLayout(group_prod_settings)
         
         self.input_hotkey = QKeySequenceEdit()
         self.input_hotkey.setKeySequence(QKeySequence(config.get_start_hotkey()))
-        self.input_hotkey.setToolTip("Click here and press the desired hotkey combination (e.g., Space)")
-        layout_prod.addRow("Quick Start Hotkey:", self.input_hotkey)
+        self.input_hotkey.setToolTip(UIStrings.get("TOOLTIP_HOTKEY"))
+        layout_prod.addRow(UIStrings.get("LBL_QUICK_START_HOTKEY"), self.input_hotkey)
         
-        self.btn_save_options = QPushButton("Save Settings")
+        self.btn_save_options = QPushButton(UIStrings.get("BTN_SAVE_SETTINGS"))
         
         layout_options.addWidget(group_log_settings)
         layout_options.addWidget(group_error_settings)
@@ -81,27 +82,27 @@ class OptionsTab(QWidget):
         layout_options.addWidget(self.btn_save_options)
         
         # --- Firmware Auto-Update Settings ---
-        group_fw = QGroupBox("RP2040 Firmware Auto-Update")
+        group_fw = QGroupBox(UIStrings.get("GRP_FW_UPDATE"))
         layout_fw = QVBoxLayout(group_fw)
         
         form_fw = QFormLayout()
         self.input_github_repo = QLineEdit(config.settings.value("github_repo", "icebrain2006-spec/IBQtools", type=str))
-        self.input_github_repo.setPlaceholderText("e.g. username/repository")
-        form_fw.addRow("GitHub Repository:", self.input_github_repo)
+        self.input_github_repo.setPlaceholderText(UIStrings.get("PH_GITHUB_REPO"))
+        form_fw.addRow(UIStrings.get("LBL_GITHUB_REPO"), self.input_github_repo)
         
         self.lbl_latest_ver = QLabel("Board: Unknown | Latest: Unknown")
         self.lbl_latest_ver.setStyleSheet(f"color: {Colors.HEX_WARN_CYAN}; font-weight: bold;")
-        form_fw.addRow("Status:", self.lbl_latest_ver)
+        form_fw.addRow(UIStrings.get("LBL_STATUS"), self.lbl_latest_ver)
         
         layout_fw.addLayout(form_fw)
         
         btn_layout = QHBoxLayout()
-        self.btn_check_update = QPushButton("Check Update")
-        self.btn_download_update = QPushButton("Download && Flash")
+        self.btn_check_update = QPushButton(UIStrings.get("BTN_CHECK_UPDATE"))
+        self.btn_download_update = QPushButton(UIStrings.get("BTN_DOWNLOAD_FLASH"))
         self.btn_download_update.setEnabled(False)
         self.btn_download_update.setObjectName("startBtn")
         
-        self.btn_flash_local = QPushButton("Flash Local .uf2")
+        self.btn_flash_local = QPushButton(UIStrings.get("BTN_FLASH_LOCAL"))
         self.btn_flash_local.setObjectName("startBtn")
         
         btn_layout.addWidget(self.btn_check_update)
@@ -109,7 +110,7 @@ class OptionsTab(QWidget):
         btn_layout.addWidget(self.btn_flash_local)
         layout_fw.addLayout(btn_layout)
         
-        self.lbl_update_status = QLabel("Ready.")
+        self.lbl_update_status = QLabel(UIStrings.get("LBL_READY"))
         layout_fw.addWidget(self.lbl_update_status)
         
         layout_options.addWidget(group_fw)

@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from gui.styles import Colors
+from gui.strings import UIStrings
 
 
 class CsvViewerDialog(QDialog):
@@ -20,9 +21,9 @@ class CsvViewerDialog(QDialog):
         
         # Search Bar
         search_layout = QHBoxLayout()
-        search_label = QLabel("Search:")
+        search_label = QLabel(UIStrings.get("LBL_SEARCH"))
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Type to filter logs by date, SN, result, etc...")
+        self.search_input.setPlaceholderText(UIStrings.get("PH_CSV_SEARCH"))
         self.search_input.textChanged.connect(self._filter_table)
         
         search_layout.addWidget(search_label)
@@ -48,7 +49,7 @@ class CsvViewerDialog(QDialog):
         """)
         layout.addWidget(self.table)
         
-        self.btn_close = QPushButton("Close")
+        self.btn_close = QPushButton(UIStrings.get("BTN_CLOSE"))
         self.btn_close.clicked.connect(self.accept)
         layout.addWidget(self.btn_close)
         

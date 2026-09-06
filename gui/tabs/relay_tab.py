@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt, QThread, Signal
 from gui.widgets import PortComboBox
 from gui.updater_thread import make_packet, CMD_RELAY_SET
 from gui.styles import Colors
+from gui.strings import UIStrings
 
 
 class RelayCommandWorker(QThread):
@@ -37,12 +38,10 @@ class RelayWindow(QWidget):
     """Independent Mini Relay Control Window."""
 
     def __init__(self, parent=None):
-        # parent를 None으로 강제하여 독립된 창으로 설정
         super().__init__(None)
         self.setWindowTitle("Mini Relay")
         self.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint | Qt.Tool)
         
-        # 메인 창의 기본 테마 적용 및 스타일 오버라이드
         qss_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "style.qss")
         if os.path.exists(qss_path):
             with open(qss_path, "r", encoding="utf-8") as f:
@@ -57,7 +56,6 @@ class RelayWindow(QWidget):
         self._init_ui()
         self.refresh_ports()
         
-        # UI 구성 완료 후 크기 고정
         self.adjustSize()
         self.setFixedSize(self.sizeHint().width() + 10, self.sizeHint().height() + 20)
 
@@ -67,26 +65,26 @@ class RelayWindow(QWidget):
         layout.setSpacing(2)
 
         # COM Port Selection
-        group_port = QGroupBox("Connection")
+        group_port = QGroupBox(UIStrings.get("GRP_CONNECTION"))
         layout_port = QVBoxLayout(group_port)
         layout_port.setContentsMargins(5, 5, 5, 5)
         layout_port.setSpacing(2)
         
         row_com = QHBoxLayout()
         row_com.setContentsMargins(0, 0, 0, 0)
-        row_com.addWidget(QLabel("COM:"))
+        row_com.addWidget(QLabel(UIStrings.get("LBL_COM")))
         self.combo_ports = PortComboBox()
         row_com.addWidget(self.combo_ports, 1)
         layout_port.addLayout(row_com)
         
-        self.btn_refresh = QPushButton("Refresh")
+        self.btn_refresh = QPushButton(UIStrings.get("BTN_REFRESH"))
         self.btn_refresh.clicked.connect(self.refresh_ports)
         layout_port.addWidget(self.btn_refresh)
         
         layout.addWidget(group_port)
 
         # Channel Toggle Buttons (Vertical)
-        group_ch = QGroupBox("Relay Control")
+        group_ch = QGroupBox(UIStrings.get("GRP_RELAY_CONTROL"))
         layout_ch = QVBoxLayout(group_ch)
         layout_ch.setContentsMargins(5, 5, 5, 5)
         layout_ch.setSpacing(2)
@@ -123,7 +121,7 @@ class RelayWindow(QWidget):
         layout.addWidget(group_ch)
 
         # Status Label
-        self.lbl_status = QLabel("Ready\n")
+        self.lbl_status = QLabel(UIStrings.get("LBL_READY") + "\n")
         self.lbl_status.setAlignment(Qt.AlignCenter)
         self.lbl_status.setWordWrap(True)
         self.lbl_status.setMinimumHeight(32)
@@ -142,7 +140,6 @@ class RelayWindow(QWidget):
             ch_num = self.ch_buttons.index(sender_btn) + 1
             sender_btn.setText(f"CH {ch_num} : ON" if checked else f"CH {ch_num} : OFF")
 
-        # Calculate mask from channel buttons
         mask = 0
         for i, btn in enumerate(self.ch_buttons):
             if btn.isChecked():

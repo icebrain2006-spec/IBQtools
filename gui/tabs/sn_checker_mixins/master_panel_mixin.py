@@ -1,12 +1,16 @@
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
-                               QGridLayout, QLabel, QComboBox, QLineEdit, 
-                               QPushButton, QTextBrowser, QCheckBox, QSpinBox, 
-                               QFormLayout, QScrollArea)
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
+    QGridLayout, QLabel, QComboBox, QLineEdit, 
+    QPushButton, QTextBrowser, QCheckBox, QSpinBox, 
+    QFormLayout, QScrollArea
+)
 from PySide6.QtCore import Qt, QRegularExpression
 from PySide6.QtGui import QRegularExpressionValidator
 
-from widgets.rp2040_board_widget import RP2040BoardWidget
-from styles import Styles
+from gui.widgets.rp2040_board_widget import RP2040BoardWidget
+from gui.styles import Styles
+from gui.strings import UIStrings
+
 
 class MasterPanelMixin:
     """Mixin class for constructing and managing the Master Configuration panel & Board scroll area."""
@@ -20,21 +24,21 @@ class MasterPanelMixin:
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
         
-        master_group = QGroupBox("Master Configuration")
+        master_group = QGroupBox(UIStrings.get("GRP_MASTER_CONFIG"))
         mlayout = QGridLayout(master_group)
         
-        mlayout.addWidget(QLabel("Number of Boards (1-4):"), 0, 0)
+        mlayout.addWidget(QLabel(UIStrings.get("LBL_NUM_BOARDS")), 0, 0)
         self.spin_boards = QSpinBox()
         self.spin_boards.setRange(1, 4)
         self.spin_boards.setValue(1)
         self.spin_boards.valueChanged.connect(self._update_board_count)
         mlayout.addWidget(self.spin_boards, 0, 1)
         
-        mlayout.addWidget(QLabel("Loop Count:"), 1, 0)
+        mlayout.addWidget(QLabel(UIStrings.get("LBL_LOOP_COUNT")), 1, 0)
         self.loop_count = QLineEdit("1")
         mlayout.addWidget(self.loop_count, 1, 1)
         
-        verify_group = QGroupBox("Verification Targets")
+        verify_group = QGroupBox(UIStrings.get("GRP_VERIFY_TARGETS"))
         verify_form = QFormLayout(verify_group)
         self.input_exp_date = QLineEdit("2024-03-05")
         self.input_exp_date.setInputMask("9999-99-99")
@@ -92,16 +96,16 @@ class MasterPanelMixin:
         
         # Action Buttons
         action_layout = QHBoxLayout()
-        self.btn_start = QPushButton("START ALL")
+        self.btn_start = QPushButton(UIStrings.get("BTN_START_ALL"))
         self.btn_start.setObjectName("startBtn")
-        self.btn_stop = QPushButton("STOP ALL")
+        self.btn_stop = QPushButton(UIStrings.get("BTN_STOP_ALL"))
         self.btn_stop.setObjectName("stopBtn")
         self.btn_stop.setEnabled(False)
         
-        self.btn_quick_start = QPushButton("Quick Start")
+        self.btn_quick_start = QPushButton(UIStrings.get("BTN_QUICK_START"))
         self.btn_quick_start.setCheckable(True)
         self.btn_quick_start.setStyleSheet(Styles.QUICK_START_BTN)
-        self.btn_quick_start.setToolTip("Enable this to trigger 'START ALL' using the configured hotkey")
+        self.btn_quick_start.setToolTip(UIStrings.get("TOOLTIP_QUICK_START"))
         
         self.btn_start.clicked.connect(self._start_all)
         self.btn_stop.clicked.connect(self._stop_all)
@@ -112,7 +116,7 @@ class MasterPanelMixin:
         
         left_layout.addLayout(action_layout)
         
-        self.btn_check_all = QPushButton("SERIAL CHECK")
+        self.btn_check_all = QPushButton(UIStrings.get("BTN_SERIAL_CHECK"))
         self.btn_check_all.setObjectName("checkBtn")
         self.btn_check_all.clicked.connect(self._check_all)
         left_layout.addWidget(self.btn_check_all)

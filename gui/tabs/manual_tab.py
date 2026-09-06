@@ -1,172 +1,134 @@
-import os
-import re
-import serial
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
-                               QGridLayout, QLabel, QComboBox, QLineEdit, 
-                               QPushButton, QTextBrowser, QMessageBox)
-from PySide6.QtGui import QRegularExpressionValidator
-from PySide6.QtCore import QRegularExpression, QThread, Signal
+import binascii
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
+    QLineEdit, QPushButton, QTextBrowser, QLabel, QMessageBox
+)
+from PySide6.QtCore import QThread, Signal
 
-from widgets.port_combobox import PortComboBox
-from styles import Colors, Styles
-from utils import is_error_status
-from updater_thread import make_packet, parse_response, CMD_I2C_RAW, RESP_OK
+from gui.widgets import PortComboBox
+from gui.updater_thread import make_packet, parse_response
+from gui.styles import Colors, Styles
+from gui.utils import is_error_status
+from gui.strings import UIStrings
+
 
 class ManualCommandWorker(QThread):
-    log_msg = Signal(str)
-    finished = Signal(bool)
+    """Background worker for sending manual HEX commands over Serial without blocking UI."""
+    finished = Signal(bool, str, bytes)  # success, formatted_log, raw_response
 
-    def __init__(self, port, ch, addr, tx_data, rx_len, parent=None):
-        super().__init__(parent)
+    def __init__(self, port: str, hex_str: str):
+        super().__init__()
         self.port = port
-        self.ch = ch
-        self.addr = addr
-        self.tx_data = tx_data
-        self.rx_len = rx_len
+        self.hex_str = hex_str
 
     def run(self):
-        tx_len = len(self.tx_data)
-        payload = bytes([self.ch, self.addr, tx_len, self.rx_len]) + bytes(self.tx_data)
-        packet = make_packet(CMD_I2C_RAW, payload)
-        
-        self.log_msg.emit(f"\n[TX] Port:{self.port} CH:{self.ch} Addr:{self.addr:#04x} TX:{self.tx_data} Expected_RX:{self.rx_len}")
-        
         try:
+            import serial
+            cleaned_hex = self.hex_str.replace(" ", "")
+            raw_bytes = bytes.fromhex(cleaned_hex)
+            
+            if len(raw_bytes) == 0:
+                self.finished.emit(False, "Error: Empty byte array.", b"")
+                return
+
+            cmd_byte = raw_bytes[0]
+            payload = raw_bytes[1:]
+            packet = make_packet(cmd_byte, payload)
+
             with serial.Serial(self.port, 115200, timeout=1.0) as ser:
                 ser.write(packet)
-                rx = ser.read(128)
-                
-                if not rx:
-                    self.log_msg.emit("[ERROR] No response from RP2040 (Timeout)")
-                    self.finished.emit(False)
-                    return
-                    
-                cmd, resp_payload = parse_response(rx)
-                if cmd == CMD_I2C_RAW:
-                    status = resp_payload[0]
-                    if status == RESP_OK:
-                        rx_bytes = resp_payload[1:]
-                        hex_rx = " ".join([f"{b:02X}" for b in rx_bytes])
-                        self.log_msg.emit(f"[RX] Success: {hex_rx}")
-                        self.finished.emit(True)
-                    else:
-                        self.log_msg.emit(f"[ERROR] I2C Error Code: {status:#04x}")
-                        self.finished.emit(False)
-                else:
-                    self.log_msg.emit(f"[ERROR] Unexpected response command: {cmd:#04x}")
-                    self.finished.emit(False)
-                    
+                resp = ser.read(128)
+
+            if not resp:
+                self.finished.emit(False, "Error: Serial Read Timeout (No response from board).", b"")
+                return
+
+            resp_cmd, resp_payload = parse_response(resp)
+            
+            if resp_cmd is not None:
+                hex_resp = " ".join([f"{b:02X}" for b in resp_payload])
+                log_msg = f"[SUCCESS] Response Cmd: 0x{resp_cmd:02X} | Payload({len(resp_payload)}B): {hex_resp}"
+                self.finished.emit(True, log_msg, resp_payload)
+            else:
+                hex_raw = " ".join([f"{b:02X}" for b in resp])
+                log_msg = f"[WARN] Invalid Packet CRC/Header. Raw ({len(resp)}B): {hex_raw}"
+                self.finished.emit(False, log_msg, resp)
+
+        except ValueError as ve:
+            self.finished.emit(False, f"Error: Invalid Hex String format: {ve}", b"")
         except Exception as e:
-            self.log_msg.emit(f"[CRITICAL] Serial Error: {e}")
-            self.finished.emit(False)
+            self.finished.emit(False, f"Error: Communication failure on {self.port}: {e}", b"")
 
 
 class ManualTab(QWidget):
+    """Manual Serial Command Test & Debugging Tab."""
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.worker = None
         self._init_ui()
-        
+
     def _init_ui(self):
         layout = QVBoxLayout(self)
-        
-        ctrl_group = QGroupBox("Command Configuration")
-        ctrl_layout = QGridLayout(ctrl_group)
-        
-        ctrl_layout.addWidget(QLabel("COM Port:"), 0, 0)
-        self.man_port = PortComboBox()
-        ctrl_layout.addWidget(self.man_port, 0, 1)
-        
-        ctrl_layout.addWidget(QLabel("Channel (1-6):"), 0, 2)
-        self.man_ch = QComboBox()
-        self.man_ch.addItems(["1","2","3","4","5","6"])
-        ctrl_layout.addWidget(self.man_ch, 0, 3)
-        
-        ctrl_layout.addWidget(QLabel("I2C Address (Hex):"), 1, 0)
-        self.man_addr = QLineEdit("0B")
-        addr_validator = QRegularExpressionValidator(QRegularExpression("^[0-9a-fA-F]{1,2}$"))
-        self.man_addr.setValidator(addr_validator)
-        ctrl_layout.addWidget(self.man_addr, 1, 1)
-        
-        ctrl_layout.addWidget(QLabel("Command Mode:"), 1, 2)
-        self.man_mode = QComboBox()
-        self.man_mode.addItems(["RAW I2C TRX", "SMBus Read Word", "SMBus Read Block"])
-        ctrl_layout.addWidget(self.man_mode, 1, 3)
-        
-        ctrl_layout.addWidget(QLabel("TX Data (Hex space separated):"), 2, 0)
-        self.man_tx = QLineEdit("08")
-        self.man_tx.textEdited.connect(self._format_tx_data)
-        ctrl_layout.addWidget(self.man_tx, 2, 1, 1, 3)
-        
-        ctrl_layout.addWidget(QLabel("Expected RX Bytes:"), 3, 0)
-        self.man_rx_len = QLineEdit("2")
-        ctrl_layout.addWidget(self.man_rx_len, 3, 1)
-        
-        self.btn_send_cmd = QPushButton("SEND COMMAND")
-        self.btn_send_cmd.setObjectName("startBtn")
-        self.btn_send_cmd.clicked.connect(self._send_manual_command)
-        ctrl_layout.addWidget(self.btn_send_cmd, 3, 3)
-        
-        layout.addWidget(ctrl_group)
-        
+
+        group_man = QGroupBox(UIStrings.get("GRP_MANUAL_CONTROL"))
+        layout_man = QVBoxLayout(group_man)
+
+        # Port Selection
+        layout_port = QHBoxLayout()
+        layout_port.addWidget(QLabel(UIStrings.get("LBL_COM_PORT")))
+        self.combo_ports = PortComboBox()
+        layout_port.addWidget(self.combo_ports, 1)
+
+        self.btn_refresh = QPushButton(UIStrings.get("BTN_REFRESH"))
+        self.btn_refresh.clicked.connect(self.combo_ports.refresh_ports)
+        layout_port.addWidget(self.btn_refresh)
+        layout_man.addLayout(layout_port)
+
+        # HEX Input Line
+        layout_input = QHBoxLayout()
+        layout_input.addWidget(QLabel(UIStrings.get("LBL_HEX_INPUT")))
+        self.input_man_hex = QLineEdit()
+        self.input_man_hex.setPlaceholderText(UIStrings.get("PH_HEX_INPUT"))
+        self.input_man_hex.returnPressed.connect(self._send_manual_command)
+        layout_input.addWidget(self.input_man_hex)
+
+        self.btn_man_send = QPushButton(UIStrings.get("BTN_SEND_COMMAND"))
+        self.btn_man_send.setObjectName("startBtn")
+        self.btn_man_send.clicked.connect(self._send_manual_command)
+        layout_input.addWidget(self.btn_man_send)
+        layout_man.addLayout(layout_input)
+
+        layout.addWidget(group_man)
+
+        # Console Output
         self.man_console = QTextBrowser()
         self.man_console.setStyleSheet(Styles.LOG_CONSOLE)
-        self.man_console.append("Ready for manual I2C commands.")
         layout.addWidget(self.man_console, stretch=1)
 
-    def _format_tx_data(self, text):
-        clean = re.sub(r'[^0-9a-fA-F]', '', text)
-        spaced = ' '.join(clean[i:i+2] for i in range(0, len(clean), 2)).upper()
-        
-        self.man_tx.blockSignals(True)
-        self.man_tx.setText(spaced)
-        self.man_tx.blockSignals(False)
-
-    def log_msg(self, msg):
-        if is_error_status(msg) or "[CRITICAL]" in msg or "[ERROR]" in msg:
-            self.man_console.append(f'<span style="color: {Colors.HEX_FAIL};">{msg}</span>')
-        elif "[RX] Success" in msg:
-            self.man_console.append(f'<span style="color: {Colors.HEX_PASS_GREEN};">{msg}</span>')
-        else:
-            self.man_console.append(msg)
-
     def _send_manual_command(self):
-        if self.worker and self.worker.isRunning():
-            self.log_msg("[WARNING] Command already running. Please wait.")
+        port = self.combo_ports.currentText()
+        if not port or port == "Select COM":
+            QMessageBox.warning(self, "Error", "Please select a valid COM port first.")
             return
 
-        port = self.man_port.currentText()
-        ch = int(self.man_ch.currentText())
-        
-        try:
-            addr = int(self.man_addr.text(), 16)
-        except ValueError:
-            QMessageBox.warning(self, "Input Error", "Invalid I2C Address (must be Hex)")
+        hex_str = self.input_man_hex.text().strip()
+        if not hex_str:
+            QMessageBox.warning(self, "Error", "Please enter a HEX command string.")
             return
-            
-        try:
-            rx_len = int(self.man_rx_len.text())
-        except ValueError:
-            QMessageBox.warning(self, "Input Error", "Invalid RX Length (must be integer)")
-            return
-            
-        tx_str = self.man_tx.text().strip()
-        tx_data = []
-        if tx_str:
-            try:
-                tx_data = [int(x, 16) for x in tx_str.split()]
-            except ValueError:
-                QMessageBox.warning(self, "Input Error", "Invalid TX Data (must be space-separated Hex)")
-                return
 
-        self.btn_send_cmd.setEnabled(False)
-        self.btn_send_cmd.setText("SENDING...")
+        self.btn_man_send.setEnabled(False)
+        self.man_console.append(f"\n>>> Sending to {port}: {hex_str}")
 
-        self.worker = ManualCommandWorker(port, ch, addr, tx_data, rx_len)
-        self.worker.log_msg.connect(self.log_msg)
+        self.worker = ManualCommandWorker(port, hex_str)
         self.worker.finished.connect(self._on_command_finished)
         self.worker.start()
 
-    def _on_command_finished(self, success):
-        self.btn_send_cmd.setEnabled(True)
-        self.btn_send_cmd.setText("SEND COMMAND")
+    def _on_command_finished(self, success: bool, log_msg: str, raw_payload: bytes):
+        self.btn_man_send.setEnabled(True)
+        if success:
+            self.man_console.append(f'<span style="color: {Colors.HEX_PASS_GREEN};">{log_msg}</span>')
+        elif is_error_status(log_msg):
+            self.man_console.append(f'<span style="color: {Colors.HEX_FAIL};">{log_msg}</span>')
+        else:
+            self.man_console.append(log_msg)
