@@ -1,9 +1,11 @@
 import os
-import csv
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
                                QLabel, QComboBox, QLineEdit, QPushButton, 
                                QFileDialog, QTextBrowser, QMessageBox)
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import QThread, Signal
+
+from styles import Colors
+from utils import convert_csv_to_slfs, load_bq_ic_info, is_error_status
 
 class ConversionWorker(QThread):
     finished = Signal(bool, str)
@@ -17,87 +19,10 @@ class ConversionWorker(QThread):
         self.version = version
 
     def run(self):
-        try:
-            self.log_msg.emit(f"[INFO] Starting conversion: {self.input_path} -> {self.output_path}")
-            with open(self.input_path, 'r', encoding='utf-8') as infile, open(self.output_path, 'w', encoding='utf-8') as outfile:
-                reader = csv.DictReader(infile)
-                rows = list(reader)
-                
-                outfile.write("; slfs file generated from i2cdata.csv\n")
-                outfile.write(f"; IC Type: {self.ic_type}\n")
-                outfile.write(f"; Version: {self.version}\n")           
-                
-                i = 0
-                last_time = 0
-                transaction_count = 0
-                
-                while i < len(rows):
-                    if rows[i].get('type') == 'start':
-                        j = i + 1
-                        stop_index = -1
-                        while j < len(rows):
-                            if rows[j].get('type') == 'stop':
-                                stop_index = j
-                                break
-                            j += 1
-                        
-                        if stop_index == -1:
-                            i += 1
-                            continue # Incomplete transaction
-
-                        transaction_rows = rows[i:stop_index + 1]
-                        
-                        # Time delay
-                        if last_time != 0:
-                            time_diff = (float(transaction_rows[0]['start_time']) - last_time) * 1000
-                            if time_diff > 0:
-                                if time_diff < 30:
-                                    time_diff = 2
-                                outfile.write(f"X: {int(time_diff)}\n")
-
-                        # Pattern: Write-then-Read
-                        if (len(transaction_rows) >= 6 and
-                            transaction_rows[1].get('type') == 'address' and transaction_rows[1].get('read') == 'false' and
-                            transaction_rows[2].get('type') == 'data' and
-                            transaction_rows[3].get('type') == 'start' and
-                            transaction_rows[4].get('type') == 'address' and transaction_rows[4].get('read') == 'true' and
-                            transaction_rows[1].get('address') == transaction_rows[4].get('address')):
-                            
-                            address_hex = transaction_rows[1]['address'].replace('0x', '')
-                            command_byte = transaction_rows[2]['data'].replace('0x', '')
-                            read_bytes = [r['data'].replace('0x', '') for r in transaction_rows[5:] if r.get('type') == 'data']
-                            
-                            write_address_8bit = f"{(int(address_hex, 16) << 1):02X}"
-                            all_bytes = [write_address_8bit, command_byte] + read_bytes
-                            outfile.write(f"C: {' '.join(all_bytes)}\n")
-                            transaction_count += 1
-
-                        else: # Simple Write or Simple Read
-                            if len(transaction_rows) > 1 and transaction_rows[1].get('type') == 'address':
-                                address_hex = transaction_rows[1]['address'].replace('0x', '')
-                                is_read = transaction_rows[1]['read'] == 'true'
-                                data_bytes = [r['data'].replace('0x', '') for r in transaction_rows[2:] if r.get('type') == 'data']
-
-                                if not is_read: # Simple Write
-                                    write_address_8bit = f"{(int(address_hex, 16) << 1):02X}"
-                                    all_bytes = [write_address_8bit] + data_bytes
-                                    outfile.write(f"W: {' '.join(all_bytes)}\n")
-                                    transaction_count += 1
-                                else: # Simple Read
-                                    outfile.write(f"C: {address_hex} R\n")
-                                    if data_bytes:
-                                        outfile.write(f"W: {' '.join(data_bytes)}\n")
-                                    transaction_count += 1
-
-                        last_time = float(transaction_rows[-1]['start_time']) + float(transaction_rows[-1]['duration'])
-                        i = stop_index + 1
-                    else:
-                        i += 1
-            
-            self.log_msg.emit(f"[INFO] Processed {transaction_count} transactions.")
-            self.finished.emit(True, "File converted successfully!")
-        except Exception as e:
-            self.finished.emit(False, str(e))
+        success, count, msg = convert_csv_to_slfs(
+            self.input_path, self.output_path, self.ic_type, self.version, log_callback=self.log_msg.emit
+        )
+        self.finished.emit(success, msg)
 
 class CsvTab(QWidget):
     def __init__(self, parent=None):
@@ -170,26 +95,16 @@ class CsvTab(QWidget):
         
     def _load_ic_data(self):
         info_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "BQ_Information.csv")
-        self.ic_dict = {} # {ic_name: [versions]}
+        self.ic_dict = load_bq_ic_info(info_path)
         
-        try:
-            with open(info_path, 'r', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    ic = row.get('IC')
-                    version = row.get('Version')
-                    if ic and version:
-                        if ic not in self.ic_dict:
-                            self.ic_dict[ic] = set()
-                        self.ic_dict[ic].add(version)
-            
-            # Sort and populate combo box
-            for ic in sorted(self.ic_dict.keys(), reverse=True):
-                self.combo_ic.addItem(ic)
+        if not self.ic_dict:
+            self.log_msg(f"[ERROR] Could not load BQ_Information.csv or file is empty.")
+            return
+
+        # Sort and populate combo box
+        for ic in sorted(self.ic_dict.keys(), reverse=True):
+            self.combo_ic.addItem(ic)
                 
-        except Exception as e:
-            self.log_msg(f"[ERROR] Could not load BQ_Information.csv: {e}")
-            
     def _update_versions(self):
         self.combo_version.clear()
         ic = self.combo_ic.currentText()
@@ -216,10 +131,10 @@ class CsvTab(QWidget):
             self.output_path.setText(path)
             
     def log_msg(self, msg):
-        if "ERROR" in msg or "Failed" in msg:
-            self.console.append(f'<span style="color: #FF4444;">{msg}</span>')
-        elif "SUCCESS" in msg:
-            self.console.append(f'<span style="color: #00FF00;">{msg}</span>')
+        if is_error_status(msg):
+            self.console.append(f'<span style="color: {Colors.HEX_FAIL};">{msg}</span>')
+        elif "SUCCESS" in msg or "successfully" in msg.lower():
+            self.console.append(f'<span style="color: {Colors.HEX_PASS_GREEN};">{msg}</span>')
         else:
             self.console.append(msg)
             

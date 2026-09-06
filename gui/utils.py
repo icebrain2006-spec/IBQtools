@@ -103,3 +103,119 @@ def is_error_status(text: str) -> bool:
         return False
     lower_text = text.lower()
     return "error" in lower_text or "fail" in lower_text or "오류" in lower_text
+
+
+def convert_csv_to_slfs(input_path: str, output_path: str, ic_type: str, version: str, log_callback=None) -> tuple[bool, int, str]:
+    """
+    Parses I2C CSV transactions from input_path and generates formatted .slfs file at output_path.
+    Returns (success: bool, transaction_count: int, message: str).
+    """
+    if log_callback:
+        log_callback(f"[INFO] Starting conversion: {input_path} -> {output_path}")
+
+    try:
+        with open(input_path, 'r', encoding='utf-8') as infile, open(output_path, 'w', encoding='utf-8') as outfile:
+            reader = csv.DictReader(infile)
+            rows = list(reader)
+            
+            outfile.write("; slfs file generated from i2cdata.csv\n")
+            outfile.write(f"; IC Type: {ic_type}\n")
+            outfile.write(f"; Version: {version}\n")           
+            
+            i = 0
+            last_time = 0
+            transaction_count = 0
+            
+            while i < len(rows):
+                if rows[i].get('type') == 'start':
+                    j = i + 1
+                    stop_index = -1
+                    while j < len(rows):
+                        if rows[j].get('type') == 'stop':
+                            stop_index = j
+                            break
+                        j += 1
+                    
+                    if stop_index == -1:
+                        i += 1
+                        continue # Incomplete transaction
+
+                    transaction_rows = rows[i:stop_index + 1]
+                    
+                    # Time delay
+                    if last_time != 0:
+                        time_diff = (float(transaction_rows[0]['start_time']) - last_time) * 1000
+                        if time_diff > 0:
+                            if time_diff < 30:
+                                time_diff = 2
+                            outfile.write(f"X: {int(time_diff)}\n")
+
+                    # Pattern: Write-then-Read
+                    if (len(transaction_rows) >= 6 and
+                        transaction_rows[1].get('type') == 'address' and transaction_rows[1].get('read') == 'false' and
+                        transaction_rows[2].get('type') == 'data' and
+                        transaction_rows[3].get('type') == 'start' and
+                        transaction_rows[4].get('type') == 'address' and transaction_rows[4].get('read') == 'true' and
+                        transaction_rows[1].get('address') == transaction_rows[4].get('address')):
+                        
+                        address_hex = transaction_rows[1]['address'].replace('0x', '')
+                        command_byte = transaction_rows[2]['data'].replace('0x', '')
+                        read_bytes = [r['data'].replace('0x', '') for r in transaction_rows[5:] if r.get('type') == 'data']
+                        
+                        write_address_8bit = f"{(int(address_hex, 16) << 1):02X}"
+                        all_bytes = [write_address_8bit, command_byte] + read_bytes
+                        outfile.write(f"C: {' '.join(all_bytes)}\n")
+                        transaction_count += 1
+
+                    else: # Simple Write or Simple Read
+                        if len(transaction_rows) > 1 and transaction_rows[1].get('type') == 'address':
+                            address_hex = transaction_rows[1]['address'].replace('0x', '')
+                            is_read = transaction_rows[1].get('read') == 'true'
+                            data_bytes = [r['data'].replace('0x', '') for r in transaction_rows[2:] if r.get('type') == 'data']
+
+                            if not is_read: # Simple Write
+                                write_address_8bit = f"{(int(address_hex, 16) << 1):02X}"
+                                all_bytes = [write_address_8bit] + data_bytes
+                                outfile.write(f"W: {' '.join(all_bytes)}\n")
+                                transaction_count += 1
+                            else: # Simple Read
+                                outfile.write(f"C: {address_hex} R\n")
+                                if data_bytes:
+                                    outfile.write(f"W: {' '.join(data_bytes)}\n")
+                                transaction_count += 1
+
+                    last_time = float(transaction_rows[-1]['start_time']) + float(transaction_rows[-1]['duration'])
+                    i = stop_index + 1
+                else:
+                    i += 1
+
+        if log_callback:
+            log_callback(f"[INFO] Processed {transaction_count} transactions.")
+
+        return True, transaction_count, "File converted successfully!"
+    except Exception as e:
+        return False, 0, str(e)
+
+
+def load_bq_ic_info(info_path: str) -> dict[str, set[str]]:
+    """
+    Reads BQ_Information.csv and returns a dictionary mapping IC names to set of versions.
+    """
+    ic_dict = {}
+    if not os.path.exists(info_path):
+        return ic_dict
+
+    try:
+        with open(info_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                ic = row.get('IC')
+                version = row.get('Version')
+                if ic and version:
+                    if ic not in ic_dict:
+                        ic_dict[ic] = set()
+                    ic_dict[ic].add(version)
+    except Exception as e:
+        logging.getLogger('IBQtools').error(f"Could not load BQ_Information.csv: {e}")
+
+    return ic_dict
