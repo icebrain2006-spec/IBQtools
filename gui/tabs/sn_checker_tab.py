@@ -772,54 +772,56 @@ class SNCheckerTab(QWidget):
                     
             return exp_date, chip_sn_int, fmt, should_write_sn, should_write_date
 
-    def _on_board_finished_callback(self):
-        self.active_workers -= 1
-        if self.active_workers <= 0:
-            self.active_workers = 0
-            
-            has_error = False
-            for board in self.boards:
-                for stat in board.ch_status:
-                    text = stat.text().lower()
-                    if "fail" in text or "error" in text or "오류" in text:
-                        has_error = True
-                        break
-                if has_error:
-                    break
-                    
-            def _play_sound(is_err):
-                try:
-                    import os
-                    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                    ref_dir = os.path.join(base_dir, "assets", "wav")
-                    
+    def _check_any_board_has_error(self) -> bool:
+        """Iterates over all boards and channels to check if any channel has a failure/error status."""
+        for board in self.boards:
+            for stat in board.ch_status:
+                text = stat.text().lower()
+                if "fail" in text or "error" in text or "오류" in text:
+                    return True
+        return False
+
+    def _play_completion_sound(self, is_error: bool):
+        """Launches a daemon thread to play completion/failure sound or fallback beeps."""
+        def _play_sound(is_err):
+            try:
+                base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                ref_dir = os.path.join(base_dir, "assets", "wav")
+                wav_name = "testFail.wav" if is_err else "testComplete.wav"
+                wav_path = os.path.join(ref_dir, wav_name)
+
+                if os.path.exists(wav_path):
+                    winsound.PlaySound(wav_path, winsound.SND_FILENAME)
+                else:
                     if is_err:
-                        wav_path = os.path.join(ref_dir, "testFail.wav")
+                        winsound.Beep(350, 80)
+                        time.sleep(0.03)
+                        winsound.Beep(350, 80)
                     else:
-                        wav_path = os.path.join(ref_dir, "testComplete.wav")
-                        
-                    if os.path.exists(wav_path):
-                        winsound.PlaySound(wav_path, winsound.SND_FILENAME)
-                    else:
-                        # Fallback if wav not found
-                        if is_err:
-                            winsound.Beep(350, 80)
-                            time.sleep(0.03)
-                            winsound.Beep(350, 80)
-                        else:
-                            winsound.Beep(880, 80)
-                            winsound.Beep(1046, 80)
-                            winsound.Beep(1318, 150)
-                except:
-                    pass
-            
-            threading.Thread(target=_play_sound, args=(has_error,), daemon=True).start()
-            
-            if hasattr(self, 'start_time'):
-                elapsed = time.time() - self.start_time
-                self._log_to_console(f"\n[SYS] ALL BOARDS FINISHED. Total Time: {elapsed:.2f} seconds")
-                
-            self._set_master_ui_enabled(True)
+                        winsound.Beep(880, 80)
+                        winsound.Beep(1046, 80)
+                        winsound.Beep(1318, 150)
+            except Exception:
+                pass
+
+        threading.Thread(target=_play_sound, args=(is_error,), daemon=True).start()
+
+    def _on_board_finished_callback(self):
+        """Orchestrates board completion: worker counting, error checking, sound playback, and UI restoration."""
+        self.active_workers -= 1
+        if self.active_workers > 0:
+            return
+
+        self.active_workers = 0
+        has_error = self._check_any_board_has_error()
+        self._play_completion_sound(has_error)
+
+        if hasattr(self, 'start_time'):
+            elapsed = time.time() - self.start_time
+            self._log_to_console(f"\n[SYS] ALL BOARDS FINISHED. Total Time: {elapsed:.2f} seconds")
+
+        self._set_master_ui_enabled(True)
+
 
     def _log_to_console(self, msg):
         lower_msg = msg.lower()
