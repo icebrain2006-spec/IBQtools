@@ -29,8 +29,7 @@ class ClickableProgressBar(QProgressBar):
 
 from widgets import PortComboBox
 from styles import Colors, Styles
-from utils import append_work_log
-
+from utils import append_work_log, play_sound_effect, get_active_usb_ports, format_sn_value, is_error_status
 
 class RP2040BoardWidget(QGroupBox):
     board_finished = Signal()
@@ -86,16 +85,8 @@ class RP2040BoardWidget(QGroupBox):
         com_layout.addWidget(lbl_port)
         
         self.combo_port = PortComboBox()
-        # Initial population of ports
-        import serial.tools.list_ports
-        active_ports = ["None"]
-        for p in serial.tools.list_ports.comports():
-            hwid = str(p.hwid).upper()
-            desc = str(p.description).upper()
-            if "BTHENUM" in hwid or "BLUETOOTH" in desc or "BTHENUM" in desc: continue
-            if "USB" not in hwid and "USB" not in desc: continue
-            active_ports.append(p.device)
-            
+        # Initial population of ports via utils
+        active_ports = get_active_usb_ports()
         self.combo_port.addItems(active_ports)
             
         # Try to select the default based on board_id if it exists, otherwise just pick the first one
@@ -396,8 +387,7 @@ class RP2040BoardWidget(QGroupBox):
             
     def _on_status_update(self, ch_idx, status_text):
         if 1 <= ch_idx <= 6:
-            lower_text = status_text.lower()
-            if "error" in lower_text or "fail" in lower_text or "오류" in lower_text:
+            if is_error_status(status_text):
                 self.ch_status[ch_idx - 1].setText(f'Status: <span style="color: {Colors.HEX_FAIL};">{status_text}</span>')
             else:
                 self.ch_status[ch_idx - 1].setText(f"Status: {status_text}")
@@ -419,22 +409,14 @@ class RP2040BoardWidget(QGroupBox):
         if not date_str or sn_int < 0:
             return "ERROR", "N/A"
 
-        if sn_fmt == "HEX":
-            sn_str = f"0x{sn_int:04X}"
-            actual_sn_int = sn_int
-        else:
-            try:
-                actual_sn_int = int(f"{sn_int:X}", 10)
-                sn_str = str(actual_sn_int)
-            except ValueError:
-                actual_sn_int = sn_int
-                sn_str = f"INVALID_BCD_0x{sn_int:04X}"
+        actual_sn_int, sn_str = format_sn_value(sn_int, sn_fmt)
 
         date_match = (date_str == exp_date) if should_write_date else True
         sn_match = (actual_sn_int == exp_sn_int) if should_write_sn else True
 
         result_str = "PASS" if (date_match and sn_match) else "FAIL"
         return result_str, sn_str
+
 
     def _update_channel_verify_ui(self, ch_idx: int, result_str: str, date_str: str, sn_str: str):
         """Updates the status label and QSS stylesheet for the specified channel."""
@@ -750,13 +732,9 @@ class SNCheckerTab(QWidget):
     def _increment_and_format_sn(self, fmt: str) -> tuple[int, str]:
         """Increments cached SN, applies format overflow boundary checks, and returns updated int and formatted string."""
         self.cached_sn_int += 1
-        if fmt == "DEC" and self.cached_sn_int > 9999:
-            self.cached_sn_int = 0
-        elif fmt == "HEX" and self.cached_sn_int > 65535:
-            self.cached_sn_int = 0
-
-        formatted_sn = f"{self.cached_sn_int:X}" if fmt == "HEX" else str(self.cached_sn_int)
+        self.cached_sn_int, formatted_sn = format_sn_value(self.cached_sn_int, fmt)
         return self.cached_sn_int, formatted_sn
+
 
     def _get_expected_values(self, is_writing=False):
         """Resolves cached target expected values and increments SN if writing with auto-increment enabled."""
@@ -774,40 +752,17 @@ class SNCheckerTab(QWidget):
 
             return exp_date, chip_sn_int, fmt, should_write_sn, should_write_date
 
-
     def _check_any_board_has_error(self) -> bool:
         """Iterates over all boards and channels to check if any channel has a failure/error status."""
         for board in self.boards:
             for stat in board.ch_status:
-                text = stat.text().lower()
-                if "fail" in text or "error" in text or "오류" in text:
+                if is_error_status(stat.text()):
                     return True
         return False
 
     def _play_completion_sound(self, is_error: bool):
-        """Launches a daemon thread to play completion/failure sound or fallback beeps."""
-        def _play_sound(is_err):
-            try:
-                base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                ref_dir = os.path.join(base_dir, "assets", "wav")
-                wav_name = "testFail.wav" if is_err else "testComplete.wav"
-                wav_path = os.path.join(ref_dir, wav_name)
-
-                if os.path.exists(wav_path):
-                    winsound.PlaySound(wav_path, winsound.SND_FILENAME)
-                else:
-                    if is_err:
-                        winsound.Beep(350, 80)
-                        time.sleep(0.03)
-                        winsound.Beep(350, 80)
-                    else:
-                        winsound.Beep(880, 80)
-                        winsound.Beep(1046, 80)
-                        winsound.Beep(1318, 150)
-            except Exception:
-                pass
-
-        threading.Thread(target=_play_sound, args=(is_error,), daemon=True).start()
+        """Launches a daemon thread to play completion/failure sound or fallback beeps via utils."""
+        play_sound_effect(is_error)
 
     def _on_board_finished_callback(self):
         """Orchestrates board completion: worker counting, error checking, sound playback, and UI restoration."""
@@ -825,10 +780,9 @@ class SNCheckerTab(QWidget):
 
         self._set_master_ui_enabled(True)
 
-
     def _log_to_console(self, msg):
+        is_error = is_error_status(msg)
         lower_msg = msg.lower()
-        is_error = "error" in lower_msg or "fail" in lower_msg or "오류" in lower_msg
         
         from config import config
         if config.settings.value("global_debug_log_en", "false") != "true":
@@ -844,6 +798,7 @@ class SNCheckerTab(QWidget):
             self.log_console.append(f'<span style="color: {Colors.HEX_FAIL};">{safe_msg}</span>')
         else:
             self.log_console.append(f'<span style="color: {Colors.HEX_PASS_GREEN};">{safe_msg}</span>')
+
 
     def _check_all(self):
         if self.active_workers > 0:
