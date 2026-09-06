@@ -29,6 +29,8 @@ class ClickableProgressBar(QProgressBar):
 
 from widgets import PortComboBox
 from styles import Colors, Styles
+from utils import append_work_log
+
 
 class RP2040BoardWidget(QGroupBox):
     board_finished = Signal()
@@ -400,81 +402,81 @@ class RP2040BoardWidget(QGroupBox):
             else:
                 self.ch_status[ch_idx - 1].setText(f"Status: {status_text}")
             self.ch_status[ch_idx - 1].setStyleSheet("") # Reset style
-            
-    def _on_verify_update(self, ch_idx, date_str, sn_int):
-        if 1 <= ch_idx <= 6:
-            if ch_idx in self.expected_sn_map:
-                exp_date = self.expected_date_map[ch_idx]
-                exp_sn_int = self.expected_sn_map[ch_idx]
-                sn_fmt = self.expected_fmt
-                _, _, _, should_write_sn, should_write_date = self.get_expected_cb(False)
-            else:
-                exp_date, exp_sn_int, sn_fmt, should_write_sn, should_write_date = self.get_expected_cb(False)
-            should_write = should_write_sn or should_write_date
-            
-            result_str = "ERROR"
-            
-            if not date_str or sn_int < 0:
-                current_text = self.ch_status[ch_idx - 1].text().lower()
-                if not ("error" in current_text or "fail" in current_text or "오류" in current_text):
-                    self.ch_status[ch_idx - 1].setText("Verify: ERROR")
-                    self.ch_status[ch_idx - 1].setStyleSheet(f"color: {Colors.HEX_FAIL}; font-weight: bold;")
-            else:
-                if sn_fmt == "HEX":
-                    sn_str = f"0x{sn_int:04X}"
-                    exp_sn_str = f"0x{exp_sn_int:04X}"
-                    actual_sn_int = sn_int
-                else:
-                    try:
-                        actual_sn_int = int(f"{sn_int:X}", 10)
-                        sn_str = str(actual_sn_int)
-                    except ValueError:
-                        actual_sn_int = sn_int
-                        sn_str = f"INVALID_BCD_0x{sn_int:04X}"
-                    exp_sn_str = str(exp_sn_int)
-                    
-                date_match = True
-                if should_write_date:
-                    date_match = (date_str == exp_date)
-                    
-                sn_match = True
-                if should_write_sn:
-                    sn_match = (actual_sn_int == exp_sn_int)
-                    
-                if date_match and sn_match:
-                    self.ch_status[ch_idx - 1].setText(f"PASS (M:{date_str} SN:{sn_str})")
-                    self.ch_status[ch_idx - 1].setStyleSheet(f"color: {Colors.HEX_PASS_GREEN}; font-weight: bold;")
-                    result_str = "PASS"
-                    self.passed_channels.add(ch_idx)
-                else:
-                    self.ch_status[ch_idx - 1].setText(f"FAIL (M:{date_str} SN:{sn_str})")
-                    self.ch_status[ch_idx - 1].setStyleSheet(f"color: {Colors.HEX_FAIL}; font-weight: bold;")
-                    result_str = "FAIL"
 
-                    
+    def _resolve_expected_targets(self, ch_idx: int):
+        """Resolves target expected values for a given channel."""
+        if ch_idx in self.expected_sn_map:
+            exp_date = self.expected_date_map[ch_idx]
+            exp_sn_int = self.expected_sn_map[ch_idx]
+            sn_fmt = self.expected_fmt
+            _, _, _, should_write_sn, should_write_date = self.get_expected_cb(False)
+        else:
+            exp_date, exp_sn_int, sn_fmt, should_write_sn, should_write_date = self.get_expected_cb(False)
+        return exp_date, exp_sn_int, sn_fmt, should_write_sn, should_write_date
+
+    def _evaluate_verification(self, exp_date: str, exp_sn_int: int, sn_fmt: str, date_str: str, sn_int: int, should_write_date: bool, should_write_sn: bool):
+        """Evaluates verification logic (Pure Logic) and returns (result_str, formatted_sn_str)."""
+        if not date_str or sn_int < 0:
+            return "ERROR", "N/A"
+
+        if sn_fmt == "HEX":
+            sn_str = f"0x{sn_int:04X}"
+            actual_sn_int = sn_int
+        else:
             try:
-                work_log = config.get_work_log_path()
-                if work_log:
-                    file_exists = os.path.exists(work_log)
-                    with open(work_log, mode='a', newline='', encoding='utf-8') as f:
-                        writer = csv.writer(f)
-                        if not file_exists:
-                            writer.writerow(["Timestamp", "Board_ID", "Channel", "SLFS_File", "Wrote_SN", "Read_Date", "Read_SN", "Result"])
-                        
-                        ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        slfs_file = self.lbl_slfs_info.text().replace("SLFS: ", "")
-                        wrote_sn = "Yes" if should_write else "No"
-                        
-                        if sn_int >= 0:
-                            ch_sn_str = f"0x{sn_int:04X}" if sn_fmt == "HEX" else str(sn_int)
-                        else:
-                            ch_sn_str = "N/A"
-                            
-                        writer.writerow([ts, self.board_id, ch_idx, slfs_file, wrote_sn, date_str or "N/A", ch_sn_str, result_str])
-            except Exception as e:
-                logging.getLogger('IBQtools').error(f"Failed to write work log: {e}")
-            
+                actual_sn_int = int(f"{sn_int:X}", 10)
+                sn_str = str(actual_sn_int)
+            except ValueError:
+                actual_sn_int = sn_int
+                sn_str = f"INVALID_BCD_0x{sn_int:04X}"
+
+        date_match = (date_str == exp_date) if should_write_date else True
+        sn_match = (actual_sn_int == exp_sn_int) if should_write_sn else True
+
+        result_str = "PASS" if (date_match and sn_match) else "FAIL"
+        return result_str, sn_str
+
+    def _update_channel_verify_ui(self, ch_idx: int, result_str: str, date_str: str, sn_str: str):
+        """Updates the status label and QSS stylesheet for the specified channel."""
+        if result_str == "ERROR":
+            current_text = self.ch_status[ch_idx - 1].text().lower()
+            if not ("error" in current_text or "fail" in current_text or "오류" in current_text):
+                self.ch_status[ch_idx - 1].setText("Verify: ERROR")
+                self.ch_status[ch_idx - 1].setStyleSheet(f"color: {Colors.HEX_FAIL}; font-weight: bold;")
+        elif result_str == "PASS":
+            self.ch_status[ch_idx - 1].setText(f"PASS (M:{date_str} SN:{sn_str})")
+            self.ch_status[ch_idx - 1].setStyleSheet(f"color: {Colors.HEX_PASS_GREEN}; font-weight: bold;")
+            self.passed_channels.add(ch_idx)
+        else:
+            self.ch_status[ch_idx - 1].setText(f"FAIL (M:{date_str} SN:{sn_str})")
+            self.ch_status[ch_idx - 1].setStyleSheet(f"color: {Colors.HEX_FAIL}; font-weight: bold;")
+
+    def _on_verify_update(self, ch_idx, date_str, sn_int):
+        """Orchestrates verification update: target resolution, evaluation, UI update, and CSV logging."""
+        if not (1 <= ch_idx <= 6):
+            return
+
+        exp_date, exp_sn_int, sn_fmt, should_write_sn, should_write_date = self._resolve_expected_targets(ch_idx)
+        should_write = should_write_sn or should_write_date
+
+        result_str, sn_str = self._evaluate_verification(
+            exp_date, exp_sn_int, sn_fmt, date_str, sn_int, should_write_date, should_write_sn
+        )
+
+        self._update_channel_verify_ui(ch_idx, result_str, date_str, sn_str)
+
+        # File I/O via isolated utility (AGENTS.md Compliance)
+        slfs_file = self.lbl_slfs_info.text().replace("SLFS: ", "")
+        wrote_sn = "Yes" if should_write else "No"
+        if sn_int >= 0:
+            ch_sn_str = f"0x{sn_int:04X}" if sn_fmt == "HEX" else str(sn_int)
+        else:
+            ch_sn_str = "N/A"
+
+        append_work_log(config.get_work_log_path(), self.board_id, ch_idx, slfs_file, wrote_sn, date_str, ch_sn_str, result_str)
+
     def _on_worker_finished(self, success):
+
         self.combo_port.setEnabled(True)
         self.btn_refresh.setEnabled(True)
         for chk in self.ch_checkboxes:
