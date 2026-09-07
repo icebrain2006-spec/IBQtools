@@ -80,6 +80,8 @@ class SLFSFlasherTab(QWidget):
             
     def log_msg(self, msg: str):
         if is_error_status(msg):
+            from gui.config import log_error
+            log_error(f"[SLFS Flasher] {msg}")
             self.upload_console.append(f'<span style="color: {Colors.HEX_FAIL};">{msg}</span>')
         elif "SUCCESS" in msg:
             self.upload_console.append(f'<span style="color: {Colors.HEX_PASS_GREEN};">{msg}</span>')

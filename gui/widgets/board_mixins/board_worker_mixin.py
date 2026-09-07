@@ -173,6 +173,8 @@ class BoardWorkerMixin:
     def _on_status_update(self, ch_idx: int, status_text: str):
         if 1 <= ch_idx <= 6:
             if is_error_status(status_text):
+                from gui.config import log_error
+                log_error(f"[Board {self.board_id} Ch{ch_idx}] {status_text}")
                 self.ch_status[ch_idx - 1].setText(f'Status: <span style="color: {Colors.HEX_FAIL};">{status_text}</span>')
             else:
                 self.ch_status[ch_idx - 1].setText(f"Status: {status_text}")

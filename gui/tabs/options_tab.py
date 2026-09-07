@@ -59,6 +59,11 @@ class OptionsTab(QWidget):
         # --- Error & Debug Settings ---
         group_error_settings = QGroupBox(UIStrings.get("GRP_ERROR_DEBUG"))
         layout_error = QFormLayout(group_error_settings)
+        
+        self.cb_save_error_log = QCheckBox(UIStrings.get("CB_SAVE_ERROR_LOG"))
+        self.cb_save_error_log.setChecked(config.get_error_log_en())
+        self.cb_save_error_log.toggled.connect(self._on_error_log_toggled)
+        layout_error.addRow("", self.cb_save_error_log)
         layout_error.addRow(UIStrings.get("LBL_ERROR_LOG"), error_layout)
         
         self.cb_global_debug_log = QCheckBox(UIStrings.get("CB_GLOBAL_DEBUG_LOG"))
@@ -120,6 +125,7 @@ class OptionsTab(QWidget):
         self.input_work_log.setText(config.get_work_log_path())
         self.input_cal_log.setText(config.get_cal_log_path())
         self.input_error_log.setText(config.get_error_log_path())
+        self._on_error_log_toggled(self.cb_save_error_log.isChecked())
         
         # Connect signals
         self.btn_browse_work.clicked.connect(self._browse_work_log)
@@ -133,6 +139,10 @@ class OptionsTab(QWidget):
         self.btn_check_update.clicked.connect(self._on_check_update)
         self.btn_download_update.clicked.connect(self._on_download_update)
         self.btn_flash_local.clicked.connect(self._on_flash_local)
+
+    def _on_error_log_toggled(self, checked: bool):
+        self.input_error_log.setEnabled(checked)
+        self.btn_browse_error.setEnabled(checked)
 
     def _browse_work_log(self):
         path, _ = QFileDialog.getSaveFileName(self, "Select Work Log File", self.input_work_log.text(), "CSV Files (*.csv);;All Files (*)")
@@ -169,6 +179,7 @@ class OptionsTab(QWidget):
         config.set_work_log_path(self.input_work_log.text())
         config.set_cal_log_path(self.input_cal_log.text())
         config.set_error_log_path(self.input_error_log.text())
+        config.set_error_log_en(self.cb_save_error_log.isChecked())
         config.settings.setValue("github_repo", self.input_github_repo.text().strip())
         config.settings.setValue("global_debug_log_en", "true" if self.cb_global_debug_log.isChecked() else "false")
         
@@ -182,7 +193,7 @@ class OptionsTab(QWidget):
         if hasattr(main_win, 'update_start_hotkey'):
             main_win.update_start_hotkey(seq)
             
-        setup_error_logging(self.input_error_log.text())
+        setup_error_logging(self.input_error_log.text(), self.cb_save_error_log.isChecked())
         QMessageBox.information(self, "Settings Saved", "Application settings have been saved successfully.")
 
     def _on_check_update(self):

@@ -129,6 +129,8 @@ class ManualTab(QWidget):
         if success:
             self.man_console.append(f'<span style="color: {Colors.HEX_PASS_GREEN};">{log_msg}</span>')
         elif is_error_status(log_msg):
+            from gui.config import log_error
+            log_error(f"[Manual Debug] {log_msg}")
             self.man_console.append(f'<span style="color: {Colors.HEX_FAIL};">{log_msg}</span>')
         else:
             self.man_console.append(log_msg)

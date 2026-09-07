@@ -31,7 +31,10 @@ class WorkerRunnerMixin:
         is_error = is_error_status(msg)
         lower_msg = msg.lower()
         
-        from config import config
+        from gui.config import config, log_error
+        if is_error:
+            log_error(f"[SN Checker] {msg}")
+
         if config.settings.value("global_debug_log_en", "false") != "true":
             if not is_error and "[sys]" not in lower_msg and "finished" not in lower_msg:
                 return

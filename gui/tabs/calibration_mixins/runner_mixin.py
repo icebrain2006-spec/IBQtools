@@ -31,10 +31,10 @@ class CalibrationRunnerMixin:
         
         # Log to error file globally
         if "error" in msg_lower or "crash" in msg_lower:
-            import logging
-            logging.getLogger('IBQtools').error(f"[Calibration] {msg}")
+            from gui.config import log_error
+            log_error(f"[Calibration] {msg}")
             
-        from config import config
+        from gui.config import config
         if config.settings.value("global_debug_log_en", "false") != "true":
             if not is_important:
                 return
