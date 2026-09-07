@@ -75,10 +75,18 @@ class UIStrings:
             "PH_SELECT_SLFS": "Select .slfs file...",
 
             # --- Manual Tab ---
-            "GRP_MANUAL_CONTROL": "Manual Command Control",
-            "LBL_HEX_INPUT": "HEX Input:",
-            "BTN_SEND_COMMAND": "Send Command",
-            "PH_HEX_INPUT": "Enter hex string (e.g. 02 00 01 02 ...)",
+            "GRP_MANUAL_TARGET": "Target Device Settings",
+            "GRP_MANUAL_COMMAND": "I2C / SMBus Command Configuration",
+            "LBL_CHANNEL": "Channel (1~6):",
+            "LBL_I2C_ADDR": "I2C Address (Hex):",
+            "LBL_CMD_MODE": "Command Mode:",
+            "LBL_REGISTER": "Cmd / Register (Hex):",
+            "LBL_WRITE_DATA": "Write Data (Hex):",
+            "LBL_EXPECTED_RX": "Expected RX Bytes:",
+            "CHK_USE_PEC": "Use PEC",
+            "BTN_SEND_COMMAND": "SEND COMMAND",
+            "BTN_CLEAR_CONSOLE": "Clear Console",
+            "PH_WRITE_DATA": "e.g. 12 34 (space separated hex)",
 
             # --- CSV Tab & Viewer ---
             "GRP_CSV_VIEWER": "CSV Log Viewer & Exporter",
@@ -172,10 +180,18 @@ class UIStrings:
             "PH_SELECT_SLFS": ".slfs 파일을 선택하세요...",
 
             # --- Manual Tab ---
-            "GRP_MANUAL_CONTROL": "수동 명령 제어",
-            "LBL_HEX_INPUT": "HEX 입력:",
+            "GRP_MANUAL_TARGET": "대상 장치 설정",
+            "GRP_MANUAL_COMMAND": "I2C / SMBus 명령 구성",
+            "LBL_CHANNEL": "채널 (1~6):",
+            "LBL_I2C_ADDR": "I2C 주소 (Hex):",
+            "LBL_CMD_MODE": "명령 모드:",
+            "LBL_REGISTER": "명령어 / 레지스터 (Hex):",
+            "LBL_WRITE_DATA": "쓰기 데이터 (Hex):",
+            "LBL_EXPECTED_RX": "수신 예상 바이트:",
+            "CHK_USE_PEC": "PEC 사용",
             "BTN_SEND_COMMAND": "명령 전송",
-            "PH_HEX_INPUT": "Hex 문자열을 입력하세요 (예: 02 00 01 02 ...)",
+            "BTN_CLEAR_CONSOLE": "콘솔 지우기",
+            "PH_WRITE_DATA": "예: 12 34 (띄어쓰기 구분 Hex)",
 
             # --- CSV Tab & Viewer ---
             "GRP_CSV_VIEWER": "CSV 로그 뷰어 및 내보내기",
