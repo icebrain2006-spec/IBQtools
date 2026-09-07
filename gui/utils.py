@@ -34,12 +34,23 @@ def play_sound_effect(is_error: bool) -> None:
     """
     def _play():
         try:
-            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            ref_dir = os.path.join(base_dir, "assets", "wav")
             wav_name = "testFail.wav" if is_error else "testComplete.wav"
-            wav_path = os.path.join(ref_dir, wav_name)
+            gui_dir = os.path.dirname(os.path.abspath(__file__))
+            repo_dir = os.path.dirname(gui_dir)
+            
+            # Search both gui/assets/wav and root assets/wav (supports source and PyInstaller packaging)
+            candidate_paths = [
+                os.path.join(gui_dir, "assets", "wav", wav_name),
+                os.path.join(repo_dir, "assets", "wav", wav_name),
+            ]
+            
+            wav_path = None
+            for p in candidate_paths:
+                if os.path.exists(p):
+                    wav_path = p
+                    break
 
-            if os.path.exists(wav_path):
+            if wav_path:
                 winsound.PlaySound(wav_path, winsound.SND_FILENAME)
             else:
                 if is_error:
