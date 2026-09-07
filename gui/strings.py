@@ -7,10 +7,10 @@ class UIStrings:
         "en": {
             # --- Main Window & Tabs ---
             "BTN_OPEN_RELAY": "🚀 Open Mini Relay Controller",
-            "TAB_SN_INSPECTION": "SN & Inspection",
+            "TAB_SN_INSPECTION": "BQ FW Programmer",
             "TAB_CALIBRATION": "Calibration",
             "TAB_MANUAL_DEBUG": "Manual I2C Debug",
-            "TAB_SLFS_FLASHER": "SLFS Flasher",
+            "TAB_SLFS_FLASHER": "RP2040 SLFS Upload",
             "TAB_CSV_VIEWER": "CSV to SLFS",
             "TAB_OPTIONS": "Options",
 
@@ -104,10 +104,10 @@ class UIStrings:
         "ko": {
             # --- Main Window & Tabs ---
             "BTN_OPEN_RELAY": "🚀 미니 릴레이 컨트롤러 열기",
-            "TAB_SN_INSPECTION": "시리얼 번호 및 검사",
+            "TAB_SN_INSPECTION": "BQ 펌웨어 프로그래머",
             "TAB_CALIBRATION": "캘리브레이션",
             "TAB_MANUAL_DEBUG": "수동 I2C 디버깅",
-            "TAB_SLFS_FLASHER": "SLFS 플래셔",
+            "TAB_SLFS_FLASHER": "RP2040 SLFS 업로드",
             "TAB_CSV_VIEWER": "CSV 로그 뷰어",
             "TAB_OPTIONS": "옵션 및 설정",
 

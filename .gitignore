@@ -18,6 +18,12 @@ __pycache__/
 .venv/
 .env
 
+# Logs & Runtime files
+*.log
+error_log.txt
+work_log.csv
+cal_log.csv
+
 dist/
 *.spec
 *.zip

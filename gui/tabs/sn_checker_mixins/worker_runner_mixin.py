@@ -1,7 +1,7 @@
 import time
-from styles import Colors
-from utils import play_sound_effect, is_error_status
-from updater_thread import set_led_state, GlobalPreflightWorker
+from gui.styles import Colors
+from gui.utils import play_sound_effect, is_error_status
+from gui.updater_thread import set_led_state, GlobalPreflightWorker
 
 class WorkerRunnerMixin:
     """Mixin class for controlling multi-board worker execution, logging, and preflight checks."""

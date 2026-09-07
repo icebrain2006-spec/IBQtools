@@ -1,5 +1,14 @@
 import sys
 import os
+
+# Ensure repository root and gui directories are in sys.path when executed directly as a script
+_repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_gui_dir = os.path.dirname(os.path.abspath(__file__))
+if _repo_root not in sys.path:
+    sys.path.insert(0, _repo_root)
+if _gui_dir not in sys.path:
+    sys.path.insert(0, _gui_dir)
+
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QTabWidget, QHBoxLayout, QPushButton
 from PySide6.QtGui import QIcon
 from PySide6.QtCore import Qt

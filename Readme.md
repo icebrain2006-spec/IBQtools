@@ -51,7 +51,7 @@ RP2040-Zero 메인 컨트롤러 및 PySide6 기반의 multi-board BQ40Z50/BQ7835
 
 ## 5. PC GUI (PySide6 Qt6) 주요 기능
 
-### 5.1. SN & Inspection Tab (다중 보드 시리얼 검사)
+### 5.1. BQ FW Programmer Tab (다중 BQ 펌웨어 프로그래밍 및 검증)
 - 최대 4개 보드 x 6채널 = **총 24개 채널 동시 펌웨어 프로그래밍 및 검증**
 - BQ40Z50 시리얼 번호 및 생산일자 자동 생성/기입 및 검증
 - 실시간 프로그레스 바, 상태 표시 및 CSV 작업 로그 저장 (`work_log.csv`)
@@ -60,7 +60,7 @@ RP2040-Zero 메인 컨트롤러 및 PySide6 기반의 multi-board BQ40Z50/BQ7835
 - BQ78350 및 BQ40Z50 칩셋 정밀 오프셋/게인 측정 및 캘리브레이션
 - `LimitsDialog` 기반 항목별 Pass/Fail 임계값(Min/Max) 관리 및 레지스트리 동기화
 
-### 5.3. SLFS Flasher Tab (배치 펌웨어 업로드)
+### 5.3. RP2040 SLFS Upload Tab (RP2040 배치 펌웨어 업로드)
 - 자동 RP2040 보드 스캔 및 배치 `.slfs` 펌웨어 전송
 - 비동기 콘솔 로깅 및 진행률 트래킹
 

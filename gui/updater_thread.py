@@ -13,5 +13,5 @@ from gui.protocol import (
 from gui.workers import (
     set_led_state, DisconnectionMonitor, 
     ScanWorker, GlobalPreflightWorker, 
-    UpdaterWorker, SerialCheckWorker
+    UpdaterWorker, SerialCheckWorker, UploadWorker
 )

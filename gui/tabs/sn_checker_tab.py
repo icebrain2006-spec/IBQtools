@@ -2,7 +2,7 @@ import threading
 from PySide6.QtWidgets import QWidget
 from PySide6.QtCore import Signal
 
-from tabs.sn_checker_mixins import MasterPanelMixin, WorkerRunnerMixin, StateCacheMixin
+from gui.tabs.sn_checker_mixins import MasterPanelMixin, WorkerRunnerMixin, StateCacheMixin
 
 class SNCheckerTab(MasterPanelMixin, WorkerRunnerMixin, StateCacheMixin, QWidget):
     """

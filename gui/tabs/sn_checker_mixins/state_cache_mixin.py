@@ -1,6 +1,6 @@
 import logging
-from config import config
-from utils import format_sn_value
+from gui.config import config
+from gui.utils import format_sn_value
 
 class StateCacheMixin:
     """Mixin class for thread-safe value caching and UI state saving/restoring via QSettings."""
