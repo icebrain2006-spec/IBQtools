@@ -162,6 +162,12 @@ class BqUpdaterMainWindow(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
+    
+    app_font = app.font()
+    if app_font.pointSize() <= 0:
+        app_font.setPointSize(10)
+    app.setFont(app_font)
+
     from gui.config import config, setup_error_logging
     setup_error_logging(config.get_error_log_path(), config.get_error_log_en())
     
