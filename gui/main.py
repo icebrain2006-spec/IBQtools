@@ -15,6 +15,7 @@ from PySide6.QtCore import Qt
 
 from gui.tabs.sn_checker_tab import SNCheckerTab
 from gui.tabs.calibration_tab import CalibrationTab
+from gui.tabs.calibration_multi_tab import CalibrationMultiTab
 from gui.tabs.manual_tab import ManualTab
 from gui.tabs.slfs_flasher_tab import SLFSFlasherTab
 from gui.tabs.csv_tab import CsvTab
@@ -62,24 +63,22 @@ class BqUpdaterMainWindow(QMainWindow):
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         self.main_layout = QVBoxLayout(self.central_widget)
-        self.main_layout.setContentsMargins(15, 15, 15, 15)
-        
-        # Top Bar for independent tools
-        self.top_bar = QHBoxLayout()
-        self.btn_open_relay = QPushButton(UIStrings.get("BTN_OPEN_RELAY"))
-        self.btn_open_relay.setStyleSheet(f"font-weight: bold; background-color: #2E7D32; color: {Colors.HEX_WHITE}; padding: 5px 15px;")
-        self.btn_open_relay.clicked.connect(self.open_relay_window)
-        self.top_bar.addStretch()
-        self.top_bar.addWidget(self.btn_open_relay)
-        self.main_layout.addLayout(self.top_bar)
+        self.main_layout.setContentsMargins(8, 8, 8, 8)
         
         self.tabs = QTabWidget()
+        
+        self.btn_open_relay = QPushButton(UIStrings.get("BTN_OPEN_RELAY"))
+        self.btn_open_relay.setStyleSheet(f"font-weight: bold; background-color: #2E7D32; color: {Colors.HEX_WHITE}; padding: 3px 12px; font-size: 11px; border-radius: 3px;")
+        self.btn_open_relay.clicked.connect(self.open_relay_window)
+        self.tabs.setCornerWidget(self.btn_open_relay, Qt.TopRightCorner)
+        
         self.main_layout.addWidget(self.tabs)
         
         # Instantiate Tabs
         self.sn_checker_tab = SNCheckerTab()
         self.updater_tab = self.sn_checker_tab  # Backwards compatibility alias
         self.calibration_tab = CalibrationTab()
+        self.calibration_multi_tab = CalibrationMultiTab()
         self.manual_tab = ManualTab()
         self.slfs_flasher_tab = SLFSFlasherTab()
         self.upload_tab = self.slfs_flasher_tab  # Backwards compatibility alias
@@ -88,6 +87,7 @@ class BqUpdaterMainWindow(QMainWindow):
         
         self.tabs.addTab(self.sn_checker_tab, UIStrings.get("TAB_SN_INSPECTION"))
         self.tabs.addTab(self.calibration_tab, UIStrings.get("TAB_CALIBRATION"))
+        self.tabs.addTab(self.calibration_multi_tab, "Calibration (18CH)")
         self.tabs.addTab(self.manual_tab, UIStrings.get("TAB_MANUAL_DEBUG"))
         self.tabs.addTab(self.slfs_flasher_tab, UIStrings.get("TAB_SLFS_FLASHER"))
         self.tabs.addTab(self.csv_tab, UIStrings.get("TAB_CSV_VIEWER"))
@@ -132,16 +132,27 @@ class BqUpdaterMainWindow(QMainWindow):
             self.updater_tab.btn_quick_start.setChecked(False)
         if hasattr(self.calibration_tab, 'btn_quick_start'):
             self.calibration_tab.btn_quick_start.setChecked(False)
+        if hasattr(self.calibration_multi_tab, 'btn_quick_start'):
+            self.calibration_multi_tab.btn_quick_start.setChecked(False)
 
-        if self.tabs.widget(index) == self.calibration_tab:
+        current_w = self.tabs.widget(index)
+        if current_w == self.calibration_tab:
             if hasattr(self.calibration_tab, 'refresh_ports'):
                 self.calibration_tab.refresh_ports()
+        elif current_w == self.calibration_multi_tab:
+            if hasattr(self.calibration_multi_tab, 'refresh_ports'):
+                self.calibration_multi_tab.refresh_ports()
         else:
             if hasattr(self.calibration_tab, 'cal_thread') and self.calibration_tab.cal_thread and self.calibration_tab.cal_thread.isRunning():
                 self.calibration_tab.cal_thread.stop()
                 self.calibration_tab.cal_thread.wait(500)
                 self.calibration_tab.log("Calibration stopped (Tab changed).")
                 self.calibration_tab.table_data.setRowCount(0)
+            if hasattr(self.calibration_multi_tab, 'cal_thread') and self.calibration_multi_tab.cal_thread and self.calibration_multi_tab.cal_thread.isRunning():
+                self.calibration_multi_tab.cal_thread.stop()
+                self.calibration_multi_tab.cal_thread.wait(500)
+                self.calibration_multi_tab.log("Multi-Calibration stopped (Tab changed).")
+                self.calibration_multi_tab.table_data.setRowCount(0)
 
     def closeEvent(self, event):
         self.updater_tab.save_ui_states()
@@ -157,6 +168,9 @@ class BqUpdaterMainWindow(QMainWindow):
         if hasattr(self.calibration_tab, 'cal_thread') and self.calibration_tab.cal_thread and self.calibration_tab.cal_thread.isRunning():
             self.calibration_tab.cal_thread.stop()
             self.calibration_tab.cal_thread.wait(1000)
+        if hasattr(self.calibration_multi_tab, 'cal_thread') and self.calibration_multi_tab.cal_thread and self.calibration_multi_tab.cal_thread.isRunning():
+            self.calibration_multi_tab.cal_thread.stop()
+            self.calibration_multi_tab.cal_thread.wait(1000)
         event.accept()
 
 
