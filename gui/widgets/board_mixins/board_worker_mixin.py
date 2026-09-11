@@ -123,7 +123,7 @@ class BoardWorkerMixin:
         if self.worker and self.worker.isRunning():
             self.worker.stop()
 
-    def check_serial(self):
+    def check_serial(self, toggle_led: bool = False):
         """Starts Serial Check worker to read serial numbers without flashing."""
         if self.worker and self.worker.isRunning():
             self.log_callback(f"[Board {self.board_id}] Worker is running. Please stop it first.")
@@ -141,8 +141,9 @@ class BoardWorkerMixin:
         self._lock_board_ui_controls()
         self._reset_channels_progress_ui(active_channels, "Status: Starting Read...")
 
-        _, _, fmt, _, _ = self.get_expected_cb(False)
-        self.worker = SerialCheckWorker(port, active_channels, fmt=fmt)
+        res = self.get_expected_cb(False)
+        fmt = res[2] if len(res) >= 3 else "DEC"
+        self.worker = SerialCheckWorker(port, active_channels, fmt=fmt, toggle_led=toggle_led)
         self.worker.log_msg.connect(lambda msg: self.log_callback(f"[Board {self.board_id}] {msg}"))
         self.worker.status_updated.connect(self._on_status_update)
         self.worker.finished.connect(self._on_worker_finished)
@@ -150,21 +151,28 @@ class BoardWorkerMixin:
 
     def _get_sn_for_worker(self, ch_idx: int):
         """Provides target expected SN and Date for worker callbacks."""
-        exp_date, sn_int, fmt, should_write_sn, should_write_date = self.get_expected_cb(True)
+        res = self.get_expected_cb(True)
+        exp_date, sn_int, fmt, should_write_sn, should_write_date = res[0], res[1], res[2], res[3], res[4]
+        should_toggle_led = res[5] if len(res) >= 6 else False
+
         if should_write_sn or should_write_date:
             self.expected_date_map[ch_idx] = exp_date
             self.expected_sn_map[ch_idx] = sn_int
             self.expected_fmt = fmt
-            return exp_date, sn_int, fmt, should_write_sn, should_write_date
+            return exp_date, sn_int, fmt, should_write_sn, should_write_date, should_toggle_led
         else:
             if ch_idx in self.expected_sn_map:
                 exp_date = self.expected_date_map[ch_idx]
                 exp_sn_int = self.expected_sn_map[ch_idx]
                 sn_fmt = self.expected_fmt
-                _, _, _, should_write_sn, should_write_date = self.get_expected_cb(False)
+                res_f = self.get_expected_cb(False)
+                should_write_sn, should_write_date = res_f[3], res_f[4]
+                should_toggle_led = res_f[5] if len(res_f) >= 6 else False
             else:
-                exp_date, exp_sn_int, sn_fmt, should_write_sn, should_write_date = self.get_expected_cb(False)
-            return exp_date, exp_sn_int, sn_fmt, should_write_sn, should_write_date
+                res_f = self.get_expected_cb(False)
+                exp_date, exp_sn_int, sn_fmt, should_write_sn, should_write_date = res_f[0], res_f[1], res_f[2], res_f[3], res_f[4]
+                should_toggle_led = res_f[5] if len(res_f) >= 6 else False
+            return exp_date, exp_sn_int, sn_fmt, should_write_sn, should_write_date, should_toggle_led
 
     def _on_progress_update(self, ch_idx: int, percent: int):
         if 1 <= ch_idx <= 6:

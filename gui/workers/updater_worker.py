@@ -319,8 +319,11 @@ class UpdaterWorker(QThread):
                     for ch in self.channels:
                         if not (err_mask & (1 << (ch - 1))):
                             fmt = "DEC"
+                            should_toggle_led = False
                             if self.get_expected_cb:
-                                exp_date, exp_sn_int, fmt, should_write_sn, should_write_date = self.get_expected_cb(ch)
+                                res = self.get_expected_cb(ch)
+                                exp_date, exp_sn_int, fmt, should_write_sn, should_write_date = res[0], res[1], res[2], res[3], res[4]
+                                should_toggle_led = res[5] if len(res) >= 6 else False
                                 
                                 if should_write_date:
                                     try:
@@ -361,6 +364,14 @@ class UpdaterWorker(QThread):
                                 self.log_msg.emit(f"[CH {ch}] M: {date_str}, SN: {sn_str}")
                             else:
                                 self.log_msg.emit(f"[CH {ch}] Verify Failed")
+
+                            if should_toggle_led:
+                                self.log_msg.emit(f"[CH {ch}] Executing LED Toggle command (0x002B)...")
+                                ok_led = self._write_smbus_word(ch, 0x0B, 0x00, 0x002B)
+                                if ok_led:
+                                    self.log_msg.emit(f"[CH {ch}] LED Toggle SUCCESS (0x002B)")
+                                else:
+                                    self.log_msg.emit(f"[CH {ch}] LED Toggle FAILED!")
                         else:
                             self.log_msg.emit(f"[CH {ch}] Skipped verify due to flash error.")
                             self.verify_updated.emit(ch, "", -1)
@@ -401,9 +412,10 @@ class UpdaterWorker(QThread):
 class SerialCheckWorker(UpdaterWorker):
     """Worker reading SN & Manufacture Date via SMBus without flashing firmware."""
 
-    def __init__(self, port: str, channels: list, fmt: str = "DEC", parent=None):
+    def __init__(self, port: str, channels: list, fmt: str = "DEC", toggle_led: bool = False, parent=None):
         super().__init__(port, channels, loop_count=1, get_expected_cb=None, parent=parent)
         self.fmt = fmt
+        self.toggle_led = toggle_led
         
     def run(self):
         self.log_msg.emit(f"[INFO] Connecting to {self.port} for Serial Check...")
@@ -447,6 +459,14 @@ class SerialCheckWorker(UpdaterWorker):
             else:
                 self.log_msg.emit(f"[CH {ch}] READ -> Failed to read from chip.")
                 self.status_updated.emit(ch, "Read Failed")
+
+            if self.toggle_led:
+                self.log_msg.emit(f"[CH {ch}] Executing LED Toggle command (0x002B)...")
+                ok_led = self._write_smbus_word(ch, 0x0B, 0x00, 0x002B)
+                if ok_led:
+                    self.log_msg.emit(f"[CH {ch}] LED Toggle SUCCESS (0x002B)")
+                else:
+                    self.log_msg.emit(f"[CH {ch}] LED Toggle FAILED!")
                 
         if self.ser:
             self.ser.close()

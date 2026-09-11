@@ -143,6 +143,51 @@ class HWCalibratorMixin:
             self._set_relay(mode_name == "current", mask=relay_mask)
             time.sleep(0.4)
 
+            # Pre-calibration load current safety check for Current mode
+            if mode_name == "current":
+                valid_ch_mask = 0
+                for ch in self.channels:
+                    ch_in_b = ((ch - 1) % 6) + 1
+                    if not (ch_mask & (1 << (ch_in_b - 1))):
+                        continue
+                    
+                    old_ch = getattr(self, 'ch', ch)
+                    self.ch = ch
+                    if hasattr(self, 'ser_map'):
+                        board_idx = ((ch - 1) // 6) + 1
+                        if board_idx in self.ser_map:
+                            self.ser = self.ser_map[board_idx]
+                    
+                    ch_t = self.targets_per_ch.get(ch, self.targets) if hasattr(self, 'targets_per_ch') and self.targets_per_ch else self.targets
+                    target_ma = int(ch_t.get('currentma', -2000))
+                    
+                    # Read Present Current via SBS Command 0x0C (int16 mA)
+                    cur_bytes = self.smbus_read_word(0x0C)
+                    if cur_bytes and len(cur_bytes) >= 2:
+                        actual_current = struct.unpack('<h', bytes(cur_bytes))[0]
+                    else:
+                        actual_current = 0
+                    
+                    self._log(f"    [CH{ch} Pre-Check] Target: {target_ma}mA, Measured Current: {actual_current}mA")
+                    
+                    # If target is load current (e.g. <= -500mA) and actual measured current > -200mA (no load current flowing)
+                    if target_ma <= -500 and actual_current > -200:
+                        self._log(f"    [CH{ch} ERROR] Current Cal ABORTED! Measured current ({actual_current}mA) is > -200mA. Equipment disconnected or load OFF!")
+                        ch_status_map[ch] = False
+                        if hasattr(self, 'emit_result'):
+                            self.emit_result("CC Gain", "CC Gain (mOhm)", "0", 0, is_gain=True, force_fail=True)
+                            self.emit_result("Capacity Gain", "Capacity Gain (mOhm)", "0", 0, is_gain=True, force_fail=True)
+                    else:
+                        valid_ch_mask |= (1 << (ch_in_b - 1))
+                        
+                    self.ch = old_ch
+
+                ch_mask = valid_ch_mask
+                if ch_mask == 0:
+                    self._log("    [ERROR] No active channels with valid load current (all > -200mA). Aborting current calibration.")
+                    self._set_relay(False, mask=0)
+                    return False
+
             payload_bytes = self._build_calib_payload(mode_name, ch_mask)
             self._log(f"--- Sending Hardware Calibration Command to RP2040 ({mode_name.upper()} mode, Channels: {self.channels}) ---")
             

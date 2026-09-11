@@ -58,7 +58,7 @@ class WorkerRunnerMixin:
                 board.disconnect_monitor.stop()
                 board.disconnect_monitor.wait(500)
             board.passed_channels.clear()
-            board.check_serial()
+            board.check_serial(toggle_led=self.chk_led.isChecked())
             if hasattr(board, 'worker') and board.worker and board.worker.isRunning():
                 started += 1
                 
@@ -198,6 +198,7 @@ class WorkerRunnerMixin:
         self.loop_count.setEnabled(enabled)
         self.input_exp_date.setEnabled(enabled)
         self.chk_write_date.setEnabled(enabled)
+        self.chk_led.setEnabled(enabled)
         self.combo_sn_fmt.setEnabled(enabled)
         self.input_exp_sn.setEnabled(enabled)
         self.chk_write_sn.setEnabled(enabled)

@@ -89,8 +89,11 @@ class MasterPanelMixin:
         sn_layout.addWidget(self.combo_sn_fmt)
         sn_layout.addWidget(self.input_exp_sn)
         
+        self.chk_led = QCheckBox("LED Toggle (0x002B)")
+        
         verify_form.addRow("Expected Date:", date_layout)
         verify_form.addRow("Start SN:", sn_layout)
+        verify_form.addRow("LED Option:", self.chk_led)
         left_layout.addWidget(master_group)
         left_layout.addWidget(verify_group)
         
