@@ -57,7 +57,7 @@ class Styles:
     
     CH_BAR_BOX = f"QGroupBox {{ background-color: {Colors.HEX_BG_DARK}; border: 1px solid {Colors.HEX_BORDER_DARK}; border-radius: 6px; margin-top: 0px; padding: 4px; }}"
     
-    CH_NAV_BTN = f"QPushButton {{ background-color: #333333; color: white; border-radius: 4px; font-weight: bold; font-size: 13px; }} QPushButton:hover {{ background-color: {Colors.HEX_BORDER_LIGHT}; }}"
+    CH_NAV_BTN = f"QPushButton {{ background-color: #333333; color: white; border: 1px solid #444444; border-radius: 4px; font-weight: bold; font-size: 11px; padding: 0px; }} QPushButton:hover {{ background-color: {Colors.HEX_BORDER_LIGHT}; }}"
     
     CH_LABEL = f"font-size: 15px; font-weight: bold; color: {Colors.HEX_SUCCESS}; padding: 0 14px;"
     

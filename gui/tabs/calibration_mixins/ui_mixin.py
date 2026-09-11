@@ -191,7 +191,7 @@ class CalibrationUIMixin:
         ch_bar_layout.setContentsMargins(8, 4, 8, 4)
         
         btn_prev = QPushButton("◀")
-        btn_prev.setFixedWidth(36)
+        btn_prev.setFixedSize(28, 26)
         btn_prev.setStyleSheet(Styles.CH_NAV_BTN)
         btn_prev.clicked.connect(self._on_prev_ch)
         
@@ -200,7 +200,7 @@ class CalibrationUIMixin:
         self.lbl_current_ch.setAlignment(Qt.AlignCenter)
         
         btn_next = QPushButton("▶")
-        btn_next.setFixedWidth(36)
+        btn_next.setFixedSize(28, 26)
         btn_next.setStyleSheet(Styles.CH_NAV_BTN)
         btn_next.clicked.connect(self._on_next_ch)
         
@@ -216,9 +216,25 @@ class CalibrationUIMixin:
         
         self.left_layout.addWidget(ch_bar_box)
         
+        group_box_style = """
+            QGroupBox {
+                border: 1px solid #3A3A3A;
+                border-radius: 6px;
+                margin-top: 18px;
+                font-weight: bold;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                left: 10px;
+                color: #E0E0E0;
+            }
+        """
+
         # 1. Voltage Group
         if "voltage" in config and config["voltage"]:
             group_vt = QGroupBox(UIStrings.get("GRP_VOLTAGE_CALIB"))
+            group_vt.setStyleSheet(group_box_style)
             grid_vt = QGridLayout()
             
             v_cols = 3 if len(config["voltage"]) > 10 else 2
@@ -244,6 +260,7 @@ class CalibrationUIMixin:
         # 2. Temperature Group
         if "temperature" in config and config["temperature"]:
             group_temp = QGroupBox(UIStrings.get("GRP_TEMP_CALIB"))
+            group_temp.setStyleSheet(group_box_style)
             grid_temp = QGridLayout()
             for i, (label_text, default_data) in enumerate(config["temperature"].items()):
                 row = i // 2
@@ -278,6 +295,7 @@ class CalibrationUIMixin:
         # 3. Current Group
         if "current" in config and config["current"]:
             group_c = QGroupBox(UIStrings.get("GRP_CURRENT_CALIB"))
+            group_c.setStyleSheet(group_box_style)
             grid_c = QGridLayout()
             for i, (label_text, default_data) in enumerate(config["current"].items()):
                 row = i // 2
@@ -298,8 +316,6 @@ class CalibrationUIMixin:
             self.left_layout.addWidget(group_c)
             
         # Buttons
-        btn_layout = QHBoxLayout()
-        
         def get_btn_style(bg_col, border_col):
             return f"""
                 QPushButton {{
@@ -307,7 +323,7 @@ class CalibrationUIMixin:
                     color: white;
                     border: 1px solid {border_col};
                     border-radius: 6px;
-                    padding: 8px 16px;
+                    padding: 8px 12px;
                     font-weight: bold;
                 }}
                 QPushButton:hover {{
@@ -335,7 +351,7 @@ class CalibrationUIMixin:
                 color: #AAAAAA;
                 border: 1px solid #444444;
                 border-radius: 6px;
-                padding: 8px 16px;
+                padding: 8px 12px;
                 font-weight: bold;
             }
             QPushButton:checked {
@@ -351,13 +367,17 @@ class CalibrationUIMixin:
         self.btn_cal_c.clicked.connect(lambda: self.on_start_calib("current"))
         self.btn_cal_all.clicked.connect(lambda: self.on_start_calib("all"))
         
-        btn_layout.addWidget(self.btn_cal_v)
-        btn_layout.addWidget(self.btn_cal_t)
-        btn_layout.addWidget(self.btn_cal_c)
-        btn_layout.addWidget(self.btn_cal_all)
-        btn_layout.addWidget(self.btn_quick_start)
+        btn_layout_row1 = QHBoxLayout()
+        btn_layout_row1.addWidget(self.btn_cal_v)
+        btn_layout_row1.addWidget(self.btn_cal_t)
+        btn_layout_row1.addWidget(self.btn_cal_c)
         
-        self.left_layout.addLayout(btn_layout)
+        btn_layout_row2 = QHBoxLayout()
+        btn_layout_row2.addWidget(self.btn_cal_all)
+        btn_layout_row2.addWidget(self.btn_quick_start)
+        
+        self.left_layout.addLayout(btn_layout_row1)
+        self.left_layout.addLayout(btn_layout_row2)
         self.left_layout.addStretch()
 
     def is_hotkey_ready(self):
