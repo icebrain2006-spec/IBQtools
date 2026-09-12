@@ -20,6 +20,7 @@ from gui.tabs.manual_tab import ManualTab
 from gui.tabs.slfs_flasher_tab import SLFSFlasherTab
 from gui.tabs.csv_tab import CsvTab
 from gui.tabs.options_tab import OptionsTab
+from gui.tabs.auto_cycle_tab import AutoCycleTab
 from gui.tabs.relay_tab import RelayWindow
 from gui.version import __version__
 from gui.strings import UIStrings
@@ -42,7 +43,7 @@ class BqUpdaterMainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"IBQtools v{__version__} (Multi BQ Firmware Programmer)")
+        self.setWindowTitle(f"IBQtools v{__version__}")
         
         # Set app icon
         icon_path = os.path.join(os.path.dirname(__file__), "app_icon.png")
@@ -83,15 +84,20 @@ class BqUpdaterMainWindow(QMainWindow):
         self.slfs_flasher_tab = SLFSFlasherTab()
         self.upload_tab = self.slfs_flasher_tab  # Backwards compatibility alias
         self.csv_tab = CsvTab()
+        self.auto_cycle_tab = AutoCycleTab()
         self.options_tab = OptionsTab()
         
         self.tabs.addTab(self.sn_checker_tab, UIStrings.get("TAB_SN_INSPECTION"))
         self.tabs.addTab(self.calibration_tab, UIStrings.get("TAB_CALIBRATION"))
         self.tabs.addTab(self.calibration_multi_tab, "Calibration (18CH)")
+        self.tabs.addTab(self.auto_cycle_tab, UIStrings.get("TAB_AUTO_CYCLE"))
         self.tabs.addTab(self.manual_tab, UIStrings.get("TAB_MANUAL_DEBUG"))
         self.tabs.addTab(self.slfs_flasher_tab, UIStrings.get("TAB_SLFS_FLASHER"))
         self.tabs.addTab(self.csv_tab, UIStrings.get("TAB_CSV_VIEWER"))
         self.tabs.addTab(self.options_tab, UIStrings.get("TAB_OPTIONS"))
+        
+        # Connect safety tab-locking signal during active cycle or logging
+        self.auto_cycle_tab.lock_tabs_requested.connect(self.set_tabs_locked)
         
         self.tabs.currentChanged.connect(self.on_tab_changed)
         
@@ -104,6 +110,12 @@ class BqUpdaterMainWindow(QMainWindow):
         
         # Load UI states in the SN checker tab
         self.sn_checker_tab.load_ui_states()
+
+    def set_tabs_locked(self, locked: bool):
+        """Disables tab switching and auxiliary windows during active cycle/log test."""
+        self.tabs.tabBar().setEnabled(not locked)
+        if hasattr(self, 'btn_open_relay'):
+            self.btn_open_relay.setEnabled(not locked)
 
     def open_relay_window(self):
         if not hasattr(self, 'relay_window') or not self.relay_window.isVisible():

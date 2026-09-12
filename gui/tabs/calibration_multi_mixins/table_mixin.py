@@ -256,48 +256,6 @@ class MultiCalibrationTableMixin:
                 else:
                     item_overall.setForeground(QColor("#FF4444"))
 
-    def populate_dummy_data(self):
-        """Populates tables with sample calibration data for Voltage, Temperature, and Current modes, including FAIL test cases."""
-        sample_data_pass = [
-            ("CC Gain (mOhm)", "1.002", "PASS"),
-            ("Capacity Gain (mOhm)", "1.002", "PASS"),
-            ("CC Offset", "12", "PASS"),
-            ("Shunt Resistor", "1.000 mOhm", "PASS"),
-            ("Cell 1 Gain", "12840", "PASS"),
-            ("Pack Gain", "12780", "PASS"),
-            ("Bat Gain", "12780", "PASS"),
-            ("V_Cell 1", "3200 mV", "PASS"),
-            ("V_Cell 2", "3201 mV", "PASS"),
-            ("V_Cell 3", "3199 mV", "PASS"),
-            ("V_Cell 4", "3200 mV", "PASS"),
-            ("V_Pack", "12780 mV", "PASS"),
-            ("V_Bat", "12780 mV", "PASS"),
-            ("Int Temp", "25.1 °C", "PASS"),
-            ("TS1 Temp", "24.8 °C", "PASS"),
-            ("TS2 Temp", "25.0 °C", "PASS"),
-        ]
-        
-        for g_ch in range(1, 19):
-            for param, val, status in sample_data_pass:
-                # Introduce FAIL test cases for specific channels to demonstrate visual alerts
-                current_val = val
-                current_status = status
-                
-                if g_ch == 9 and param == "V_Cell 2":
-                    current_val = "3450 mV"
-                    current_status = "FAIL"
-                elif g_ch == 16 and param == "Shunt Resistor":
-                    current_val = "1.150 mOhm"
-                    current_status = "FAIL"
-                elif g_ch == 16 and param == "CC Gain (mOhm)":
-                    current_val = "1.152"
-                    current_status = "FAIL"
-                elif g_ch == 4 and param == "TS1 Temp":
-                    current_val = "38.5 °C"
-                    current_status = "FAIL"
-
-                self.update_or_add_table_row(param, g_ch, current_val, current_status)
-
     def on_open_limits(self):
         ic = self.combo_ic.currentText()
         targets = {}

@@ -31,10 +31,16 @@ class Colors:
     HEX_TEXT_MUTED = "#aaaaaa"
     HEX_TEXT_DISABLED = "#555555"
     HEX_SUCCESS = "#00e676"
-    HEX_FAIL = "#ff4444"
     HEX_WHITE = "#ffffff"
     HEX_PASS_GREEN = "#69F0AE"
     HEX_WARN_CYAN = "#18FFFF"
+    HEX_BIT_LOW = "#32cd32"
+    HEX_BIT_HIGH = "#cd5c5c"
+    HEX_BIT_RSVD = "#555555"
+
+    BIT_LOW = QColor("#32cd32")
+    BIT_HIGH = QColor("#cd5c5c")
+    BIT_RSVD = QColor("#555555")
 
     # Board LED & Theme Colors
     BOARD_LED_COLORS = [0x0000FFFF, 0x0000FF00, 0x00FF00FF, 0x00FFFF00]

@@ -256,7 +256,6 @@ class MultiCalibrationUIMixin:
         
         main_layout.addWidget(splitter)
         self.refresh_ports()
-        self.populate_dummy_data()
         self._sync_overall_widths()
 
     def eventFilter(self, watched, event):

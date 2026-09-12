@@ -6,13 +6,27 @@ class UIStrings:
     _STRINGS = {
         "en": {
             # --- Main Window & Tabs ---
-            "BTN_OPEN_RELAY": "🚀 Open Mini Relay Controller",
+            "BTN_OPEN_RELAY": "🚀 Open Mini\nRelay Controller",
             "TAB_SN_INSPECTION": "BQ FW Programmer",
             "TAB_CALIBRATION": "Calibration",
             "TAB_MANUAL_DEBUG": "Manual I2C Debug",
             "TAB_SLFS_FLASHER": "RP2040 SLFS Upload",
             "TAB_CSV_VIEWER": "CSV to SLFS",
             "TAB_OPTIONS": "Options",
+            "TAB_AUTO_CYCLE": "Auto Cycle && Logger",
+            "LBL_WIRING_POWER": "⚡ Relay CH1: Power Supply (Charger)",
+            "LBL_WIRING_LOAD": "⚡ Relay CH2: Electronic Load (Discharge)",
+            "LBL_WIRING_SMBUS": "🔌 SMBus: CH1 (Single)",
+            "BTN_START_AUTO": "▶ AUTO START",
+            "BTN_START_LOG": "▶ LOG ONLY",
+            "BTN_STOP": "■ STOP",
+            "STEP_CHARGING": "CHARGING",
+            "STEP_CHARGED": "CHARGED (Resting)",
+            "STEP_DISCHARGING": "DISCHARGING",
+            "STEP_DISCHARGED": "DISCHARGED (Resting)",
+            "LBL_CYCLES": "Cycles:",
+            "LBL_CURRENT_STEP": "Current Step:",
+            "LBL_STEP_TIME": "Step Time:",
 
             # --- Common Actions & Buttons ---
             "BTN_REFRESH": "Refresh",
@@ -111,13 +125,27 @@ class UIStrings:
         },
         "ko": {
             # --- Main Window & Tabs ---
-            "BTN_OPEN_RELAY": "🚀 미니 릴레이 컨트롤러 열기",
+            "BTN_OPEN_RELAY": "🚀 미니 릴레이\n컨트롤러 열기",
             "TAB_SN_INSPECTION": "BQ 펌웨어 프로그래머",
             "TAB_CALIBRATION": "캘리브레이션",
             "TAB_MANUAL_DEBUG": "수동 I2C 디버깅",
             "TAB_SLFS_FLASHER": "RP2040 SLFS 업로드",
             "TAB_CSV_VIEWER": "CSV 로그 뷰어",
             "TAB_OPTIONS": "옵션 및 설정",
+            "TAB_AUTO_CYCLE": "자동 사이클 및 로거",
+            "LBL_WIRING_POWER": "⚡ 릴레이 CH1: 충전 전원 (파워서플라이)",
+            "LBL_WIRING_LOAD": "⚡ 릴레이 CH2: 전자 부하 (방전기)",
+            "LBL_WIRING_SMBUS": "🔌 SMBus: CH1 (단일 채널)",
+            "BTN_START_AUTO": "▶ 자동 사이클 시작",
+            "BTN_START_LOG": "▶ 로깅만 시작",
+            "BTN_STOP": "■ 정지",
+            "STEP_CHARGING": "충전 중",
+            "STEP_CHARGED": "충전 완료 (휴지)",
+            "STEP_DISCHARGING": "방전 중",
+            "STEP_DISCHARGED": "방전 완료 (휴지)",
+            "LBL_CYCLES": "사이클:",
+            "LBL_CURRENT_STEP": "현재 단계:",
+            "LBL_STEP_TIME": "단계 경과 시간:",
 
             # --- Common Actions & Buttons ---
             "BTN_REFRESH": "새로고침",
