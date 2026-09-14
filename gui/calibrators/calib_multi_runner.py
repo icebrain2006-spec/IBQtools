@@ -4,13 +4,12 @@ import time
 import serial
 from PySide6.QtCore import QThread, Signal, Slot
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from calibrators.utils import format_df4000_breakdown, write_calibration_log_file
-from calibrators.verifiers import run_post_verify
-from calibrators.smbus_comm import SMBusCommunicatorMixin
-from calibrators.fw_detector import FWDetectorMixin
-from calibrators.hw_calib import HWCalibratorMixin
-from updater_thread import make_packet, CMD_RELAY_SET
+from gui.calibrators.utils import format_df4000_breakdown, write_calibration_log_file
+from gui.calibrators.verifiers import run_post_verify
+from gui.calibrators.smbus_comm import SMBusCommunicatorMixin
+from gui.calibrators.fw_detector import FWDetectorMixin
+from gui.calibrators.hw_calib import HWCalibratorMixin
+from gui.updater_thread import make_packet, CMD_RELAY_SET
 
 BQ_SMBUS_ADDR = 0x0B
 
@@ -297,7 +296,7 @@ class MultiCalibrationThread(QThread, SMBusCommunicatorMixin, FWDetectorMixin, H
                     pass
 
     def _write_cal_log(self, ch, serial_num, mfg_date, overall_success):
-        from config import config
+        from gui.config import config
         path = config.get_cal_log_path()
         if not path: return
         ch_data = self.cal_log_buffer.get(ch, {})

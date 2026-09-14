@@ -1,5 +1,5 @@
 import struct
-from calibrators.utils import detect_dataflash_offset, load_calibration_offsets
+from gui.calibrators.utils import detect_dataflash_offset, load_calibration_offsets
 
 class FWDetectorMixin:
     """Mixin class for BQ IC firmware version detection and DataFlash configuration parsing."""

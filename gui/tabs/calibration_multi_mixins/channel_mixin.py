@@ -1,11 +1,8 @@
 from PySide6.QtWidgets import QMenu
 import serial
 
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from models import IC_CONFIGS
-from updater_thread import make_packet, CMD_RELAY_SET
+from gui.models import IC_CONFIGS
+from gui.updater_thread import make_packet, CMD_RELAY_SET
 
 
 class MultiCalibrationChannelMixin:

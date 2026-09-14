@@ -5,9 +5,8 @@ from PySide6.QtCore import Slot
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QMessageBox
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from calibrators.calib_runner import CalibrationThread
-from models import IC_CONFIGS
+from gui.calibrators.calib_runner import CalibrationThread
+from gui.models import IC_CONFIGS
 
 
 class CalibrationRunnerMixin:

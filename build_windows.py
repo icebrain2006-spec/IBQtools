@@ -57,23 +57,26 @@ def build_app():
             shutil.rmtree(dir_name)
 
     args = [
-        'gui/main.py',
+        'main.py',
         '--name=IBQtools',
         '--windowed',       # Hide console
         '--noconfirm',
         '--icon=gui/app_icon.ico',
         '--clean',
+        '--paths=.',
+        '--paths=gui',
         
         # Windows separator for --add-data is ';'
         '--add-data=gui/app_icon.png;.',
+        '--add-data=gui/app_icon.png;gui',
         '--add-data=gui/style.qss;.',
+        '--add-data=gui/style.qss;gui',
         '--add-data=gui/BQ_Information.csv;.',
+        '--add-data=gui/BQ_Information.csv;gui',
         '--add-data=gui/calibrators/dataflashs/*;calibrators/dataflashs',
         '--add-data=gui/calibrators/dataflashs/*;gui/calibrators/dataflashs',
         '--add-data=gui/models/*;models',
         '--add-data=gui/models/*;gui/models',
-        '--add-data=gui/widgets/*;widgets',
-        '--add-data=gui/widgets/*;gui/widgets',
     ]
     
     print(f"Running PyInstaller...")

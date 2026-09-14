@@ -1,5 +1,5 @@
-from calibrators.verifiers.bq78350 import verify_bq78350
-from calibrators.verifiers.bq40z50 import verify_bq40z50
+from gui.calibrators.verifiers.bq78350 import verify_bq78350
+from gui.calibrators.verifiers.bq40z50 import verify_bq40z50
 
 def run_post_verify(runner) -> bool:
     """Dispatches post-verification to the appropriate IC verifier module."""

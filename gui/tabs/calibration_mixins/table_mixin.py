@@ -2,12 +2,9 @@ from PySide6.QtWidgets import QHeaderView, QTableWidget, QTableWidgetItem
 from PySide6.QtCore import Qt, Slot
 from PySide6.QtGui import QColor, QFont, QPainter
 
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from styles import Colors
-from strings import UIStrings
-from dialogs.limit_dialog import LimitsDialog
+from gui.styles import Colors
+from gui.strings import UIStrings
+from gui.dialogs.limit_dialog import LimitsDialog
 
 
 class CustomHeader(QHeaderView):
