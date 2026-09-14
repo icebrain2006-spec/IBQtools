@@ -102,11 +102,15 @@ class UIStrings:
             "BTN_CLEAR_CONSOLE": "Clear Console",
             "PH_WRITE_DATA": "e.g. 12 34 (space separated hex)",
 
-            # --- CSV Tab & Viewer ---
-            "GRP_CSV_VIEWER": "CSV Log Viewer & Exporter",
-            "BTN_OPEN_CSV": "Open CSV File",
-            "BTN_EXPORT_LOG": "Export Log",
-            "PH_CSV_SEARCH": "Type to filter logs by date, SN, result, etc...",
+            # --- CSV to SLFS Converter Tab ---
+            "GRP_IC_CONFIG": "IC Configuration",
+            "LBL_IC_TYPE": "IC Type:",
+            "LBL_VERSION": "Version:",
+            "GRP_FILE_PATHS": "File Paths",
+            "LBL_INPUT_CSV": "Input CSV:",
+            "LBL_OUTPUT_SLFS": "Output SLFS:",
+            "BTN_CONVERT_SLFS": "CONVERT TO SLFS",
+            "BTN_CONVERTING": "CONVERTING...",
 
             # --- Master / SN Checker Panel ---
             "GRP_MASTER_CONFIG": "Master Configuration",
@@ -221,11 +225,16 @@ class UIStrings:
             "BTN_CLEAR_CONSOLE": "콘솔 지우기",
             "PH_WRITE_DATA": "예: 12 34 (띄어쓰기 구분 Hex)",
 
-            # --- CSV Tab & Viewer ---
-            "GRP_CSV_VIEWER": "CSV 로그 뷰어 및 내보내기",
-            "BTN_OPEN_CSV": "CSV 파일 열기",
-            "BTN_EXPORT_LOG": "로그 내보내기",
-            "PH_CSV_SEARCH": "날짜, SN, 결과 등으로 로그를 필터링하세요...",
+            # --- CSV to SLFS Converter Tab ---
+            "TAB_CSV_VIEWER": "CSV to SLFS 변환",
+            "GRP_IC_CONFIG": "IC 설정",
+            "LBL_IC_TYPE": "IC 종류:",
+            "LBL_VERSION": "버전:",
+            "GRP_FILE_PATHS": "파일 경로",
+            "LBL_INPUT_CSV": "입력 CSV:",
+            "LBL_OUTPUT_SLFS": "출력 SLFS:",
+            "BTN_CONVERT_SLFS": "SLFS로 변환",
+            "BTN_CONVERTING": "변환 중...",
 
             # --- Master / SN Checker Panel ---
             "GRP_MASTER_CONFIG": "마스터 설정",

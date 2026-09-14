@@ -31,6 +31,7 @@ class Colors:
     HEX_TEXT_MUTED = "#aaaaaa"
     HEX_TEXT_DISABLED = "#555555"
     HEX_SUCCESS = "#00e676"
+    HEX_FAIL = "#ff4444"
     HEX_WHITE = "#ffffff"
     HEX_PASS_GREEN = "#69F0AE"
     HEX_WARN_CYAN = "#18FFFF"

@@ -6,7 +6,7 @@ import struct
 import serial.tools.list_ports
 from PySide6.QtCore import QThread, Signal
 
-from gui.widgets import get_available_ports
+from gui.widgets.port_combo import get_available_ports
 from gui.fw_updater import get_latest_github_release, download_file, find_rp2040_drive
 from gui.updater_thread import get_fw_version
 

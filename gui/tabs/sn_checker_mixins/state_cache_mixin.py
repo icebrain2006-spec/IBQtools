@@ -1,6 +1,5 @@
 import logging
 from gui.config import config
-from gui.utils import format_sn_value
 
 class StateCacheMixin:
     """Mixin class for thread-safe value caching and UI state saving/restoring via QSettings."""
@@ -23,7 +22,14 @@ class StateCacheMixin:
     def _increment_and_format_sn(self, fmt: str) -> tuple[int, str]:
         """Increments cached SN, applies format overflow boundary checks, and returns updated int and formatted string."""
         self.cached_sn_int += 1
-        self.cached_sn_int, formatted_sn = format_sn_value(self.cached_sn_int, fmt)
+        if fmt == "HEX":
+            if self.cached_sn_int > 65535:
+                self.cached_sn_int = 0
+            formatted_sn = f"{self.cached_sn_int:X}"
+        else:
+            if self.cached_sn_int > 9999:
+                self.cached_sn_int = 0
+            formatted_sn = str(self.cached_sn_int)
         return self.cached_sn_int, formatted_sn
 
     def _get_expected_values(self, is_writing=False):
