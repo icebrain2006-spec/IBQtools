@@ -95,6 +95,7 @@ class StateCacheMixin:
                 board.combo_port.setCurrentText(port)
                 if port != "None":
                     used_ports.add(port)
+                    board.refresh_info()
                 
                 for i, chk in enumerate(board.ch_checkboxes):
                     ch_str = str(settings.value(f"ui_board_{bid}_ch_{i+1}", "True")).lower()

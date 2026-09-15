@@ -146,7 +146,6 @@ class BoardWorkerMixin:
         self.worker = SerialCheckWorker(port, active_channels, fmt=fmt, toggle_led=toggle_led)
         self.worker.log_msg.connect(lambda msg: self.log_callback(f"[Board {self.board_id}] {msg}"))
         self.worker.status_updated.connect(self._on_status_update)
-        self.worker.verify_updated.connect(self._on_verify_update)
         self.worker.finished.connect(self._on_worker_finished)
         self.worker.start()
 
@@ -185,6 +184,8 @@ class BoardWorkerMixin:
                 from gui.config import log_error
                 log_error(f"[Board {self.board_id} Ch{ch_idx}] {status_text}")
                 self.ch_status[ch_idx - 1].setText(f'Status: <span style="color: {Colors.HEX_FAIL};">{status_text}</span>')
+            elif status_text.startswith("Read:"):
+                self.ch_status[ch_idx - 1].setText(f'<span style="color: {Colors.HEX_WARN_CYAN}; font-weight: bold;">{status_text}</span>')
             else:
                 self.ch_status[ch_idx - 1].setText(f"Status: {status_text}")
             self.ch_status[ch_idx - 1].setStyleSheet("")

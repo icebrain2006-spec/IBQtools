@@ -1,4 +1,5 @@
 import os
+import sys
 import csv
 import datetime
 import logging
@@ -37,16 +38,24 @@ def play_sound_effect(is_error: bool) -> None:
             wav_name = "testFail.wav" if is_error else "testComplete.wav"
             gui_dir = os.path.dirname(os.path.abspath(__file__))
             repo_dir = os.path.dirname(gui_dir)
-            
-            # Search both gui/assets/wav and root assets/wav (supports source and PyInstaller packaging)
+            exe_dir = os.path.dirname(sys.executable)
+            meipass = getattr(sys, '_MEIPASS', '')
+
+            # Search across all potential locations (exe dir, _MEIPASS, repo dir, and gui dir)
             candidate_paths = [
+                os.path.join(exe_dir, "assets", "wav", wav_name),
+                os.path.join(exe_dir, "_internal", "assets", "wav", wav_name),
+                os.path.join(exe_dir, "_internal", "gui", "assets", "wav", wav_name),
+                os.path.join(meipass, "assets", "wav", wav_name) if meipass else "",
+                os.path.join(meipass, "gui", "assets", "wav", wav_name) if meipass else "",
                 os.path.join(gui_dir, "assets", "wav", wav_name),
                 os.path.join(repo_dir, "assets", "wav", wav_name),
+                os.path.join(repo_dir, "gui", "assets", "wav", wav_name),
             ]
-            
+
             wav_path = None
             for p in candidate_paths:
-                if os.path.exists(p):
+                if p and os.path.exists(p):
                     wav_path = p
                     break
 

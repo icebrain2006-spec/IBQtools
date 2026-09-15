@@ -469,8 +469,7 @@ class SerialCheckWorker(UpdaterWorker):
                         sn_str = f"INVALID_BCD_{sn_hex}"
                 
                 self.log_msg.emit(f"[CH {ch}] READ -> M: {date_str}, SN: {sn_str} ({sn_hex})")
-                self.status_updated.emit(ch, f"Read: {sn_str} ({sn_hex})")
-                self.verify_updated.emit(ch, date_str, sn_val)
+                self.status_updated.emit(ch, f"Read: M:{date_str} SN:{sn_str}")
             else:
                 self.log_msg.emit(f"[CH {ch}] READ -> Failed to read from chip.")
                 self.status_updated.emit(ch, "Read Failed")

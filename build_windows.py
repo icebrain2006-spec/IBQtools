@@ -77,6 +77,8 @@ def build_app():
         '--add-data=gui/calibrators/dataflashs/*;gui/calibrators/dataflashs',
         '--add-data=gui/models/*;models',
         '--add-data=gui/models/*;gui/models',
+        '--add-data=gui/assets/wav/*;assets/wav',
+        '--add-data=gui/assets/wav/*;gui/assets/wav',
     ]
     
     print(f"Running PyInstaller...")

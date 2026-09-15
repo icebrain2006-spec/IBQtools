@@ -1,3 +1,4 @@
+import time
 import struct
 import serial
 
@@ -80,38 +81,66 @@ def parse_response(rx_data: bytes):
 def get_file_info(port: str):
     """Queries RP2040 board for loaded SLFS file metadata."""
     packet = make_packet(CMD_FW_GET_FILE_INFO, b'')
+    ser = None
+    for _ in range(5):
+        try:
+            ser = serial.Serial(port, 115200, timeout=0.5)
+            break
+        except Exception:
+            time.sleep(0.05)
+    if ser is None:
+        return None
+
     try:
-        with serial.Serial(port, 115200, timeout=0.5) as ser:
-            ser.write(packet)
-            rx = ser.read(256)
-            if not rx or len(rx) < 7:
-                return None
-            cmd, resp = parse_response(rx)
-            if cmd == CMD_FW_GET_FILE_INFO and resp[0] == RESP_OK:
-                fname = resp[17:81].split(b'\x00')[0].decode('ascii', errors='ignore')
-                ic_type = ""
-                version = ""
-                if len(resp) >= 81 + 32 + 32:
-                    ic_type = resp[81:113].split(b'\x00')[0].decode('ascii', errors='ignore')
-                    version = resp[113:145].split(b'\x00')[0].decode('ascii', errors='ignore')
-                return (fname, ic_type, version)
+        ser.write(packet)
+        rx = ser.read(256)
+        if not rx or len(rx) < 7:
+            return None
+        cmd, resp = parse_response(rx)
+        if cmd == CMD_FW_GET_FILE_INFO and resp[0] == RESP_OK:
+            fname = resp[17:81].split(b'\x00')[0].decode('ascii', errors='ignore')
+            ic_type = ""
+            version = ""
+            if len(resp) >= 81 + 32 + 32:
+                ic_type = resp[81:113].split(b'\x00')[0].decode('ascii', errors='ignore')
+                version = resp[113:145].split(b'\x00')[0].decode('ascii', errors='ignore')
+            return (fname, ic_type, version)
     except Exception:
         pass
+    finally:
+        try:
+            ser.close()
+        except Exception:
+            pass
     return None
 
 
 def get_fw_version(port: str):
     """Queries RP2040 firmware version string."""
     packet = make_packet(CMD_GET_VERSION, b'')
+    ser = None
+    for _ in range(5):
+        try:
+            ser = serial.Serial(port, 115200, timeout=0.5)
+            break
+        except Exception:
+            time.sleep(0.05)
+    if ser is None:
+        return None
+
     try:
-        with serial.Serial(port, 115200, timeout=0.5) as ser:
-            ser.write(packet)
-            rx = ser.read(128)
-            if not rx or len(rx) < 7:
-                return None
-            cmd, resp = parse_response(rx)
-            if cmd == CMD_GET_VERSION and resp[0] == RESP_OK:
-                return resp[1:].split(b'\x00')[0].decode('ascii', errors='ignore')
+        ser.write(packet)
+        rx = ser.read(128)
+        if not rx or len(rx) < 7:
+            return None
+        cmd, resp = parse_response(rx)
+        if cmd == CMD_GET_VERSION and resp[0] == RESP_OK:
+            return resp[1:].split(b'\x00')[0].decode('ascii', errors='ignore')
     except Exception:
         pass
+    finally:
+        try:
+            ser.close()
+        except Exception:
+            pass
     return None
