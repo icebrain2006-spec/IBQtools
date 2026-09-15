@@ -108,45 +108,41 @@ class BoardUiMixin:
             box_layout.setSpacing(2)
 
             lbl_ch = QLabel(f"CH {ch_idx}")
-            lbl_ch.setStyleSheet(Styles.BOARD_CH_LABEL)
+            lbl_ch.setStyleSheet(Styles.BOARD_CH_TITLE)
             box_layout.addWidget(lbl_ch)
 
-            chk_enable = QCheckBox(UIStrings.get("CHK_ENABLE"))
-            chk_enable.setChecked(True)
-            chk_enable.setStyleSheet(Styles.BOARD_CH_CHECKBOX)
-            chk_enable.toggled.connect(lambda checked, idx=i: self._on_ch_toggled(idx, checked))
-            box_layout.addWidget(chk_enable)
-            self.ch_checkboxes.append(chk_enable)
+            chk = QCheckBox("Enable")
+            chk.setStyleSheet("background: transparent;")
+            chk.setChecked(True)
+            chk.toggled.connect(lambda checked, idx=i: self._on_ch_toggled(idx, checked))
+            self.ch_checkboxes.append(chk)
 
-            pbar = QProgressBar()
-            pbar.setFixedHeight(12)
-            pbar.setTextVisible(True)
-            pbar.setRange(0, 100)
-            pbar.setValue(0)
-            pbar.setStyleSheet(Styles.BOARD_PROGRESS_BAR)
-            box_layout.addWidget(pbar)
-            self.ch_progress.append(pbar)
+            prog = ClickableProgressBar(ch_idx)
+            prog.setValue(0)
+            prog.clicked.connect(self.start_single_channel)
+            self.ch_progress.append(prog)
 
-            lbl_status = QLabel("Status: Waiting")
-            lbl_status.setFixedHeight(28)
-            lbl_status.setWordWrap(True)
-            lbl_status.setStyleSheet(f"color: {Colors.HEX_TEXT_MUTED};")
-            box_layout.addWidget(lbl_status)
-            self.ch_status.append(lbl_status)
+            stat = QLabel("Status: Waiting")
+            stat.setStyleSheet("background: transparent;")
+            stat.setWordWrap(True)
+            stat.setMinimumHeight(35)
+            stat.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+            self.ch_status.append(stat)
 
-            channels_layout.addWidget(box, 0, i)
+            row, col = divmod(i, 6)
+            channels_layout.addWidget(box, row, col)
 
         return channels_layout
 
     def _on_ch_toggled(self, idx: int, checked: bool):
-        """Single Responsibility: Update channel status and styling when checkbox toggles."""
+        """Single Responsibility: Handle channel checkbox toggle UI event."""
         if not checked:
             self.ch_progress[idx].setValue(0)
             self.ch_status[idx].setText("Status: Disabled")
-            self.ch_status[idx].setStyleSheet(f"color: {Colors.HEX_TEXT_DISABLED};")
+            self.ch_status[idx].setStyleSheet("color: #555555;")
         else:
             self.ch_status[idx].setText("Status: Waiting")
-            self.ch_status[idx].setStyleSheet(f"color: {Colors.HEX_TEXT_MUTED};")
+            self.ch_status[idx].setStyleSheet("color: #AAAAAA;")
 
     def refresh_info(self):
         """Single Responsibility: Refresh connected board FW version and SLFS metadata."""
