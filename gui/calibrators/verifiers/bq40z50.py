@@ -6,29 +6,66 @@ def verify_bq40z50(runner, show_voltage: bool, show_temp: bool) -> bool:
     v_pack_val = None
     data_ok = False
 
+    active_cells = getattr(runner, 'active_cells', 4)
+    if hasattr(runner, 'active_cells_map') and runner.ch in runner.active_cells_map:
+        active_cells = runner.active_cells_map[runner.ch]
+    elif hasattr(runner, 'detect_firmware_and_config'):
+        try:
+            runner.detect_firmware_and_config()
+            active_cells = getattr(runner, 'active_cells', 4)
+            if not hasattr(runner, 'active_cells_map'):
+                runner.active_cells_map = {}
+            runner.active_cells_map[runner.ch] = active_cells
+        except Exception as e:
+            if hasattr(runner, '_log'):
+                runner._log(f"DA Config detect error: {e}")
+
     data1 = runner.read_mac_block([0x71, 0x00])
     if data1 and len(data1) >= 14:
         data_ok = True
+        v_c1 = struct.unpack_from('<H', data1, 2)[0]
+        v_c2 = struct.unpack_from('<H', data1, 4)[0]
+        v_c3 = struct.unpack_from('<H', data1, 6)[0]
+        v_c4 = struct.unpack_from('<H', data1, 8)[0]
+        
+        # Voltage pattern fallback refinement for 2S / 3S packs
+        if v_c1 > 1000 and v_c2 > 1000:
+            if v_c3 == 0 and v_c4 == 0:
+                active_cells = 2
+            elif v_c3 > 1000 and v_c4 == 0:
+                active_cells = 3
+        
+        if not hasattr(runner, 'active_cells_map'):
+            runner.active_cells_map = {}
+        runner.active_cells_map[runner.ch] = active_cells
+        runner.active_cells = active_cells
+
         if show_voltage:
-            v_c1 = struct.unpack_from('<H', data1, 2)[0]
-            v_c2 = struct.unpack_from('<H', data1, 4)[0]
-            v_c3 = struct.unpack_from('<H', data1, 6)[0]
-            v_c4 = struct.unpack_from('<H', data1, 8)[0]
             v_cells = [v_c1, v_c2, v_c3, v_c4]
-            for i in range(min(runner.active_cells, len(v_cells))):
-                runner.emit_result(f"V_Cell {i+1}", f"V_Cell {i+1}", "-", v_cells[i], suffix=" mV")
+            for i in range(4):
+                if i < active_cells:
+                    runner.emit_result(f"V_Cell {i+1}", f"V_Cell {i+1}", "-", v_cells[i], suffix=" mV")
+                else:
+                    if hasattr(runner, 'row_signal'):
+                        runner.row_signal.emit(f"V_Cell {i+1}", runner.ch, "-", "INFO")
+                    if hasattr(runner, 'cal_log_buffer') and runner.ch in runner.cal_log_buffer:
+                        runner.cal_log_buffer[runner.ch][f"V_Cell {i+1}"] = {'value': 'N/A', 'range': 'Excluded (2S)'}
 
         v_bat_val = struct.unpack_from('<H', data1, 10)[0]
         v_pack_val = struct.unpack_from('<H', data1, 12)[0]
     else:
         if show_voltage:
-            for i in range(runner.active_cells):
-                cmd = 0x3F - i
-                val = runner.smbus_read_word(cmd)
-                if val:
-                    data_ok = True
-                    v_cell = struct.unpack('<H', bytes(val))[0]
-                    runner.emit_result(f"V_Cell {i+1}", f"V_Cell {i+1}", "-", v_cell, suffix=" mV")
+            for i in range(4):
+                if i < active_cells:
+                    cmd = 0x3F - i
+                    val = runner.smbus_read_word(cmd)
+                    if val:
+                        data_ok = True
+                        v_cell = struct.unpack('<H', bytes(val))[0]
+                        runner.emit_result(f"V_Cell {i+1}", f"V_Cell {i+1}", "-", v_cell, suffix=" mV")
+                else:
+                    if hasattr(runner, 'row_signal'):
+                        runner.row_signal.emit(f"V_Cell {i+1}", runner.ch, "-", "INFO")
 
         val_pack = runner.smbus_read_word(0x09)
         if val_pack:
