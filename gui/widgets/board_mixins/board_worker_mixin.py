@@ -255,9 +255,11 @@ class BoardWorkerMixin:
             set_led_state(port, self.led_color, 1, 10)
             self.start_blink(10)
 
-    def _start_disconnection_monitor_if_needed(self, port: str):
+    def _start_disconnection_monitor_if_needed(self, port: str = None):
+        if port is None:
+            port = self.combo_port.currentText().strip()
         self._stop_disconnection_monitor()
-        if self.passed_channels:
+        if self.passed_channels and port and port != "None":
             self.btn_start_board.setEnabled(False)
             self.disconnect_monitor = DisconnectionMonitor(port, self.passed_channels)
             self.disconnect_monitor.channel_disconnected.connect(self._on_channel_disconnected)

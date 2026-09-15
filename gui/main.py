@@ -148,6 +148,15 @@ class BqUpdaterMainWindow(QMainWindow):
             self.calibration_multi_tab.btn_quick_start.setChecked(False)
 
         current_w = self.tabs.widget(index)
+
+        # Pause BQ FW Programmer disconnection monitors on tab leave to release COM ports, resume on return
+        if current_w == self.updater_tab:
+            if hasattr(self.updater_tab, 'resume_monitors'):
+                self.updater_tab.resume_monitors()
+        else:
+            if hasattr(self.updater_tab, 'pause_monitors'):
+                self.updater_tab.pause_monitors()
+
         if current_w == self.calibration_tab:
             if hasattr(self.calibration_tab, 'refresh_ports'):
                 self.calibration_tab.refresh_ports()

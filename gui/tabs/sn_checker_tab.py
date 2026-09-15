@@ -27,5 +27,17 @@ class SNCheckerTab(MasterPanelMixin, WorkerRunnerMixin, StateCacheMixin, QWidget
         self.update_sn_ui_signal.connect(self._safe_update_sn_ui)
         self._init_ui()
 
+    def pause_monitors(self):
+        """Stops all active disconnection monitors to release COM ports when switching tabs."""
+        for board in self.boards:
+            if hasattr(board, '_stop_disconnection_monitor'):
+                board._stop_disconnection_monitor()
+
+    def resume_monitors(self):
+        """Resumes disconnection monitors for passed channels when returning to tab."""
+        for board in self.boards:
+            if hasattr(board, '_start_disconnection_monitor_if_needed'):
+                board._start_disconnection_monitor_if_needed()
+
 # Backwards compatibility alias
 UpdaterTab = SNCheckerTab
