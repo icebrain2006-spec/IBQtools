@@ -53,7 +53,7 @@ class MultiCalibrationRunnerMixin:
             3: self.combo_port_3.currentText()
         }
         
-        valid_ports = [p for p in ports_map.values() if p and "Select" not in p]
+        valid_ports = [p for p in ports_map.values() if p and "Select" not in p and p != "None"]
         if not valid_ports:
             self.log("Error: Please select at least one valid COM port for Board #1, #2, or #3.")
             return

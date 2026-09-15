@@ -64,8 +64,7 @@ class MultiCalibrationChannelMixin:
             
         lbl = getattr(self, f"lbl_ch_board_{board_idx}", None)
         if lbl:
-            ch_in_board = ((ch - 1) % 6) + 1
-            lbl.setText(f"CH {ch_in_board}")
+            lbl.setText(f"CH {ch}")
 
     @property
     def current_channel(self):

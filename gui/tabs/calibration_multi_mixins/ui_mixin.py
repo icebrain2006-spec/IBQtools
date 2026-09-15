@@ -18,10 +18,65 @@ class MultiCalibrationUIMixin:
     """Mixin for building the 18-Channel multi-board calibration tab layout with Compact Horizontal Alignment."""
 
     def refresh_ports(self):
+        from gui.widgets.port_combo import get_available_ports
+        sorted_ports, _ = get_available_ports(include_none=False)
+        physical_ports = [p for p in sorted_ports if p and p not in ("Select COM", "None")]
+
         for idx in range(1, 4):
             combo = getattr(self, f"combo_port_{idx}", None)
             if combo:
-                combo.refresh_ports()
+                combo.blockSignals(True)
+                current = combo.currentText()
+                combo.clear()
+                combo_items = ["None"] + physical_ports
+                combo.addItems(combo_items)
+                if current in combo_items:
+                    combo.setCurrentText(current)
+                combo.blockSignals(False)
+
+        self._smart_distribute_ports(physical_ports)
+
+    def _smart_distribute_ports(self, physical_ports):
+        """Assigns available physical ports across Boards 1..3 avoiding duplicate COM assignments."""
+        combos = [getattr(self, f"combo_port_{idx}", None) for idx in range(1, 4)]
+        if any(c is None for c in combos):
+            return
+
+        current_choices = [c.currentText() for c in combos]
+        used_ports = set()
+        needs_reassign = False
+
+        for p in current_choices:
+            if p and p not in ("None", "Select COM"):
+                if p not in physical_ports or p in used_ports:
+                    needs_reassign = True
+                    break
+                used_ports.add(p)
+
+        if needs_reassign or (not used_ports and physical_ports):
+            for idx, combo in enumerate(combos, 1):
+                assigned = physical_ports[idx - 1] if idx - 1 < len(physical_ports) else "None"
+                combo.blockSignals(True)
+                combo.setCurrentText(assigned)
+                self.settings.setValue(f"calib_multi_port_{idx}", assigned)
+                combo.blockSignals(False)
+
+    def _on_board_port_changed(self, board_idx, new_port):
+        if not new_port or new_port in ("Select COM", "None"):
+            self.settings.setValue(f"calib_multi_port_{board_idx}", "None")
+            return
+
+        self.settings.setValue(f"calib_multi_port_{board_idx}", new_port)
+
+        for other_idx in range(1, 4):
+            if other_idx == board_idx:
+                continue
+            other_combo = getattr(self, f"combo_port_{other_idx}", None)
+            if other_combo and other_combo.currentText() == new_port:
+                other_combo.blockSignals(True)
+                other_combo.setCurrentText("None")
+                self.settings.setValue(f"calib_multi_port_{other_idx}", "None")
+                other_combo.blockSignals(False)
 
     def _init_ui(self):
         main_layout = QVBoxLayout(self)
@@ -41,7 +96,9 @@ class MultiCalibrationUIMixin:
         
         self.combo_ic = QComboBox()
         self.combo_ic.addItems(list(IC_CONFIGS.keys()))
-        last_ic = self.settings.value("calib_last_ic", "")
+        last_ic = self.settings.value("calib_last_ic", "BQ40Z50")
+        if last_ic not in IC_CONFIGS and "BQ40Z50" in IC_CONFIGS:
+            last_ic = "BQ40Z50"
         if last_ic in IC_CONFIGS:
             self.combo_ic.setCurrentText(last_ic)
         self.combo_ic.currentTextChanged.connect(self._build_dynamic_ui)
@@ -255,6 +312,7 @@ class MultiCalibrationUIMixin:
         splitter.setStretchFactor(1, 1)
         
         main_layout.addWidget(splitter)
+        self._build_dynamic_ui(self.combo_ic.currentText())
         self.refresh_ports()
         self._sync_overall_widths()
 
@@ -330,7 +388,7 @@ class MultiCalibrationUIMixin:
             hdr_box.setContentsMargins(0, 0, 0, 0)
             hdr_box.setSpacing(3)
 
-            combo_port = PortComboBox()
+            combo_port = PortComboBox(include_none=True)
             combo_port.setMinimumWidth(85)
             combo_port.setStyleSheet("""
                 QComboBox {
@@ -348,11 +406,11 @@ class MultiCalibrationUIMixin:
                 }
             """)
             combo_port.currentTextChanged.connect(
-                lambda t, p_idx=b: self.settings.setValue(f"calib_multi_port_{p_idx}", t) if t and t != "Select COM" else None
+                lambda t, b_idx=b: self._on_board_port_changed(b_idx, t)
             )
             setattr(self, f"combo_port_{b}", combo_port)
             last_p = self.settings.value(f"calib_multi_port_{b}", "")
-            if last_p:
+            if last_p and last_p in [combo_port.itemText(i) for i in range(combo_port.count())]:
                 combo_port.setCurrentText(last_p)
 
             lbl_port = QLabel("Port:")

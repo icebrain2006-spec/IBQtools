@@ -169,7 +169,7 @@ class MultiCalibrationThread(QThread, SMBusCommunicatorMixin, FWDetectorMixin, H
         
         # 1. Open serial ports for configured boards
         for board_idx, port in self.ports_map.items():
-            if port and "Select" not in port:
+            if port and "Select" not in port and port != "None":
                 try:
                     ser_obj = serial.Serial(port, 115200, timeout=1.5)
                     ser_obj.reset_input_buffer()

@@ -141,7 +141,7 @@ class HWCalibratorMixin:
             # Set Relay state: OFF for Voltage mode, ON for Current mode
             relay_mask = ch_mask if mode_name == "current" else 0
             self._set_relay(mode_name == "current", mask=relay_mask)
-            time.sleep(0.4)
+            time.sleep(0.8)
 
             # Pre-calibration load current safety check for Current mode
             if mode_name == "current":
@@ -161,12 +161,19 @@ class HWCalibratorMixin:
                     ch_t = self.targets_per_ch.get(ch, self.targets) if hasattr(self, 'targets_per_ch') and self.targets_per_ch else self.targets
                     target_ma = int(ch_t.get('currentma', -2000))
                     
-                    # Read Present Current via SBS Command 0x0C (int16 mA)
-                    cur_bytes = self.smbus_read_word(0x0C)
-                    if cur_bytes and len(cur_bytes) >= 2:
-                        actual_current = struct.unpack('<h', bytes(cur_bytes))[0]
-                    else:
-                        actual_current = 0
+                    # Read Present Current via SBS Command 0x0C (int16 mA) with retry polling
+                    # (BQ40Z50 SBS Current register updates every ~1.0s, allow time for electronic load settling)
+                    actual_current = 0
+                    for retry in range(6):
+                        cur_bytes = self.smbus_read_word(0x0C)
+                        if cur_bytes and len(cur_bytes) >= 2:
+                            actual_current = struct.unpack('<h', bytes(cur_bytes))[0]
+                        else:
+                            actual_current = 0
+                        
+                        if target_ma > -500 or actual_current <= -200:
+                            break
+                        time.sleep(0.3)
                     
                     self._log(f"    [CH{ch} Pre-Check] Target: {target_ma}mA, Measured Current: {actual_current}mA")
                     
