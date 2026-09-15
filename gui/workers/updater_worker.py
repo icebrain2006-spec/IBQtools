@@ -316,8 +316,15 @@ class UpdaterWorker(QThread):
                     time.sleep(1.0)
                     self.ser.reset_input_buffer()
                     
+                    # Ensure BQ chips exit ROM mode after firmware update
                     for ch in self.channels:
                         if not (err_mask & (1 << (ch - 1))):
+                            self._exit_rom_mode(ch)
+                    time.sleep(0.5)
+                    
+                    for ch in self.channels:
+                        if not (err_mask & (1 << (ch - 1))):
+                            self.status_updated.emit(ch, "Reading Date/SN...")
                             fmt = "DEC"
                             should_toggle_led = False
                             if self.get_expected_cb:
@@ -350,7 +357,14 @@ class UpdaterWorker(QThread):
                                         self.log_msg.emit(f"[CH {ch}] Write Serial Number FAILED!")
                                     time.sleep(0.1)
                                     
-                            date_str, sn_val = self._read_sbd_info(ch)
+                            # Read SBD Info with up to 3 retry attempts
+                            date_str, sn_val = None, None
+                            for _ in range(3):
+                                date_str, sn_val = self._read_sbd_info(ch)
+                                if date_str and sn_val is not None:
+                                    break
+                                time.sleep(0.3)
+                                
                             self.verify_updated.emit(ch, date_str or "", sn_val if sn_val is not None else -1)
                             
                             if date_str and sn_val is not None:
@@ -456,6 +470,7 @@ class SerialCheckWorker(UpdaterWorker):
                 
                 self.log_msg.emit(f"[CH {ch}] READ -> M: {date_str}, SN: {sn_str} ({sn_hex})")
                 self.status_updated.emit(ch, f"Read: {sn_str} ({sn_hex})")
+                self.verify_updated.emit(ch, date_str, sn_val)
             else:
                 self.log_msg.emit(f"[CH {ch}] READ -> Failed to read from chip.")
                 self.status_updated.emit(ch, "Read Failed")

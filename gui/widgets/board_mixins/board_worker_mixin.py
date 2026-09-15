@@ -146,6 +146,7 @@ class BoardWorkerMixin:
         self.worker = SerialCheckWorker(port, active_channels, fmt=fmt, toggle_led=toggle_led)
         self.worker.log_msg.connect(lambda msg: self.log_callback(f"[Board {self.board_id}] {msg}"))
         self.worker.status_updated.connect(self._on_status_update)
+        self.worker.verify_updated.connect(self._on_verify_update)
         self.worker.finished.connect(self._on_worker_finished)
         self.worker.start()
 
@@ -189,13 +190,14 @@ class BoardWorkerMixin:
             self.ch_status[ch_idx - 1].setStyleSheet("")
 
     def _resolve_expected_targets(self, ch_idx: int):
+        res = self.get_expected_cb(False)
+        should_write_sn, should_write_date = res[3], res[4]
         if ch_idx in self.expected_sn_map:
             exp_date = self.expected_date_map[ch_idx]
             exp_sn_int = self.expected_sn_map[ch_idx]
             sn_fmt = self.expected_fmt
-            _, _, _, should_write_sn, should_write_date = self.get_expected_cb(False)
         else:
-            exp_date, exp_sn_int, sn_fmt, should_write_sn, should_write_date = self.get_expected_cb(False)
+            exp_date, exp_sn_int, sn_fmt = res[0], res[1], res[2]
         return exp_date, exp_sn_int, sn_fmt, should_write_sn, should_write_date
 
     def _evaluate_verification(self, exp_date: str, exp_sn_int: int, sn_fmt: str, date_str: str, sn_int: int, should_write_date: bool, should_write_sn: bool):
@@ -226,20 +228,24 @@ class BoardWorkerMixin:
         if not (1 <= ch_idx <= 6):
             return
 
-        exp_date, exp_sn_int, sn_fmt, should_write_sn, should_write_date = self._resolve_expected_targets(ch_idx)
-        should_write = should_write_sn or should_write_date
+        try:
+            exp_date, exp_sn_int, sn_fmt, should_write_sn, should_write_date = self._resolve_expected_targets(ch_idx)
+            should_write = should_write_sn or should_write_date
 
-        result_str, sn_str = self._evaluate_verification(
-            exp_date, exp_sn_int, sn_fmt, date_str, sn_int, should_write_date, should_write_sn
-        )
+            result_str, sn_str = self._evaluate_verification(
+                exp_date, exp_sn_int, sn_fmt, date_str, sn_int, should_write_date, should_write_sn
+            )
 
-        self._update_channel_verify_ui(ch_idx, result_str, date_str, sn_str)
+            self._update_channel_verify_ui(ch_idx, result_str, date_str, sn_str)
 
-        slfs_file = self.lbl_slfs_info.text().replace("SLFS: ", "")
-        wrote_sn = "Yes" if should_write else "No"
-        ch_sn_str = f"0x{sn_int:04X}" if sn_fmt == "HEX" else str(sn_int) if sn_int >= 0 else "N/A"
+            slfs_file = self.lbl_slfs_info.text().replace("SLFS: ", "")
+            wrote_sn = "Yes" if should_write else "No"
+            ch_sn_str = f"0x{sn_int:04X}" if sn_fmt == "HEX" else str(sn_int) if sn_int >= 0 else "N/A"
 
-        append_work_log(config.get_work_log_path(), self.board_id, ch_idx, slfs_file, wrote_sn, date_str, ch_sn_str, result_str)
+            append_work_log(config.get_work_log_path(), self.board_id, ch_idx, slfs_file, wrote_sn, date_str, ch_sn_str, result_str)
+        except Exception as e:
+            from gui.config import log_error
+            log_error(f"[Board {self.board_id} Ch{ch_idx}] _on_verify_update Exception: {e}")
 
     def _apply_finish_notifications(self, success: bool, port: str):
         if success:
@@ -249,6 +255,7 @@ class BoardWorkerMixin:
             self.start_blink(10)
 
     def _start_disconnection_monitor_if_needed(self, port: str):
+        self._stop_disconnection_monitor()
         if self.passed_channels:
             self.btn_start_board.setEnabled(False)
             self.disconnect_monitor = DisconnectionMonitor(port, self.passed_channels)

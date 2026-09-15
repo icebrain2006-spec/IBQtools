@@ -101,6 +101,9 @@ class DisconnectionMonitor(QThread):
 
                 ok = self._read_smbus_word(ser, ch, 0x0B, 0x1C)
                 if not ok:
+                    time.sleep(0.05)
+                    ok = self._read_smbus_word(ser, ch, 0x0B, 0x1C)
+                if not ok:
                     self.log_msg.emit(f"[MON] Disconnection detected on CH {ch}")
                     self.channel_disconnected.emit(ch)
                     self.channels_to_monitor.remove(ch)
