@@ -115,11 +115,13 @@ class BoardUiMixin:
             chk.setStyleSheet("background: transparent;")
             chk.setChecked(True)
             chk.toggled.connect(lambda checked, idx=i: self._on_ch_toggled(idx, checked))
+            box_layout.addWidget(chk)
             self.ch_checkboxes.append(chk)
 
             prog = ClickableProgressBar(ch_idx)
             prog.setValue(0)
             prog.clicked.connect(self.start_single_channel)
+            box_layout.addWidget(prog)
             self.ch_progress.append(prog)
 
             stat = QLabel("Status: Waiting")
@@ -127,6 +129,7 @@ class BoardUiMixin:
             stat.setWordWrap(True)
             stat.setMinimumHeight(35)
             stat.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+            box_layout.addWidget(stat)
             self.ch_status.append(stat)
 
             row, col = divmod(i, 6)
