@@ -133,15 +133,18 @@ class HWCalibratorMixin:
 
             # Pre-calibration 0x4000 DF Dump Checkpoint
             for ch in self.channels:
+                old_c = self.ch
+                self.ch = ch
                 df_pre = self.read_mac_block([0x00, 0x40])
                 if df_pre:
                     stage_tag = "1. BEFORE VOLTAGE" if mode_name == "voltage" else "3. BEFORE CURRENT"
                     self._log(self.format_df4000_breakdown(df_pre, f"CH{ch} {stage_tag} CALIBRATION 0x4000 DF BLOCK"))
+                self.ch = old_c
 
             # Set Relay state: OFF for Voltage mode, ON for Current mode
             relay_mask = ch_mask if mode_name == "current" else 0
             self._set_relay(mode_name == "current", mask=relay_mask)
-            time.sleep(0.8)
+            time.sleep(0.3)
 
             # Pre-calibration load current safety check for Current mode
             if mode_name == "current":
@@ -161,11 +164,10 @@ class HWCalibratorMixin:
                     ch_t = self.targets_per_ch.get(ch, self.targets) if hasattr(self, 'targets_per_ch') and self.targets_per_ch else self.targets
                     target_ma = int(ch_t.get('currentma', -2000))
                     
-                    # Read Present Current via SBS Command 0x0C (int16 mA) with retry polling
-                    # (BQ40Z50 SBS Current register updates every ~1.0s, allow time for electronic load settling)
+                    # Read Present Current via SBS Command 0x0A (int16 signed mA) with fast retry polling
                     actual_current = 0
-                    for retry in range(6):
-                        cur_bytes = self.smbus_read_word(0x0C)
+                    for retry in range(4):
+                        cur_bytes = self.smbus_read_word(0x0A)
                         if cur_bytes and len(cur_bytes) >= 2:
                             actual_current = struct.unpack('<h', bytes(cur_bytes))[0]
                         else:
@@ -173,7 +175,7 @@ class HWCalibratorMixin:
                         
                         if target_ma > -500 or actual_current <= -200:
                             break
-                        time.sleep(0.3)
+                        time.sleep(0.15)
                     
                     self._log(f"    [CH{ch} Pre-Check] Target: {target_ma}mA, Measured Current: {actual_current}mA")
                     
