@@ -117,6 +117,16 @@ class CalibrationRunnerMixin:
         targets["per_ch"] = targets_per_ch
         targets["run_mode"] = mode
         
+        relay_delay_str = str(self.settings.value("calib_relay_delay_ms", "300")).strip()
+        try:
+            relay_delay_val = float(relay_delay_str)
+        except ValueError:
+            relay_delay_val = 300.0
+        targets["relay_delay_ms"] = relay_delay_val
+        for ch in range(1, 7):
+            if ch in targets_per_ch:
+                targets_per_ch[ch]["relay_delay_ms"] = relay_delay_val
+        
         selected_channels = sorted(list(self.selected_channels))
                 
         if not selected_channels:

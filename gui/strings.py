@@ -122,6 +122,7 @@ class UIStrings:
             "GRP_VOLTAGE_CALIB": "Voltage Calibration",
             "GRP_TEMP_CALIB": "Temperature Calibration",
             "GRP_CURRENT_CALIB": "Current Calibration",
+            "LBL_RELAY_DELAY": "Relay Delay (ms):",
             "BTN_START_VOLTAGE": "Start Voltage",
             "BTN_START_TEMP": "Start Temp",
             "BTN_START_CURRENT": "Start Current",
@@ -246,6 +247,7 @@ class UIStrings:
             "GRP_VOLTAGE_CALIB": "전압 캘리브레이션",
             "GRP_TEMP_CALIB": "온도 캘리브레이션",
             "GRP_CURRENT_CALIB": "전류 캘리브레이션",
+            "LBL_RELAY_DELAY": "릴레이 지연 (ms):",
             "BTN_START_VOLTAGE": "전압 측정 시작",
             "BTN_START_TEMP": "온도 측정 시작",
             "BTN_START_CURRENT": "전류 측정 시작",
@@ -267,6 +269,7 @@ class UIStrings:
     LBL_TARGET_IC = _STRINGS["en"]["LBL_TARGET_IC"]
     LBL_TARGET_CH = _STRINGS["en"]["LBL_TARGET_CH"]
     LBL_OVERALL_RESULT = _STRINGS["en"]["LBL_OVERALL_RESULT"]
+    LBL_RELAY_DELAY = _STRINGS["en"]["LBL_RELAY_DELAY"]
     NOTE_CHANNEL_TOGGLE = _STRINGS["en"]["NOTE_CHANNEL_TOGGLE"]
     TOOLTIP_QUICK_START = _STRINGS["en"]["TOOLTIP_QUICK_START"]
     GRP_VOLTAGE_CALIB = _STRINGS["en"]["GRP_VOLTAGE_CALIB"]

@@ -99,6 +99,10 @@ class HWCalibratorMixin:
                 if len(raw_bytes) > 0 and mode_name == "voltage":
                     self._log(f"    [CH{ch} RAW 0xF081 BLOCK] Hex={bytes(raw_bytes).hex(' ')}")
                     self._log(f"    [CH{ch} RAW ADC AVG] Cell1_ADC={raw_c1_adc}, Pack_ADC={raw_pack_adc}, Bat_ADC={raw_bat_adc}")
+                elif len(raw_bytes) >= 12 and mode_name == "current":
+                    samples = struct.unpack('<6h', raw_bytes[:12])
+                    sample_str = ", ".join([f"#{i+1}:{s}" for i, s in enumerate(samples)])
+                    self._log(f"    [CH{ch} Raw CC ADC 6 Samples] {sample_str} (Avg: {cc_adc_map.get(ch, 0)})")
 
                 if ch_status_map[ch] and mode_name != "current":
                     self.ch = ch
@@ -144,7 +148,17 @@ class HWCalibratorMixin:
             # Set Relay state: OFF for Voltage mode, ON for Current mode
             relay_mask = ch_mask if mode_name == "current" else 0
             self._set_relay(mode_name == "current", mask=relay_mask)
-            time.sleep(0.3)
+            if mode_name == "current":
+                delay_ms = self.targets.get("relay_delay_ms", 300)
+                try:
+                    delay_ms = float(delay_ms)
+                except (ValueError, TypeError):
+                    delay_ms = 300.0
+                delay_sec = max(0.05, delay_ms / 1000.0)
+                self._log(f"    [Relay] Waiting {delay_ms:.0f}ms after ON...")
+                time.sleep(delay_sec)
+            else:
+                time.sleep(0.3)
 
             # Pre-calibration load current safety check for Current mode
             if mode_name == "current":

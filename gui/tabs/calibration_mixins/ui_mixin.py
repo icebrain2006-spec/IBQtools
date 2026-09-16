@@ -310,6 +310,16 @@ class CalibrationUIMixin:
                 self.dynamic_inputs[label_text] = line_edit
                 grid_c.addWidget(line_edit, row, col + 1)
                 
+            cur_count = len(config["current"])
+            row_delay = cur_count // 2
+            col_delay = (cur_count % 2) * 2
+            grid_c.addWidget(QLabel(UIStrings.get("LBL_RELAY_DELAY")), row_delay, col_delay)
+            saved_delay = self.settings.value("calib_relay_delay_ms", "300")
+            self.txt_relay_delay = QLineEdit(str(saved_delay))
+            self.txt_relay_delay.setPlaceholderText("300")
+            self.txt_relay_delay.textChanged.connect(lambda t: self.settings.setValue("calib_relay_delay_ms", t))
+            grid_c.addWidget(self.txt_relay_delay, row_delay, col_delay + 1)
+
             layout_c = QVBoxLayout()
             layout_c.addLayout(grid_c)
             group_c.setLayout(layout_c)
