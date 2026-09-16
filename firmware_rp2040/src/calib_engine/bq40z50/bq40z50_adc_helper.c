@@ -33,7 +33,20 @@ static void bq40z50_read_adc_samples_loop(uint8_t ch_mask, bq40z50_adc_sums_t *s
                     uint16_t bat   = rx_buf[bat_off] | (rx_buf[bat_off + 1] << 8);
                     int16_t cc = (int16_t)(rx_buf[cc_off] | (rx_buf[cc_off + 1] << 8));
                     
-                    if (sums->sample_cnt[ch] == 0) {
+                    if (calib_status.mode == 1) {
+                        if (sample < 6) {
+                            calib_status.results[ch].raw_bytes[sample * 2] = rx_buf[cc_off];
+                            calib_status.results[ch].raw_bytes[sample * 2 + 1] = rx_buf[cc_off + 1];
+                        }
+                        if (sums->sample_cnt[ch] == 0) {
+                            calib_status.results[ch].raw_bytes[12] = rx_buf[2];
+                            calib_status.results[ch].raw_bytes[13] = rx_buf[3];
+                            calib_status.results[ch].raw_bytes[14] = rx_buf[pack_off];
+                            calib_status.results[ch].raw_bytes[15] = rx_buf[pack_off + 1];
+                            calib_status.results[ch].raw_bytes[16] = rx_buf[bat_off];
+                            calib_status.results[ch].raw_bytes[17] = rx_buf[bat_off + 1];
+                        }
+                    } else if (sums->sample_cnt[ch] == 0) {
                         uint8_t c_len = (rx_len > 18) ? 18 : rx_len;
                         memcpy((void*)calib_status.results[ch].raw_bytes, rx_buf, c_len);
                     }
