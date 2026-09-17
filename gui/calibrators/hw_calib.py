@@ -98,7 +98,7 @@ class HWCalibratorMixin:
 
                 if len(raw_bytes) > 0 and mode_name == "voltage":
                     self._log(f"    [CH{ch} RAW 0xF081 BLOCK] Hex={bytes(raw_bytes).hex(' ')}")
-                    self._log(f"    [CH{ch} RAW ADC AVG] Cell1_ADC={raw_c1_adc}, Pack_ADC={raw_pack_adc}, Bat_ADC={raw_bat_adc}")
+                    self._log(f"    [CH{ch} RAW ADC AVG] Cell1_ADC={raw_c1_adc}, Pack_ADC={raw_bat_adc}, Bat_ADC={raw_pack_adc}")
                 elif len(raw_bytes) >= 12 and mode_name == "current":
                     samples = struct.unpack('<6h', raw_bytes[:12])
                     sample_str = ", ".join([f"#{i+1}:{s}" for i, s in enumerate(samples)])
@@ -106,13 +106,20 @@ class HWCalibratorMixin:
 
                 if ch_status_map[ch] and mode_name != "current":
                     self.ch = ch
-                    self._log(f"    [CH{ch} RP2040 HW Result] PASS -> Cell1 Gain: {cell1_g}, Pack Gain: {pack_g}, Bat Gain: {bat_g}")
+                    # [NOTE / 임시 보정] 
+                    # RP2040 FW의 CMD_CALIB_STATUS 응답에서 pack_g와 bat_g 슬롯이 서로 바뀌어 전달되고 있습니다.
+                    # 실제 BQ DataFlash 0x4000에는 [Cell1=12759, Bat=51361, Pack=51819]로 정상 기록되므로,
+                    # GUI 결과 테이블 표시 시 임시로 swap하여 (Pack Gain: 51819, Bat Gain: 51361) 정상 표기합니다.
+                    # TODO: 향후 RP2040 펌웨어 수정 작업 시 calib_status 결과 패킷 슬롯을 근본적으로 정렬하고 본 보정 코드를 동기화할 것.
+                    actual_pack_g = bat_g
+                    actual_bat_g = pack_g
+                    self._log(f"    [CH{ch} RP2040 HW Result] PASS -> Cell1 Gain: {cell1_g}, Pack Gain: {actual_pack_g}, Bat Gain: {actual_bat_g}")
                     df_b = self.read_mac_block([0x00, 0x40])
                     if df_b:
                         self._log(self.format_df4000_breakdown(df_b, f"CH{ch} 2. AFTER VOLTAGE CALIBRATION 0x4000 DF BLOCK"))
                     self.emit_result("Cell 1 Gain", "Cell 1 Gain", str(cell1_g), cell1_g, is_gain=True)
-                    self.emit_result("Pack Gain", "Pack Gain", str(pack_g), pack_g, is_gain=True)
-                    self.emit_result("Bat Gain", "Bat Gain", str(bat_g), bat_g, is_gain=True)
+                    self.emit_result("Pack Gain", "Pack Gain", str(actual_pack_g), actual_pack_g, is_gain=True)
+                    self.emit_result("Bat Gain", "Bat Gain", str(actual_bat_g), actual_bat_g, is_gain=True)
                     if run_mode != "all":
                         self.post_verify()
                 elif not ch_status_map[ch]:

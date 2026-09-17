@@ -90,6 +90,11 @@ static void bq40z50_compute_voltage_gains(uint8_t ch_mask, const bq40z50_adc_sum
             gains[ch].pack_avg  = (uint16_t)pack_avg;
             gains[ch].bat_avg   = (uint16_t)bat_avg;
 
+            // [NOTE / TODO: 향후 FW 수정 시 함께 작업]
+            // DataFlash 0x4000 블록은 [0: Cell1, 2: Pack, 4: Bat] 규격이며 현재 아래 바이트 배치로 BQ에는 올바르게 기록됩니다.
+            // 그러나 calib_status.results[ch].pack_gain 및 bat_gain 슬롯에 각각 반대로 들어가서 PC로 전송되므로,
+            // PC GUI(hw_calib.py)에서 임시로 swap하여 표시 중입니다.
+            // 추후 FW 유지보수/빌드 시 g_pack과 g_bat의 변수 및 calib_status 매핑을 표준 규격으로 일치시킬 것.
             gains[ch].volt_bytes[0] = gains[ch].g_cell1 & 0xFF;
             gains[ch].volt_bytes[1] = (gains[ch].g_cell1 >> 8) & 0xFF;
             gains[ch].volt_bytes[2] = gains[ch].g_bat & 0xFF;

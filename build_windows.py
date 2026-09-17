@@ -48,13 +48,19 @@ def increment_gui_version():
     print(f"[*] GUI Version incremented: {old_ver} -> {new_ver}")
     return new_ver
 
+FAST_BUILD = True  # Set to False (or run with --clean) for full clean release builds
+
 def build_app():
+    is_clean = "--clean" in sys.argv or not FAST_BUILD
     current_ver = increment_gui_version()
     
-    print("Cleaning previous builds...")
-    for dir_name in ['build', 'dist']:
-        if os.path.exists(dir_name):
-            shutil.rmtree(dir_name)
+    if is_clean:
+        print("Cleaning previous builds (Clean Build Mode)...")
+        for dir_name in ['build', 'dist']:
+            if os.path.exists(dir_name):
+                shutil.rmtree(dir_name)
+    else:
+        print("[*] Running FAST Incremental Build (reusing PyInstaller cache)...")
 
     args = [
         'main.py',
@@ -62,7 +68,6 @@ def build_app():
         '--windowed',       # Hide console
         '--noconfirm',
         '--icon=gui/app_icon.ico',
-        '--clean',
         '--paths=.',
         '--paths=gui',
         
@@ -80,6 +85,8 @@ def build_app():
         '--add-data=gui/assets/wav/*;assets/wav',
         '--add-data=gui/assets/wav/*;gui/assets/wav',
     ]
+    if is_clean:
+        args.append('--clean')
     
     print(f"Running PyInstaller...")
     subprocess.run(['uv', 'run', 'pyinstaller'] + args, check=True)
