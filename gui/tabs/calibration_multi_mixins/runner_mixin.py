@@ -127,22 +127,93 @@ class MultiCalibrationRunnerMixin:
         self.param_statuses = {}
         self.settings.sync()
         
-        limit_keys = [
-            "Cell 1 Gain", "Bat Gain", "Pack Gain", "CC Gain", "Capacity Gain",
-            "V_Cell 1", "V_Cell 2", "V_Cell 3", "V_Cell 4",
-            "V_Bat", "V_Pack", "V_Pack - V_Bat Diff",
-            "Int Temp", "TS1 Temp", "TS2 Temp", "TS3 Temp", "TS4 Temp",
-            "Shunt Resistor"
-        ]
+        if "BQ78350" in ic.upper():
+            limit_keys = [
+                "Cell 1 Offset", "Cell 2 Offset", "Cell 3 Offset", "Cell 4 Offset",
+                "Cell 5 Offset", "Cell 6 Offset", "Cell 7 Offset", "Cell 8 Offset",
+                "Cell 9 Offset", "Cell 10 Offset", "Cell 11 Offset", "Cell 12 Offset",
+                "Cell 13 Offset", "Cell 14 Offset", "Cell 15 Offset",
+                "V_Cell 1", "V_Cell 2", "V_Cell 3", "V_Cell 4", "V_Cell 5", "V_Cell 6",
+                "V_Cell 7", "V_Cell 8", "V_Cell 9", "V_Cell 10", "V_Cell 11", "V_Cell 12",
+                "V_Cell 13", "V_Cell 14", "V_Cell 15",
+                "V_Ext", "V_Aux",
+                "Int Temp", "TS1 Temp", "TS2 Temp", "TS3 Temp", "TS4 Temp",
+                "CC Offset", "Shunt Resistor"
+            ]
+        else:
+            limit_keys = [
+                "Cell 1 Gain", "Bat Gain", "Pack Gain", "CC Gain", "Capacity Gain",
+                "V_Cell 1", "V_Cell 2", "V_Cell 3", "V_Cell 4",
+                "V_Bat", "V_Pack", "V_Pack - V_Bat Diff",
+                "Int Temp", "TS1 Temp", "TS2 Temp", "TS3 Temp", "TS4 Temp",
+                "Shunt Resistor"
+            ]
         
         limits_per_ch = {}
         for ch in range(1, 19):
             ch_t = targets_per_ch.get(ch, {})
             ch_limits = {}
             for key in limit_keys:
-                default_min = "-20"
-                default_max = "20"
-                ch_limits[key] = (float(default_min), float(default_max))
+                default_min = ""
+                default_max = ""
+                base_target = 0
+                is_offset = False
+                
+                if key in ["Cell 1 Gain", "Bat Gain", "Pack Gain", "CC Gain", "Capacity Gain"]:
+                    default_min = "0"
+                    default_max = "1000000"
+                else:
+                    is_offset = True
+                    target_key = key.lower().replace(" ", "").replace("_", "")
+                    if "diff" in target_key:
+                        is_offset = False
+                        default_min = "-20"
+                        default_max = "20"
+                    elif "shunt" in target_key:
+                        base_target = float(ch_t.get("shuntresistormohm", 1.0))
+                        default_min = "-0.05"
+                        default_max = "0.05"
+                    elif "vcell" in target_key or "vpack" in target_key or "vbat" in target_key:
+                        default_min = "-20"
+                        default_max = "20"
+                        if "cell" in target_key:
+                            base_target = float(ch_t.get("cell1mv", 3200))
+                        elif "pack" in target_key:
+                            base_target = float(ch_t.get("packmv", 12780))
+                        elif "bat" in target_key:
+                            base_target = float(ch_t.get("batmv", 12780))
+                    elif "temp" in target_key:
+                        default_min = "-1.0"
+                        default_max = "1.0"
+                        if "int" in target_key:
+                            base_target = float(ch_t.get("inttempc", 25.0))
+                        elif "ts1" in target_key:
+                            base_target = float(ch_t.get("ts1tempc", 25.0))
+                        elif "ts2" in target_key:
+                            base_target = float(ch_t.get("ts2tempc", 25.0))
+                        elif "ts3" in target_key:
+                            base_target = float(ch_t.get("ts3tempc", 25.0))
+                        elif "ts4" in target_key:
+                            base_target = float(ch_t.get("ts4tempc", 25.0))
+
+                l_min = self.settings.value(f"limit_{ic}_{key}_min", default_min)
+                l_max = self.settings.value(f"limit_{ic}_{key}_max", default_max)
+                
+                if l_min != "" and l_max != "":
+                    try:
+                        v_min = float(l_min)
+                        v_max = float(l_max)
+                        if is_offset:
+                            if key == "Shunt Resistor":
+                                ch_limits["CC Gain"] = (base_target + v_min, base_target + v_max)
+                                ch_limits["Capacity Gain"] = (base_target + v_min, base_target + v_max)
+                                ch_limits["Shunt Resistor"] = (base_target + v_min, base_target + v_max)
+                            else:
+                                ch_limits[key] = (base_target + v_min, base_target + v_max)
+                        else:
+                            ch_limits[key] = (v_min, v_max)
+                    except ValueError:
+                        pass
             limits_per_ch[ch] = ch_limits
 
         limits = limits_per_ch.get(self.current_channel, {})
