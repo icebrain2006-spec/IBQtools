@@ -128,7 +128,7 @@ class MultiCalibrationRunnerMixin:
         self.settings.sync()
         
         limit_keys = [
-            "Cell 1 Gain", "Pack Gain", "Bat Gain", "CC Gain", "Capacity Gain",
+            "Cell 1 Gain", "Bat Gain", "Pack Gain", "CC Gain", "Capacity Gain",
             "V_Cell 1", "V_Cell 2", "V_Cell 3", "V_Cell 4",
             "V_Bat", "V_Pack", "V_Pack - V_Bat Diff",
             "Int Temp", "TS1 Temp", "TS2 Temp", "TS3 Temp", "TS4 Temp",

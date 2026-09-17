@@ -187,7 +187,7 @@ class CalibrationRunnerMixin:
             ]
         else:
             limit_keys = [
-                "Cell 1 Gain", "Pack Gain", "Bat Gain", "CC Gain", "Capacity Gain",
+                "Cell 1 Gain", "Bat Gain", "Pack Gain", "CC Gain", "Capacity Gain",
                 "V_Cell 1", "V_Cell 2", "V_Cell 3", "V_Cell 4",
                 "V_Bat", "V_Pack", "V_Pack - V_Bat Diff",
                 "Int Temp", "TS1 Temp", "TS2 Temp", "TS3 Temp", "TS4 Temp",
@@ -203,7 +203,7 @@ class CalibrationRunnerMixin:
                 base_target = 0
                 is_offset = False
                 
-                if key in ["Cell 1 Gain", "Pack Gain", "Bat Gain", "CC Gain", "Capacity Gain"]:
+                if key in ["Cell 1 Gain", "Bat Gain", "Pack Gain", "CC Gain", "Capacity Gain"]:
                     default_min = "0"
                     default_max = "1000000"
                 else:

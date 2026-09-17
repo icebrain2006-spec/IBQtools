@@ -111,7 +111,7 @@ class MultiCalibrationTableMixin:
 
         param_order_list = [
             "CC Gain (mOhm)", "Capacity Gain (mOhm)", "CC Offset", "Coulomb Counter Offset Samples", "Shunt Resistor",
-            "Cell 1 Gain", "Pack Gain", "Bat Gain",
+            "Cell 1 Gain", "Bat Gain", "Pack Gain",
             "Cell 1 Offset", "Cell 2 Offset", "Cell 3 Offset", "Cell 4 Offset",
             "Cell 5 Offset", "Cell 6 Offset", "Cell 7 Offset", "Cell 8 Offset",
             "Cell 9 Offset", "Cell 10 Offset", "Cell 11 Offset", "Cell 12 Offset",

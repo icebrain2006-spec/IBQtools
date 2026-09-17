@@ -113,13 +113,13 @@ class HWCalibratorMixin:
                     # TODO: 향후 RP2040 펌웨어 수정 작업 시 calib_status 결과 패킷 슬롯을 근본적으로 정렬하고 본 보정 코드를 동기화할 것.
                     actual_pack_g = bat_g
                     actual_bat_g = pack_g
-                    self._log(f"    [CH{ch} RP2040 HW Result] PASS -> Cell1 Gain: {cell1_g}, Pack Gain: {actual_pack_g}, Bat Gain: {actual_bat_g}")
+                    self._log(f"    [CH{ch} RP2040 HW Result] PASS -> Cell1 Gain: {cell1_g}, Bat Gain: {actual_bat_g}, Pack Gain: {actual_pack_g}")
                     df_b = self.read_mac_block([0x00, 0x40])
                     if df_b:
                         self._log(self.format_df4000_breakdown(df_b, f"CH{ch} 2. AFTER VOLTAGE CALIBRATION 0x4000 DF BLOCK"))
                     self.emit_result("Cell 1 Gain", "Cell 1 Gain", str(cell1_g), cell1_g, is_gain=True)
-                    self.emit_result("Pack Gain", "Pack Gain", str(actual_pack_g), actual_pack_g, is_gain=True)
                     self.emit_result("Bat Gain", "Bat Gain", str(actual_bat_g), actual_bat_g, is_gain=True)
+                    self.emit_result("Pack Gain", "Pack Gain", str(actual_pack_g), actual_pack_g, is_gain=True)
                     if run_mode != "all":
                         self.post_verify()
                 elif not ch_status_map[ch]:
