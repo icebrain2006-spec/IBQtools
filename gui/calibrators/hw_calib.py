@@ -20,8 +20,10 @@ class HWCalibratorMixin:
         """Builds CMD_CALIB_RUN payload bytes containing channel mask, mode code, and target values."""
         mode_code = 0 if mode_name == "voltage" else (1 if mode_name == "current" else 2)
         payload_bytes = bytearray([ch_mask, mode_code])
+        b_idx = ((getattr(self, 'ch', 1) - 1) // 6) + 1 if hasattr(self, 'ser_map') else 1
         for ch in range(1, 7):
-            ch_t = self.targets_per_ch.get(ch, self.targets)
+            g_ch = (b_idx - 1) * 6 + ch
+            ch_t = self.targets_per_ch.get(g_ch, self.targets_per_ch.get(ch, self.targets))
             if mode_name == "current":
                 tc1 = int(abs(ch_t.get('currentma', -2000)))
                 tpk = 0
@@ -31,11 +33,12 @@ class HWCalibratorMixin:
                 tpk = int(ch_t.get('packmv', 12780))
                 tbt = int(ch_t.get('batmv', 12780))
             payload_bytes.extend(struct.pack(">HHH", tc1, tpk, tbt))
-            if ch in self.channels:
+            if g_ch in self.channels or ch in self.channels:
+                log_ch = g_ch if hasattr(self, 'ser_map') else ch
                 if mode_name == "current":
-                    self._log(f"    [DEBUG Target CH{ch}] Current={tc1}mA")
+                    self._log(f"    [DEBUG Target CH{log_ch}] Current={tc1}mA")
                 else:
-                    self._log(f"    [DEBUG Target CH{ch}] Cell1={tc1}mV, Pack={tpk}mV, Bat={tbt}mV")
+                    self._log(f"    [DEBUG Target CH{log_ch}] Cell1={tc1}mV, Pack={tpk}mV, Bat={tbt}mV")
         return bytes(payload_bytes)
 
     def _unpack_ch_status_payload(self, st_resp, idx):
@@ -89,23 +92,26 @@ class HWCalibratorMixin:
             cell1_g, pack_g, bat_g, ch_succ_val, raw_c1_adc, raw_pack_adc, raw_bat_adc, raw_bytes = unpacked
 
             ch_succ = (ch_succ_val == 1)
-            if ch in self.channels:
+            b_idx = ((getattr(self, 'ch', 1) - 1) // 6) + 1 if hasattr(self, 'ser_map') else 1
+            g_ch = (b_idx - 1) * 6 + ch
+            target_ch = g_ch if (hasattr(self, 'ser_map') and g_ch in self.channels) else (ch if ch in self.channels else None)
+            if target_ch is not None:
                 is_err = (err_channels & (1 << (ch - 1))) != 0
-                ch_status_map[ch] = ch_status_map.get(ch, True) and ch_succ and not is_err
-                cc_adc_map[ch] = struct.unpack('<h', struct.pack('<H', cell1_g))[0]
-                cc_calc_map[ch] = pack_g / 1000.0
-                self._log(f"    [DEBUG CH{ch}] cell1_g={cell1_g}, pack_g={pack_g}, bat_g={bat_g}, ch_succ_val={ch_succ_val}, is_err={is_err}")
+                ch_status_map[target_ch] = ch_status_map.get(target_ch, True) and ch_succ and not is_err
+                cc_adc_map[target_ch] = struct.unpack('<h', struct.pack('<H', cell1_g))[0]
+                cc_calc_map[target_ch] = pack_g / 1000.0
+                self._log(f"    [DEBUG CH{target_ch}] cell1_g={cell1_g}, pack_g={pack_g}, bat_g={bat_g}, ch_succ_val={ch_succ_val}, is_err={is_err}")
 
                 if len(raw_bytes) > 0 and mode_name == "voltage":
-                    self._log(f"    [CH{ch} RAW 0xF081 BLOCK] Hex={bytes(raw_bytes).hex(' ')}")
-                    self._log(f"    [CH{ch} RAW ADC AVG] Cell1_ADC={raw_c1_adc}, Pack_ADC={raw_bat_adc}, Bat_ADC={raw_pack_adc}")
+                    self._log(f"    [CH{target_ch} RAW 0xF081 BLOCK] Hex={bytes(raw_bytes).hex(' ')}")
+                    self._log(f"    [CH{target_ch} RAW ADC AVG] Cell1_ADC={raw_c1_adc}, Pack_ADC={raw_bat_adc}, Bat_ADC={raw_pack_adc}")
                 elif len(raw_bytes) >= 12 and mode_name == "current":
                     samples = struct.unpack('<6h', raw_bytes[:12])
                     sample_str = ", ".join([f"#{i+1}:{s}" for i, s in enumerate(samples)])
-                    self._log(f"    [CH{ch} Raw CC ADC 6 Samples] {sample_str} (Avg: {cc_adc_map.get(ch, 0)})")
+                    self._log(f"    [CH{target_ch} Raw CC ADC 6 Samples] {sample_str} (Avg: {cc_adc_map.get(target_ch, 0)})")
 
-                if ch_status_map[ch] and mode_name != "current":
-                    self.ch = ch
+                if ch_status_map[target_ch] and mode_name != "current":
+                    self.ch = target_ch
                     # [NOTE / 임시 보정] 
                     # RP2040 FW의 CMD_CALIB_STATUS 응답에서 pack_g와 bat_g 슬롯이 서로 바뀌어 전달되고 있습니다.
                     # 실제 BQ DataFlash 0x4000에는 [Cell1=12759, Bat=51361, Pack=51819]로 정상 기록되므로,
@@ -113,25 +119,25 @@ class HWCalibratorMixin:
                     # TODO: 향후 RP2040 펌웨어 수정 작업 시 calib_status 결과 패킷 슬롯을 근본적으로 정렬하고 본 보정 코드를 동기화할 것.
                     actual_pack_g = bat_g
                     actual_bat_g = pack_g
-                    self._log(f"    [CH{ch} RP2040 HW Result] PASS -> Cell1 Gain: {cell1_g}, Bat Gain: {actual_bat_g}, Pack Gain: {actual_pack_g}")
+                    self._log(f"    [CH{target_ch} RP2040 HW Result] PASS -> Cell1 Gain: {cell1_g}, Bat Gain: {actual_bat_g}, Pack Gain: {actual_pack_g}")
                     df_b = self.read_mac_block([0x00, 0x40])
                     if df_b:
-                        self._log(self.format_df4000_breakdown(df_b, f"CH{ch} 2. AFTER VOLTAGE CALIBRATION 0x4000 DF BLOCK"))
+                        self._log(self.format_df4000_breakdown(df_b, f"CH{target_ch} 2. AFTER VOLTAGE CALIBRATION 0x4000 DF BLOCK"))
                     self.emit_result("Cell 1 Gain", "Cell 1 Gain", str(cell1_g), cell1_g, is_gain=True)
                     self.emit_result("Bat Gain", "Bat Gain", str(actual_bat_g), actual_bat_g, is_gain=True)
                     self.emit_result("Pack Gain", "Pack Gain", str(actual_pack_g), actual_pack_g, is_gain=True)
                     if run_mode != "all":
                         self.post_verify()
-                elif not ch_status_map[ch]:
+                elif not ch_status_map[target_ch]:
                     stage_desc = ERR_STAGE_MAP.get(cell1_g, f"Unknown Stage Error 0x{cell1_g:04X}")
                     if cell1_g == 0xE102:
                         rx_len = pack_g & 0xFF
                         b0 = (pack_g >> 8) & 0xFF
                         b1 = bat_g & 0xFF
                         b2 = (bat_g >> 8) & 0xFF
-                        self._log(f"    [CH{ch} RP2040 HW Result] FAIL -> Reason: {stage_desc} | SMBus Resp Len={rx_len}, Bytes=[{b0:02X} {b1:02X} {b2:02X}]")
+                        self._log(f"    [CH{target_ch} RP2040 HW Result] FAIL -> Reason: {stage_desc} | SMBus Resp Len={rx_len}, Bytes=[{b0:02X} {b1:02X} {b2:02X}]")
                     else:
-                        self._log(f"    [CH{ch} RP2040 HW Result] FAIL -> Reason: {stage_desc} (err_mask={bin(err_channels)})")
+                        self._log(f"    [CH{target_ch} RP2040 HW Result] FAIL -> Reason: {stage_desc} (err_mask={bin(err_channels)})")
         
         if mode_name == "current":
             self._handle_current_calib_results(ch_status_map, cc_adc_map, cc_calc_map)

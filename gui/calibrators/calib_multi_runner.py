@@ -14,41 +14,25 @@ from gui.updater_thread import make_packet, CMD_RELAY_SET
 BQ_SMBUS_ADDR = 0x0B
 
 
-def get_load_id(ch):
-    """
-    Returns Electronic Load ID (1, 2, or 3) for global channel ch (1..18).
-    - CH 1, 4 of any board -> Load 1
-    - CH 2, 5 of any board -> Load 2
-    - CH 3, 6 of any board -> Load 3
-    """
-    ch_in_board = ((ch - 1) % 6) + 1
-    if ch_in_board in (1, 4):
-        return 1
-    elif ch_in_board in (2, 5):
-        return 2
-    else:
-        return 3
-
-
 def schedule_current_calib_batches(selected_channels):
     """
-    Partitions selected global channels (1..18) into non-conflicting batches for Current Calibration.
-    Each batch will contain at most 1 channel for Load 1, 1 for Load 2, and 1 for Load 3.
+    Partitions selected global channels (1..18) into 3-channel group batches for Current Calibration.
+    - Group 1: CH 1..3  (Board 1 Bank 1)
+    - Group 2: CH 4..6  (Board 1 Bank 2)
+    - Group 3: CH 7..9  (Board 2 Bank 1)
+    - Group 4: CH 10..12 (Board 2 Bank 2)
+    - Group 5: CH 13..15 (Board 3 Bank 1)
+    - Group 6: CH 16..18 (Board 3 Bank 2)
+    Channels belonging to the same 3-channel group run current calibration simultaneously.
     """
-    channels_by_load = {1: [], 2: [], 3: []}
+    groups = {}
     for ch in sorted(selected_channels):
-        load_id = get_load_id(ch)
-        channels_by_load[load_id].append(ch)
+        grp_idx = (ch - 1) // 3
+        if grp_idx not in groups:
+            groups[grp_idx] = []
+        groups[grp_idx].append(ch)
 
-    batches = []
-    while any(channels_by_load.values()):
-        batch = []
-        for load_id in (1, 2, 3):
-            if channels_by_load[load_id]:
-                batch.append(channels_by_load[load_id].pop(0))
-        if batch:
-            batches.append(batch)
-    return batches
+    return [groups[k] for k in sorted(groups.keys())]
 
 
 class MultiCalibrationThread(QThread, SMBusCommunicatorMixin, FWDetectorMixin, HWCalibratorMixin):
@@ -188,46 +172,44 @@ class MultiCalibrationThread(QThread, SMBusCommunicatorMixin, FWDetectorMixin, H
             ch_status_map = {}
 
             if run_mode in ("current", "all"):
-                # --- Execute Current Calibration via Electronic Load Batch Scheduler ---
+                # --- Execute Current Calibration via 3-Channel Group Scheduler ---
                 current_batches = schedule_current_calib_batches(self.channels)
                 self.log_signal.emit(f"[INFO] Scheduled {len(current_batches)} Batch(es) for Current Calibration.")
                 
-                for b_idx, batch_channels in enumerate(current_batches, 1):
+                for batch_no, batch_channels in enumerate(current_batches, 1):
                     if not self._running: break
-                    ch_desc = ", ".join([f"B{((c-1)//6)+1}-CH{((c-1)%6)+1}" for c in batch_channels])
-                    self.log_signal.emit(f"--- Running Current Calib Batch {b_idx}/{len(current_batches)}: [{ch_desc}] ---")
+                    target_board_idx = ((batch_channels[0] - 1) // 6) + 1
+                    ch_desc = ", ".join([f"B{target_board_idx}-CH{((c-1)%6)+1}" for c in batch_channels])
+                    self.log_signal.emit(f"--- Running Current Calib Batch {batch_no}/{len(current_batches)}: [{ch_desc}] (Simultaneous) ---")
                     
-                    # Set relays ON for batch channels, OFF for others
-                    board_masks = {1: 0, 2: 0, 3: 0}
-                    for ch in batch_channels:
-                        b_idx = ((ch - 1) // 6) + 1
-                        ch_in_b = ((ch - 1) % 6) + 1
-                        board_masks[b_idx] |= (1 << (ch_in_b - 1))
-                        
-                    for b_idx_item, mask in board_masks.items():
-                        if b_idx_item in self.ser_map:
-                            self._set_board_relays(b_idx_item, mask)
-
-                    # Execute Current HW Calibration for batch
-                    for ch in batch_channels:
-                        if not self._running: break
-                        self.ch = ch
-                        board_idx = ((ch - 1) // 6) + 1
-                        self.ser = self.ser_map.get(board_idx)
-                        if not self.ser: continue
-                        
-                        ch_in_board = ((ch - 1) % 6) + 1
-                        ch_mask = (1 << (ch_in_board - 1))
-                        if self.targets_per_ch and ch in self.targets_per_ch:
-                            self.targets = self.targets_per_ch[ch]
-                        
-                        res = self._run_hw_calibration_phase(["current"], ch_mask, ch_status_map, "current")
-                        time.sleep(0.1)
-
-                    # Reset relays OFF after batch
+                    ser_obj = self.ser_map.get(target_board_idx)
+                    if not ser_obj:
+                        self.log_signal.emit(f"[ERROR] Board #{target_board_idx} serial connection not available.")
+                        continue
+                    self.ser = ser_obj
+                    self.ch = batch_channels[0]
+                    
+                    # Compute board channel mask for this batch (bits 0..5)
+                    batch_ch_mask = sum(1 << (((c - 1) % 6)) for c in batch_channels)
+                    
+                    # 1. Set relays ON for batch channels on target board, OFF on other boards
                     for b_idx_item in (1, 2, 3):
                         if b_idx_item in self.ser_map:
-                            self._set_board_relays(b_idx_item, 0)
+                            mask = batch_ch_mask if b_idx_item == target_board_idx else 0
+                            self._set_board_relays(b_idx_item, mask)
+                            
+                    # 2. Execute Current HW Calibration simultaneously for batch channels
+                    saved_channels = self.channels
+                    self.channels = batch_channels
+                    try:
+                        res = self._run_hw_calibration_phase(["current"], batch_ch_mask, ch_status_map, "current")
+                    finally:
+                        self.channels = saved_channels
+
+                    # 3. Reset relays OFF after batch
+                    if target_board_idx in self.ser_map:
+                        self._set_board_relays(target_board_idx, 0)
+                    time.sleep(0.1)
 
             if run_mode in ("voltage", "temp", "all"):
                 # --- Execute Voltage/Temp Calibration ---
