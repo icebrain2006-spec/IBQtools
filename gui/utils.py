@@ -1,6 +1,7 @@
 import os
 import sys
 import csv
+import math
 import datetime
 import logging
 import time
@@ -162,15 +163,8 @@ def convert_csv_to_slfs(input_path: str, output_path: str, ic_type: str, version
 
                     transaction_rows = rows[i:stop_index + 1]
                     
-                    # Time delay
-                    if last_time != 0:
-                        time_diff = (float(transaction_rows[0]['start_time']) - last_time) * 1000
-                        if time_diff > 0:
-                            if time_diff < 30:
-                                time_diff = 2
-                            outfile.write(f"X: {int(time_diff)}\n")
-
                     # Pattern: Write-then-Read
+                    cmd_lines = []
                     if (len(transaction_rows) >= 6 and
                         transaction_rows[1].get('type') == 'address' and transaction_rows[1].get('read') == 'false' and
                         transaction_rows[2].get('type') == 'data' and
@@ -184,27 +178,37 @@ def convert_csv_to_slfs(input_path: str, output_path: str, ic_type: str, version
                         
                         write_address_8bit = f"{(int(address_hex, 16) << 1):02X}"
                         all_bytes = [write_address_8bit, command_byte] + read_bytes
-                        outfile.write(f"C: {' '.join(all_bytes)}\n")
+                        cmd_lines.append(f"C: {' '.join(all_bytes)}\n")
+
+                    elif len(transaction_rows) > 1 and transaction_rows[1].get('type') == 'address':
+                        address_hex = transaction_rows[1]['address'].replace('0x', '')
+                        is_read = transaction_rows[1].get('read') == 'true'
+                        data_bytes = [r['data'].replace('0x', '') for r in transaction_rows[2:] if r.get('type') == 'data']
+
+                        if not is_read: # Simple Write
+                            write_address_8bit = f"{(int(address_hex, 16) << 1):02X}"
+                            all_bytes = [write_address_8bit] + data_bytes
+                            cmd_lines.append(f"W: {' '.join(all_bytes)}\n")
+                        else: # Simple Read
+                            cmd_lines.append(f"C: {address_hex} R\n")
+                            if data_bytes:
+                                cmd_lines.append(f"W: {' '.join(data_bytes)}\n")
+
+                    if cmd_lines:
+                        # Time delay: <= 2ms -> 2ms, > 2ms -> ceil to next multiple of 10ms
+                        if last_time != 0:
+                            time_diff = (float(transaction_rows[0]['start_time']) - last_time) * 1000
+                            if time_diff <= 2:
+                                delay_val = 2
+                            else:
+                                delay_val = int(math.ceil(time_diff / 10.0) * 10)
+                            outfile.write(f"X: {delay_val}\n")
+
+                        for cmd in cmd_lines:
+                            outfile.write(cmd)
                         transaction_count += 1
+                        last_time = float(transaction_rows[-1]['start_time']) + float(transaction_rows[-1]['duration'])
 
-                    else: # Simple Write or Simple Read
-                        if len(transaction_rows) > 1 and transaction_rows[1].get('type') == 'address':
-                            address_hex = transaction_rows[1]['address'].replace('0x', '')
-                            is_read = transaction_rows[1].get('read') == 'true'
-                            data_bytes = [r['data'].replace('0x', '') for r in transaction_rows[2:] if r.get('type') == 'data']
-
-                            if not is_read: # Simple Write
-                                write_address_8bit = f"{(int(address_hex, 16) << 1):02X}"
-                                all_bytes = [write_address_8bit] + data_bytes
-                                outfile.write(f"W: {' '.join(all_bytes)}\n")
-                                transaction_count += 1
-                            else: # Simple Read
-                                outfile.write(f"C: {address_hex} R\n")
-                                if data_bytes:
-                                    outfile.write(f"W: {' '.join(data_bytes)}\n")
-                                transaction_count += 1
-
-                    last_time = float(transaction_rows[-1]['start_time']) + float(transaction_rows[-1]['duration'])
                     i = stop_index + 1
                 else:
                     i += 1
