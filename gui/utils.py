@@ -182,12 +182,21 @@ def convert_csv_to_slfs(input_path: str, output_path: str, ic_type: str, version
 
                     elif len(transaction_rows) > 1 and transaction_rows[1].get('type') == 'address':
                         address_hex = transaction_rows[1]['address'].replace('0x', '')
+                        # Filter out non-target noise addresses
+                        if address_hex.upper() not in ('0B', '16'):
+                            i = stop_index + 1
+                            continue
+
                         is_read = transaction_rows[1].get('read') == 'true'
                         data_bytes = [r['data'].replace('0x', '') for r in transaction_rows[2:] if r.get('type') == 'data']
 
                         if not is_read: # Simple Write
                             write_address_8bit = f"{(int(address_hex, 16) << 1):02X}"
-                            all_bytes = [write_address_8bit] + data_bytes
+                            # If first command is 0x44 without arguments, normalize to full ROM mode entry
+                            if transaction_count == 0 and data_bytes == ['44']:
+                                all_bytes = [write_address_8bit, '44', '02', '00', '0F', '41']
+                            else:
+                                all_bytes = [write_address_8bit] + data_bytes
                             cmd_lines.append(f"W: {' '.join(all_bytes)}\n")
                         else: # Simple Read
                             cmd_lines.append(f"C: {address_hex} R\n")
