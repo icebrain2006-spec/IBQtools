@@ -154,25 +154,27 @@ class BoardWorkerMixin:
         res = self.get_expected_cb(True)
         exp_date, sn_int, fmt, should_write_sn, should_write_date = res[0], res[1], res[2], res[3], res[4]
         should_toggle_led = res[5] if len(res) >= 6 else False
+        mfg_sn_info = res[6] if len(res) >= 7 else None
 
-        if should_write_sn or should_write_date:
+        has_write = should_write_sn or should_write_date or (mfg_sn_info and mfg_sn_info.get('should_write'))
+        if has_write:
             self.expected_date_map[ch_idx] = exp_date
             self.expected_sn_map[ch_idx] = sn_int
             self.expected_fmt = fmt
-            return exp_date, sn_int, fmt, should_write_sn, should_write_date, should_toggle_led
+            return exp_date, sn_int, fmt, should_write_sn, should_write_date, should_toggle_led, mfg_sn_info
         else:
             if ch_idx in self.expected_sn_map:
                 exp_date = self.expected_date_map[ch_idx]
                 exp_sn_int = self.expected_sn_map[ch_idx]
                 sn_fmt = self.expected_fmt
                 res_f = self.get_expected_cb(False)
-                should_write_sn, should_write_date = res_f[3], res_f[4]
-                should_toggle_led = res_f[5] if len(res_f) >= 6 else False
             else:
                 res_f = self.get_expected_cb(False)
-                exp_date, exp_sn_int, sn_fmt, should_write_sn, should_write_date = res_f[0], res_f[1], res_f[2], res_f[3], res_f[4]
-                should_toggle_led = res_f[5] if len(res_f) >= 6 else False
-            return exp_date, exp_sn_int, sn_fmt, should_write_sn, should_write_date, should_toggle_led
+                exp_date, exp_sn_int, sn_fmt = res_f[0], res_f[1], res_f[2]
+            should_write_sn, should_write_date = res_f[3], res_f[4]
+            should_toggle_led = res_f[5] if len(res_f) >= 6 else False
+            mfg_sn_info = res_f[6] if len(res_f) >= 7 else None
+            return exp_date, exp_sn_int, sn_fmt, should_write_sn, should_write_date, should_toggle_led, mfg_sn_info
 
     def _on_progress_update(self, ch_idx: int, percent: int):
         if 1 <= ch_idx <= 6:

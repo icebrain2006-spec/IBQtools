@@ -356,6 +356,18 @@ class UpdaterWorker(QThread):
                                     if not ok:
                                         self.log_msg.emit(f"[CH {ch}] Write Serial Number FAILED!")
                                     time.sleep(0.1)
+
+                                # Manufacturer Data Block Serial Writing (Independent)
+                                mfg_sn_info = res[6] if len(res) >= 7 else None
+                                if mfg_sn_info and mfg_sn_info.get('should_write'):
+                                    from gui.workers.mfg_block_writer import write_and_verify_mfg_serial
+                                    blk = mfg_sn_info.get('start_block', 'A02')
+                                    sn = mfg_sn_info.get('sn_val', 1)
+                                    m_fmt = mfg_sn_info.get('fmt', 'DEC')
+                                    mfg_ok, mfg_msg = write_and_verify_mfg_serial(
+                                        self.ser, ch, blk, sn, m_fmt, log_cb=self.log_msg.emit
+                                    )
+                                    time.sleep(0.05)
                                     
                             # Read SBD Info with up to 3 retry attempts
                             date_str, sn_val = None, None

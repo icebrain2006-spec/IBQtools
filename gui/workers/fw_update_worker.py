@@ -6,9 +6,15 @@ import struct
 import serial.tools.list_ports
 from PySide6.QtCore import QThread, Signal
 
-from gui.widgets.port_combo import get_available_ports
 from gui.fw_updater import get_latest_github_release, download_file, find_rp2040_drive
-from gui.updater_thread import get_fw_version
+from gui.protocol import get_fw_version
+
+
+def get_available_ports(include_none=False):
+    ports = [p.device for p in serial.tools.list_ports.comports()]
+    if include_none:
+        ports.insert(0, "None")
+    return ports
 
 
 def crc16_calculate(data: bytes) -> int:

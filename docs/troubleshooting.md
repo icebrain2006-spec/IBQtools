@@ -108,3 +108,36 @@
 ### 3. 의사결정 배경 및 주의사항 (Decision Context)
 * 사용자 PC에 여러 개의 구글 드라이브 계정(`icebrain2006`, `Supplysn81` 등)이 존재하므로, 타 프로젝트(`HDQ_Reader` 등)와 통일성을 위해 `IB_Product_Log` 폴더가 존재하는 계정(`icebrain2006`)을 1순위로 자동 매칭하도록 설계함.
 * 사용자가 직접 Browse로 다른 경로를 설정한 경우 그 설정을 존중하며, 상대 경로로 설정되어 프로젝트 폴더 내부에 격리되는 것만 방지함.
+---
+
+## [Issue #05] BQ FW Programmer 제조사 데이터(System Data / Manufacturer Info Block A) 2블록 시리얼 쓰기 신규 기능 추가
+
+* **발생/요청 일자**: 2026-11-02
+* **영향 컴포넌트**: `gui/tabs/sn_checker_mixins/`, `gui/workers/mfg_block_writer.py`, `gui/workers/updater_worker.py`, `gui/strings.py`
+
+### 1. 현상 및 요구 배경
+* **배경**: 기존 SBS Serial(`0x1C`) 외에, BQ40Z50의 DataFlash `System Data / Manufacturer Data` 내 `Manufacturer Info Block A` (A01~A32) 영역에 2개 블록을 합쳐 16-bit 시리얼 번호(예: `0x0001 -> A02=0x00, A03=0x01`)를 쓰는 생산 공정 요구 발생.
+* **핵심 요구사항**:
+  1. 기존 SBS Serial 및 Date 쓰기 로직은 100% 독립 유지.
+  2. 시작 블록(`A01` ~ `A31`) 지정 시, 해당 블록과 다음 블록 2개를 묶어 Big-Endian 16-bit 시리얼 분할 저장.
+  3. 자동 증가(+1) 및 동일 번호 유지 기능 제공.
+  4. SBS 기능과 완전히 분리된 독립 제어 보장.
+
+### 2. 해결 방법 및 검증
+* **조치**:
+  1. **독립 UI 그룹박스 구성 (`master_panel_mixin.py`)**:
+     - SBS 그룹 아래에 `Manufacturer Data Serial (Block A)` 전용 독립 UI 추가.
+     - 시작 블록 드롭다운(`A01`~`A31`), 자동 힌트 라벨(`Used: A02 + A03`), 시작 시리얼 및 DEC/HEX 포맷, 자동 증가 체크박스 배치.
+  2. **독립 상태 캐시 및 카운터 분리 (`state_cache_mixin.py`)**:
+     - `QSettings` 영구 저장 분리(`ui_write_mfg_sn`, `ui_mfg_start_block`, `ui_mfg_auto_inc`, `ui_mfg_sn_fmt`, `ui_mfg_exp_sn`).
+     - 작업 시작 시 SBS와 Mfg 시리얼을 각각 독립 카운터로 계산하여 충돌 방지.
+  3. **전용 DataFlash Block A 드라이버 구현 (`gui/workers/mfg_block_writer.py`)**:
+     - Subcommand `0x0070` 및 `0x44` ManufacturerBlockAccess 프로토콜 구현.
+     - 기존 32바이트 읽기 -> 지정 인덱스(예: 1, 2)에 2바이트 덮어쓰기 -> 체크섬(0x60) 및 길이(0x61) 쓰기 -> 재독출 및 값 일치 검증 파이프라인 완성.
+  4. **순환 참조 해소 및 모듈 표준화 (`gui/i18n/`)**:
+     - 300줄을 초과하던 `strings.py`를 `gui/i18n/strings_en.py`, `strings_ko.py`로 분리하여 300라인 제한 및 단일 책임 원칙 준수.
+     - `board_ui_mixin`과 `fw_update_worker`의 `updater_thread` 의존성을 `gui.protocol`로 직접 연결하여 순환 참조 해결.
+
+### 3. 의사결정 배경 및 주의사항 (Decision Context)
+* TI BQ40Z50에서 Manufacturer Info Block A는 32바이트 단위 블록 쓰기 후 0x60 체크섬과 0x61 길이를 기록해야 DataFlash 플래시에 영구 반영되므로, 표준 체크섬 계산식(`0xFF - (sum & 0xFF)`)을 준수하여 작성함.
+* SBS 시리얼과 Manufacturer 시리얼을 하나의 데이터 구조로 합치지 않고 튜플 내 독립 딕셔너리로 분리하여, 향후 다른 블록(Block B, Block C) 확장 시에도 기존 SBS 검증 파이프라인에 영향을 주지 않도록 설계함.

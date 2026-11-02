@@ -8,7 +8,7 @@ from PySide6.QtCore import Qt, QRegularExpression
 from PySide6.QtGui import QRegularExpressionValidator
 
 from gui.widgets.rp2040_board_widget import RP2040BoardWidget
-from gui.styles import Styles
+from gui.styles import Styles, Colors
 from gui.strings import UIStrings
 
 
@@ -24,9 +24,9 @@ class MasterPanelMixin:
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
         
+        # Master Board Group
         master_group = QGroupBox(UIStrings.get("GRP_MASTER_CONFIG"))
         mlayout = QGridLayout(master_group)
-        
         mlayout.addWidget(QLabel(UIStrings.get("LBL_NUM_BOARDS")), 0, 0)
         self.spin_boards = QSpinBox()
         self.spin_boards.setRange(1, 4)
@@ -38,11 +38,11 @@ class MasterPanelMixin:
         self.loop_count = QLineEdit("1")
         mlayout.addWidget(self.loop_count, 1, 1)
         
+        # SBS Serial & Date Group
         verify_group = QGroupBox(UIStrings.get("GRP_VERIFY_TARGETS"))
         verify_form = QFormLayout(verify_group)
         self.input_exp_date = QLineEdit("2024-03-05")
         self.input_exp_date.setInputMask("9999-99-99")
-        
         self.chk_write_date = QCheckBox("Write Date to Chip")
         
         date_layout = QHBoxLayout()
@@ -83,19 +83,83 @@ class MasterPanelMixin:
                     self.input_exp_sn.setText(f"{val:X}")
                 except ValueError:
                     self.input_exp_sn.setText("0")
-                    
         self.combo_sn_fmt.currentTextChanged.connect(_on_sn_fmt_changed)
         
         sn_layout.addWidget(self.combo_sn_fmt)
         sn_layout.addWidget(self.input_exp_sn)
-        
         self.chk_led = QCheckBox("LED Toggle (0x002B)")
         
         verify_form.addRow("Expected Date:", date_layout)
         verify_form.addRow("Start SN:", sn_layout)
         verify_form.addRow("LED Option:", self.chk_led)
+
+        # Manufacturer Data (Block A) Serial Group (Independent from SBS)
+        mfg_group = QGroupBox(UIStrings.get("GRP_MFG_SERIAL"))
+        mfg_form = QFormLayout(mfg_group)
+        
+        mfg_chk_layout = QHBoxLayout()
+        self.chk_write_mfg_sn = QCheckBox(UIStrings.get("CHK_WRITE_MFG_SN"))
+        self.chk_mfg_auto_inc = QCheckBox(UIStrings.get("CHK_MFG_AUTO_INC"))
+        self.chk_mfg_auto_inc.setEnabled(False)
+        self.chk_write_mfg_sn.toggled.connect(self.chk_mfg_auto_inc.setEnabled)
+        mfg_chk_layout.addWidget(self.chk_write_mfg_sn)
+        mfg_chk_layout.addWidget(self.chk_mfg_auto_inc)
+        mfg_form.addRow("Mfg Options:", mfg_chk_layout)
+        
+        block_layout = QHBoxLayout()
+        self.combo_mfg_start_block = QComboBox()
+        self.combo_mfg_start_block.addItems([f"A{i:02d}" for i in range(1, 32)])
+        self.combo_mfg_start_block.setCurrentText("A02")
+        
+        self.lbl_mfg_block_hint = QLabel(UIStrings.get("LBL_MFG_BLOCK_HINT").format(b1="A02", b2="A03"))
+        self.lbl_mfg_block_hint.setStyleSheet(f"color: {Colors.HEX_WARN_CYAN}; font-weight: bold; font-size: 11px;")
+        
+        def _on_start_block_changed(blk):
+            try:
+                idx = int(blk[1:])
+                next_blk = f"A{idx+1:02d}"
+                self.lbl_mfg_block_hint.setText(UIStrings.get("LBL_MFG_BLOCK_HINT").format(b1=blk, b2=next_blk))
+            except Exception:
+                pass
+        self.combo_mfg_start_block.currentTextChanged.connect(_on_start_block_changed)
+        block_layout.addWidget(self.combo_mfg_start_block)
+        block_layout.addWidget(self.lbl_mfg_block_hint)
+        mfg_form.addRow(UIStrings.get("LBL_MFG_START_BLOCK"), block_layout)
+        
+        mfg_sn_layout = QHBoxLayout()
+        self.combo_mfg_sn_fmt = QComboBox()
+        self.combo_mfg_sn_fmt.addItems(["DEC", "HEX"])
+        self.input_mfg_exp_sn = QLineEdit("1")
+        
+        self.val_mfg_dec = QRegularExpressionValidator(QRegularExpression(r"^[0-9]{1,5}$"))
+        self.val_mfg_hex = QRegularExpressionValidator(QRegularExpression(r"^[0-9A-Fa-f]{1,4}$"))
+        self.input_mfg_exp_sn.setValidator(self.val_mfg_dec)
+        
+        def _on_mfg_sn_fmt_changed(fmt):
+            if fmt == "DEC":
+                self.input_mfg_exp_sn.setValidator(self.val_mfg_dec)
+                try:
+                    val = int(self.input_mfg_exp_sn.text() or "0", 16)
+                    if val > 65535: val = 65535
+                    self.input_mfg_exp_sn.setText(str(val))
+                except ValueError:
+                    self.input_mfg_exp_sn.setText("0")
+            else:
+                self.input_mfg_exp_sn.setValidator(self.val_mfg_hex)
+                try:
+                    val = int(self.input_mfg_exp_sn.text() or "0")
+                    if val > 65535: val = 65535
+                    self.input_mfg_exp_sn.setText(f"{val:X}")
+                except ValueError:
+                    self.input_mfg_exp_sn.setText("0")
+        self.combo_mfg_sn_fmt.currentTextChanged.connect(_on_mfg_sn_fmt_changed)
+        mfg_sn_layout.addWidget(self.combo_mfg_sn_fmt)
+        mfg_sn_layout.addWidget(self.input_mfg_exp_sn)
+        mfg_form.addRow(UIStrings.get("LBL_MFG_SN"), mfg_sn_layout)
+        
         left_layout.addWidget(master_group)
         left_layout.addWidget(verify_group)
+        left_layout.addWidget(mfg_group)
         
         # Action Buttons
         action_layout = QHBoxLayout()
@@ -116,7 +180,6 @@ class MasterPanelMixin:
         action_layout.addWidget(self.btn_start)
         action_layout.addWidget(self.btn_stop)
         action_layout.addWidget(self.btn_quick_start)
-        
         left_layout.addLayout(action_layout)
         
         self.btn_check_all = QPushButton(UIStrings.get("BTN_SERIAL_CHECK"))
@@ -143,8 +206,6 @@ class MasterPanelMixin:
         self.scroll_area.setWidget(self.scroll_content)
         
         layout.addWidget(self.scroll_area, stretch=1)
-        
-        # Initialize board widgets
         self._update_board_count(1)
 
     def is_hotkey_ready(self):

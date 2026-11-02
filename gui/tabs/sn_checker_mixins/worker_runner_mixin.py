@@ -205,7 +205,14 @@ class WorkerRunnerMixin:
         self.btn_check_all.setEnabled(enabled)
         self.btn_quick_start.setEnabled(enabled)
         
+        self.chk_write_mfg_sn.setEnabled(enabled)
+        self.combo_mfg_start_block.setEnabled(enabled)
+        self.combo_mfg_sn_fmt.setEnabled(enabled)
+        self.input_mfg_exp_sn.setEnabled(enabled)
+
         if enabled:
             self.chk_auto_inc.setEnabled(self.chk_write_sn.isChecked())
+            self.chk_mfg_auto_inc.setEnabled(self.chk_write_mfg_sn.isChecked())
         else:
             self.chk_auto_inc.setEnabled(False)
+            self.chk_mfg_auto_inc.setEnabled(False)

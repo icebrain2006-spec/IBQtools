@@ -8,7 +8,8 @@ from gui.widgets.clickable_progress_bar import ClickableProgressBar
 from gui.styles import Colors, Styles
 from gui.strings import UIStrings
 from gui.utils import get_active_usb_ports
-from gui.updater_thread import get_file_info, get_fw_version, set_led_state
+from gui.protocol import get_file_info, get_fw_version
+from gui.workers.monitor_worker import set_led_state
 
 
 class BoardUiMixin:
