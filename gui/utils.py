@@ -18,6 +18,9 @@ def append_work_log(log_path: str, board_id: int, ch_idx: int, slfs_file: str, w
         return
 
     try:
+        dir_name = os.path.dirname(os.path.abspath(log_path))
+        if dir_name:
+            os.makedirs(dir_name, exist_ok=True)
         file_exists = os.path.exists(log_path)
         with open(log_path, mode='a', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)

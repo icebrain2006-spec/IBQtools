@@ -75,3 +75,33 @@
 * **조치**:
   1. 하드웨어적 리셋: RP2040 USB 케이블 탈착으로 버스 락업 해제.
   2. 소프트웨어적 방어: Start 호출 전 명시적 `STOP` 전송 및 이전 상태 클리어 안전장치 적용.
+---
+
+## [Issue #04] 프로젝트 폴더 삭제/업데이트 시 캘리브레이션 및 작업 로그(work_log, cal_log) 유실 문제
+
+* **발생 일자**: 2026-11-02
+* **영향 컴포넌트**: `gui/config.py`, `gui/gdrive_utils.py`, `gui/tabs/options_tab.py`, `gui/utils.py`, `gui/calibrators/utils.py`
+
+### 1. 현상 및 근본 원인
+* **현상**: 버전 업데이트 과정에서 기존 프로젝트 폴더(`IBQtools`)를 통째로 삭제하고 재설치할 때마다 `work_log.csv` 및 `cal_log.csv`가 함께 삭제되어 작업 이력 관리가 불가능했던 문제.
+* **원인**:
+  1. 기존 설정 기본값이 상대 경로(`"work_log.csv"`, `"cal_log.csv"`)로 하드코딩되어 있어 프로그램 실행 디렉토리(프로젝트 루트)에 파일이 생성됨.
+  2. Google Drive Desktop(DriveFS) 환경이 설치되어 있음에도 프로젝트 외부의 안전한 영구 저장소 경로로 자동 연동되는 로직이 부재함.
+
+### 2. 해결 방법 및 검증
+* **조치**:
+  1. **Google Drive 감지 유틸리티 (`gui/gdrive_utils.py`) 구축**:
+     - Windows 레지스트리(`DriveFS/Share/SyncTargets`) 및 드라이브 경로를 자동 스캔하여 사내 공용 디렉토리(`D:\icebrain2006\내 드라이브\IB_Product_Log\IBQtools`)를 최우선 감지하도록 구현.
+     - 미설치 환경 대비 `~/Documents/IBQtools_Log` 자동 Fallback 지원.
+     - 기존 프로젝트 루트의 로그를 원클릭으로 구글 드라이브 대상 파일과 중복 없이 병합/복사하는 `migrate_all_local_logs()` 기능 구현.
+  2. **기본 경로 스마트화 (`gui/config.py`)**:
+     - 상대 경로이거나 초기 설정 시 자동으로 Google Drive 절대 경로를 반환하여 프로젝트 폴더 삭제와 무관하게 보존.
+  3. **디렉토리 자동 생성 방어 코드 (`gui/utils.py`, `gui/calibrators/utils.py`)**:
+     - 파일 쓰기 전 `os.makedirs(os.path.dirname(path), exist_ok=True)` 방어 처리로 대상 폴더가 없더라도 즉시 자동 생성.
+  4. **Options 탭 UI 편의성 및 모듈화**:
+     - Google Drive 감지 상태 표시, [구글 드라이브로 설정], [로컬 로그 이전] 버튼 추가.
+     - `OptionsFwUpdateMixin`, `OptionsGDriveSyncMixin`으로 믹스인 분리하여 300줄 한도 엄격 준수.
+
+### 3. 의사결정 배경 및 주의사항 (Decision Context)
+* 사용자 PC에 여러 개의 구글 드라이브 계정(`icebrain2006`, `Supplysn81` 등)이 존재하므로, 타 프로젝트(`HDQ_Reader` 등)와 통일성을 위해 `IB_Product_Log` 폴더가 존재하는 계정(`icebrain2006`)을 1순위로 자동 매칭하도록 설계함.
+* 사용자가 직접 Browse로 다른 경로를 설정한 경우 그 설정을 존중하며, 상대 경로로 설정되어 프로젝트 폴더 내부에 격리되는 것만 방지함.

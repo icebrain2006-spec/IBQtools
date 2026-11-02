@@ -166,6 +166,10 @@ def write_calibration_log_file(path, ch, serial_num, mfg_date, ch_data, overall_
         return
     import csv
     from datetime import datetime
+
+    dir_name = os.path.dirname(os.path.abspath(path))
+    if dir_name:
+        os.makedirs(dir_name, exist_ok=True)
     
     params = list(ch_data.keys())
     header_row1 = ["Timestamp", "Serial Number", "Manufacture Date"] + params + ["Overall Result"]
