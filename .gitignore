@@ -27,3 +27,4 @@ cal_log.csv
 dist/
 *.spec
 *.zip
+reference/Log_*.csv
