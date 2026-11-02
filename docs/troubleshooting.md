@@ -143,3 +143,34 @@
 ### 3. 의사결정 배경 및 주의사항 (Decision Context)
 * TI BQ40Z50에서 Manufacturer Info Block A는 32바이트 단위 블록 쓰기 후 0x60 체크섬과 0x61 길이를 기록해야 DataFlash 플래시에 영구 반영되므로, 표준 체크섬 계산식(`0xFF - (sum & 0xFF)`)을 준수하여 작성함.
 * SBS 시리얼과 Manufacturer 시리얼을 하나의 데이터 구조로 합치지 않고 튜플 내 독립 딕셔너리로 분리하여, 향후 다른 블록(Block B, Block C) 확장 시에도 기존 SBS 검증 파이프라인에 영향을 주지 않도록 설계함.
+
+---
+
+## [Issue #06] GitHub Push 시 100MB 초과 대용량 파일 거절 에러 (pre-receive hook declined)
+
+* **발생 일자**: 2026-11-02
+* **영향 컴포넌트**: Git Repository History (
+eference/Log_20231222_BP25_Learning.csv, .gitignore)
+
+### 1. 현상 및 근본 원인
+* **현상**: 2.0.29 배포 버전 생성 후 원격 저장소(origin/release/v2.1)로 git push 실행 시 GitHub pre-receive hook에서 다음과 같이 푸시 거부:
+  `	ext
+  remote: error: File reference/Log_20231222_BP25_Learning.csv is 138.14 MB; this exceeds GitHub's file size limit of 100.00 MB
+  ! [remote rejected] release/v2.1 -> release/v2.1 (pre-receive hook declined)
+  `
+* **원인**: 과거 eat(auto_cycle) 커밋(d56bdb) 시 138MB 용량의 참조 데이터셋 CSV가 저장소 이력에 포함되었고, 해당 파일이 포함된 브랜치를 GitHub로 푸시하면서 100MB 파일 크기 제한 정책에 위배됨.
+
+### 2. 해결 방법 및 검증
+* **조치**:
+  1. **임시 롤백 브랜치 확보**: 작업 착수 전 ackup/release-v2.1-before-filter 브랜치를 생성하여 100% 원상 복구 경로 확보.
+  2. **이력 필터링**: git filter-branch --index-filter를 통해 커밋 이력에서 
+eference/Log_20231222_BP25_Learning.csv를 안전하게 제거.
+  3. **로컬 파일 보존**: 디스크 상의 원본 CSV 파일은 삭제되지 않도록 유지(100% 보존).
+  4. **재유입 방지**: .gitignore에 
+eference/Log_*.csv 규칙을 추가하여 향후 대용량 파일이 git에 추적되지 않도록 차단.
+  5. **원격 푸시 검증**: git push --dry-run 검증 후 git push -u origin release/v2.1 성공.
+
+### 3. 의사결정 배경 및 주의사항 (Decision Context)
+* 원격 저장소에 아직 
+elease/v2.1 브랜치가 푸시되지 않은 상태였으므로, 로컬 이력 재작성이 타 작업자의 원격 브랜치에 충돌을 주지 않는 안전한 상태임을 사전 확인 후 진행함.
+* 로컬 디스크 상의 참조 파일(Log_20231222_BP25_Learning.csv)은 학습용 레퍼런스로 사용될 수 있으므로 절대 영구 삭제하지 않고 유지함.
