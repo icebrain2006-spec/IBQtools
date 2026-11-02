@@ -201,3 +201,15 @@ def write_calibration_log_file(path, ch, serial_num, mfg_date, ch_data, overall_
             writer.writerow(header_row1)
             writer.writerow(header_row2)
         writer.writerow(data_row)
+
+    # Cloud Google Sheet Sync
+    try:
+        from gui.config import config
+        from gui.gsheet_logger import send_to_google_sheet_async
+        if config.get_gsheet_logging_en():
+            webhook_url = config.get_gsheet_webhook_url()
+            if webhook_url:
+                send_to_google_sheet_async(webhook_url, "cal_log", data_row)
+    except Exception as e:
+        import logging
+        logging.getLogger('IBQtools').warning(f"Google Sheet cal hook error: {e}")

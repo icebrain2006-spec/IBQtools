@@ -28,7 +28,19 @@ def append_work_log(log_path: str, board_id: int, ch_idx: int, slfs_file: str, w
                 writer.writerow(["Timestamp", "Board_ID", "Channel", "SLFS_File", "Wrote_SN", "Read_Date", "Read_SN", "Result"])
             
             ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            writer.writerow([ts, board_id, ch_idx, slfs_file, wrote_sn, date_str or "N/A", sn_str, result_str])
+            row_data = [ts, board_id, ch_idx, slfs_file, wrote_sn, date_str or "N/A", sn_str, result_str]
+            writer.writerow(row_data)
+
+        # Cloud Google Sheet Sync
+        try:
+            from gui.config import config
+            from gui.gsheet_logger import send_to_google_sheet_async
+            if config.get_gsheet_logging_en():
+                webhook_url = config.get_gsheet_webhook_url()
+                if webhook_url:
+                    send_to_google_sheet_async(webhook_url, "work_log", row_data)
+        except Exception as e:
+            logging.getLogger('IBQtools').warning(f"Google Sheet hook error: {e}")
     except Exception as e:
         logging.getLogger('IBQtools').error(f"Failed to write work log: {e}")
 

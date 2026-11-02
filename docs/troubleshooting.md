@@ -90,7 +90,10 @@
 
 ### 2. 해결 방법 및 검증
 * **조치**:
-  1. **Google Drive 감지 유틸리티 (`gui/gdrive_utils.py`) 구축**:
+  1. **Google Sheets 클라우드 웹훅 실시간 업로드 (`gui/gsheet_logger.py`)**:
+     - Google Apps Script Web App 연동을 통해 PC의 특정 드라이브 마운트 여부와 무관하게 모든 PC에서 구글 시트 웹 링크(URL)로 직접 행(row)을 실시간 추가(append)하는 비동기 전송 파이프라인 구축.
+     - Work_log 및 Cal_log 링크로 자동 분기 전송되어 클라우드 스프레드시트에 영구 보존.
+  2. **Google Drive 감지 유틸리티 (`gui/gdrive_utils.py`) 구축**:
      - Windows 레지스트리(`DriveFS/Share/SyncTargets`) 및 드라이브 경로를 자동 스캔하여 사내 공용 디렉토리(`D:\icebrain2006\내 드라이브\IB_Product_Log\IBQtools`)를 최우선 감지하도록 구현.
      - 미설치 환경 대비 `~/Documents/IBQtools_Log` 자동 Fallback 지원.
      - 기존 프로젝트 루트의 로그를 원클릭으로 구글 드라이브 대상 파일과 중복 없이 병합/복사하는 `migrate_all_local_logs()` 기능 구현.

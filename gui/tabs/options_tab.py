@@ -66,6 +66,24 @@ class OptionsTab(QWidget, OptionsFwUpdateMixin, OptionsGDriveSyncMixin):
         
         layout_log.addRow(UIStrings.get("LBL_GDRIVE_STORAGE"), self.lbl_gdrive_path)
         layout_log.addRow("", gdrive_btn_layout)
+
+        # --- Google Sheets Cloud Sync Settings ---
+        group_gsheet = QGroupBox(UIStrings.get("GRP_GSHEET_SYNC"))
+        layout_gsheet = QFormLayout(group_gsheet)
+
+        self.cb_gsheet_logging = QCheckBox(UIStrings.get("CB_GSHEET_SYNC"))
+        self.cb_gsheet_logging.setChecked(config.get_gsheet_logging_en())
+
+        self.input_gsheet_url = QLineEdit(config.get_gsheet_webhook_url())
+        self.input_gsheet_url.setPlaceholderText(UIStrings.get("PH_GSHEET_URL"))
+        self.btn_test_gsheet = QPushButton(UIStrings.get("BTN_TEST_GSHEET"))
+
+        gsheet_url_layout = QHBoxLayout()
+        gsheet_url_layout.addWidget(self.input_gsheet_url)
+        gsheet_url_layout.addWidget(self.btn_test_gsheet)
+
+        layout_gsheet.addRow("", self.cb_gsheet_logging)
+        layout_gsheet.addRow(UIStrings.get("LBL_GSHEET_WEBHOOK"), gsheet_url_layout)
         
         # --- Error & Debug Settings ---
         group_error_settings = QGroupBox(UIStrings.get("GRP_ERROR_DEBUG"))
@@ -93,6 +111,7 @@ class OptionsTab(QWidget, OptionsFwUpdateMixin, OptionsGDriveSyncMixin):
         self.btn_save_options = QPushButton(UIStrings.get("BTN_SAVE_SETTINGS"))
         
         layout_options.addWidget(group_log_settings)
+        layout_options.addWidget(group_gsheet)
         layout_options.addWidget(group_error_settings)
         layout_options.addWidget(group_prod_settings)
         layout_options.addWidget(self.btn_save_options)
@@ -149,6 +168,7 @@ class OptionsTab(QWidget, OptionsFwUpdateMixin, OptionsGDriveSyncMixin):
         
         self.btn_set_gdrive.clicked.connect(self._on_set_gdrive_paths)
         self.btn_migrate_logs.clicked.connect(self._on_migrate_local_logs)
+        self.btn_test_gsheet.clicked.connect(self._on_test_gsheet_webhook)
         
         self.btn_save_options.clicked.connect(self._save_settings)
         self.btn_check_update.clicked.connect(self._on_check_update)
@@ -195,6 +215,8 @@ class OptionsTab(QWidget, OptionsFwUpdateMixin, OptionsGDriveSyncMixin):
         config.set_cal_log_path(self.input_cal_log.text())
         config.set_error_log_path(self.input_error_log.text())
         config.set_error_log_en(self.cb_save_error_log.isChecked())
+        config.set_gsheet_logging_en(self.cb_gsheet_logging.isChecked())
+        config.set_gsheet_webhook_url(self.input_gsheet_url.text().strip())
         config.settings.setValue("github_repo", self.input_github_repo.text().strip())
         config.settings.setValue("global_debug_log_en", "true" if self.cb_global_debug_log.isChecked() else "false")
         

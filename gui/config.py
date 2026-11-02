@@ -48,7 +48,6 @@ class AppConfig:
             needs_fallback = True
         else:
             drive, _ = os.path.splitdrive(val)
-            # If the drive or target parent directory does not exist on this PC
             if drive and not os.path.exists(drive + "\\"):
                 needs_fallback = True
             elif not os.path.exists(os.path.dirname(val)):
@@ -88,6 +87,18 @@ class AppConfig:
         
     def set_cal_log_path(self, path):
         self.settings.setValue("cal_log_path", path)
+
+    def get_gsheet_webhook_url(self):
+        return self.settings.value("gsheet_webhook_url", "", type=str)
+
+    def set_gsheet_webhook_url(self, url: str):
+        self.settings.setValue("gsheet_webhook_url", url)
+
+    def get_gsheet_logging_en(self):
+        return self.settings.value("gsheet_logging_en", "true") == "true"
+
+    def set_gsheet_logging_en(self, enabled: bool):
+        self.settings.setValue("gsheet_logging_en", "true" if enabled else "false")
         
     def get_start_hotkey(self):
         return self.settings.value("start_hotkey", "Space", type=str)

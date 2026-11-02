@@ -1,13 +1,14 @@
 import os
 from PySide6.QtWidgets import QMessageBox
 from gui.gdrive_utils import get_default_log_dir, migrate_all_local_logs
+from gui.gsheet_logger import test_google_sheet_connection
 from gui.config import config, setup_error_logging
 from gui.strings import UIStrings
 from gui.styles import Colors
 
 
 class OptionsGDriveSyncMixin:
-    """Mixin providing Google Drive log sync and migration features for OptionsTab."""
+    """Mixin providing Google Drive & Google Sheets cloud sync features for OptionsTab."""
 
     def _update_gdrive_status_label(self):
         detected = get_default_log_dir()
@@ -30,7 +31,6 @@ class OptionsGDriveSyncMixin:
         self.input_cal_log.setText(cal_path)
         self.input_error_log.setText(error_path)
 
-        # Automatically save to config
         config.set_work_log_path(work_path)
         config.set_cal_log_path(cal_path)
         config.set_error_log_path(error_path)
@@ -68,3 +68,20 @@ class OptionsGDriveSyncMixin:
             f"{UIStrings.get('MSG_MIGRATE_SUCCESS')}\n\nTarget Directory: {target_dir}\n\n{summary}"
         )
 
+    def _on_test_gsheet_webhook(self):
+        url = self.input_gsheet_url.text().strip()
+        if not url:
+            QMessageBox.warning(self, "URL Missing", "Please enter a valid Apps Script Webhook URL.")
+            return
+
+        self.btn_test_gsheet.setEnabled(False)
+        self.btn_test_gsheet.setText("Testing...")
+        try:
+            ok, msg = test_google_sheet_connection(url)
+            if ok:
+                QMessageBox.information(self, "Success", f"{UIStrings.get('MSG_GSHEET_TEST_OK')}\n\n{msg}")
+            else:
+                QMessageBox.warning(self, "Failed", f"{UIStrings.get('MSG_GSHEET_TEST_FAIL')}\n\n{msg}")
+        finally:
+            self.btn_test_gsheet.setEnabled(True)
+            self.btn_test_gsheet.setText(UIStrings.get("BTN_TEST_GSHEET"))
