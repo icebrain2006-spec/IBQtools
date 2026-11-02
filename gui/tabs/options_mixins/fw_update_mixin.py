@@ -158,3 +158,4 @@ class OptionsFwUpdateMixin:
         self.btn_check_update.setEnabled(True)
         self.btn_flash_local.setEnabled(True)
         self.btn_download_update.setEnabled(True)
+

@@ -42,12 +42,27 @@ class AppConfig:
         
     def _resolve_safe_log_path(self, key: str, filename: str) -> str:
         val = self.settings.value(key, "", type=str)
-        # If unset, matches legacy default, or is relative (would write inside repo)
+        needs_fallback = False
+
         if not val or val == filename or not os.path.isabs(val):
+            needs_fallback = True
+        else:
+            drive, _ = os.path.splitdrive(val)
+            # If the drive or target parent directory does not exist on this PC
+            if drive and not os.path.exists(drive + "\\"):
+                needs_fallback = True
+            elif not os.path.exists(os.path.dirname(val)):
+                try:
+                    os.makedirs(os.path.dirname(val), exist_ok=True)
+                except Exception:
+                    needs_fallback = True
+
+        if needs_fallback:
             safe_dir = get_default_log_dir()
             resolved = os.path.join(safe_dir, filename)
             self.settings.setValue(key, resolved)
             return resolved
+
         return val
 
     def get_work_log_path(self):

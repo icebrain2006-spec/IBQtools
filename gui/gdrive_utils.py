@@ -1,19 +1,20 @@
 import os
 import re
 import shutil
+import string
 import winreg
 from typing import Optional, List, Dict, Tuple
 
 
 def detect_google_drive_folder() -> str:
     """
-    Detect Google Drive paths on Windows, preferring 'IB_Product_Log/IBQtools'
-    or a dedicated Google Drive folder outside the project directory.
+    Detect Google Drive paths on Windows dynamically across different PCs.
+    Prioritizes 'IB_Product_Log/IBQtools' in any detected drive letter or account.
     Falls back to user's Documents/IBQtools_Log if Google Drive is not detected.
     """
     candidates: List[str] = []
 
-    # 1. Inspect Google DriveFS registry SyncTargets
+    # 1. Inspect Google DriveFS registry SyncTargets for current PC user
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Google\DriveFS\Share") as key:
             val, _ = winreg.QueryValueEx(key, "SyncTargets")
@@ -27,14 +28,21 @@ def detect_google_drive_folder() -> str:
     except Exception:
         pass
 
-    # 2. Check well-known Google Drive junction points / drive letters
+    # 2. Dynamic scan of all available drive letters (G:, H:, D:, etc.) for Google Drive
+    for letter in string.ascii_uppercase:
+        drive_root = f"{letter}:\\"
+        if os.path.exists(drive_root):
+            for sub in ["내 드라이브", "My Drive"]:
+                p = os.path.join(drive_root, sub)
+                if os.path.isdir(p) and p not in candidates:
+                    candidates.append(p)
+
+    # 3. Known sync paths or custom junction points
     search_roots = [
         r"D:\icebrain2006",
         r"D:\Supplysn81",
         r"D:\Supplysn8102",
         r"D:\GoogleDrive",
-        r"G:\내 드라이브",
-        r"G:\My Drive",
         os.path.expanduser(r"~\Google Drive"),
     ]
 
@@ -42,7 +50,7 @@ def detect_google_drive_folder() -> str:
         if os.path.isdir(root) and root not in candidates:
             candidates.append(root)
 
-    # 3. Resolve "내 드라이브" or "My Drive" subfolders
+    # 4. Resolve "내 드라이브" or "My Drive" subfolders inside candidate roots
     valid_drive_roots: List[str] = []
     for cand in candidates:
         for sub in ["내 드라이브", "My Drive"]:
@@ -52,18 +60,18 @@ def detect_google_drive_folder() -> str:
         if os.path.isdir(cand) and cand not in valid_drive_roots:
             valid_drive_roots.append(cand)
 
-    # 4. Search for IB_Product_Log first (optimal match for company infrastructure)
+    # 5. Search for IB_Product_Log first (optimal company infrastructure match)
     for v in valid_drive_roots:
         ib_log_path = os.path.join(v, "IB_Product_Log")
         if os.path.isdir(ib_log_path):
             target = os.path.join(ib_log_path, "IBQtools")
             return target
 
-    # 5. Otherwise, use the first valid drive root with "IBQtools_Log"
+    # 6. Otherwise, use the first valid drive root with "IBQtools_Log"
     if valid_drive_roots:
         return os.path.join(valid_drive_roots[0], "IBQtools_Log")
 
-    # 6. Fallback outside project workspace (Documents)
+    # 7. Fallback outside project workspace (Documents) for PCs without Google Drive
     return os.path.join(os.path.expanduser(r"~\Documents"), "IBQtools_Log")
 
 

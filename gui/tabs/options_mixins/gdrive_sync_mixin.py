@@ -67,3 +67,4 @@ class OptionsGDriveSyncMixin:
             "Migration Finished",
             f"{UIStrings.get('MSG_MIGRATE_SUCCESS')}\n\nTarget Directory: {target_dir}\n\n{summary}"
         )
+
