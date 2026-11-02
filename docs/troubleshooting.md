@@ -134,6 +134,8 @@
   3. **전용 DataFlash Block A 드라이버 구현 (`gui/workers/mfg_block_writer.py`)**:
      - Subcommand `0x0070` 및 `0x44` ManufacturerBlockAccess 프로토콜 구현.
      - 기존 32바이트 읽기 -> 지정 인덱스(예: 1, 2)에 2바이트 덮어쓰기 -> 체크섬(0x60) 및 길이(0x61) 쓰기 -> 재독출 및 값 일치 검증 파이프라인 완성.
+  5. **Work Log 및 구글 시트 연동 확장 (`append_work_log`)**:
+     - `work_log.csv` 및 Google Sheets에 `Mfg_Block`(예: `A02+A03`)과 `Mfg_SN`(예: `0x0001` 또는 미사용 시 `N/A`) 컬럼을 신규 추가하여 작업 이력 추적성 확보.
   4. **순환 참조 해소 및 모듈 표준화 (`gui/i18n/`)**:
      - 300줄을 초과하던 `strings.py`를 `gui/i18n/strings_en.py`, `strings_ko.py`로 분리하여 300라인 제한 및 단일 책임 원칙 준수.
      - `board_ui_mixin`과 `fw_update_worker`의 `updater_thread` 의존성을 `gui.protocol`로 직접 연결하여 순환 참조 해결.

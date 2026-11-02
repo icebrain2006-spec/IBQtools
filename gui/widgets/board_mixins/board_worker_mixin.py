@@ -4,12 +4,10 @@ from gui.utils import append_work_log, format_sn_value, is_error_status
 from gui.updater_thread import UpdaterWorker, SerialCheckWorker, set_led_state, DisconnectionMonitor
 from gui.config import config
 
-
 class BoardWorkerMixin:
     """Mixin for managing background worker threads, serial checks, verification, and logging."""
 
     def _get_selected_channels(self) -> list:
-        """Single Responsibility: Get list of 1-indexed enabled channel numbers."""
         active = []
         for i, chk in enumerate(self.ch_checkboxes):
             if chk.isChecked():
@@ -17,28 +15,21 @@ class BoardWorkerMixin:
         return active
 
     def _stop_disconnection_monitor(self):
-        """Single Responsibility: Safely stop the disconnection monitor thread if running."""
         if self.disconnect_monitor and self.disconnect_monitor.isRunning():
             self.disconnect_monitor.stop()
             self.disconnect_monitor.wait(500)
-
     def _lock_board_ui_controls(self):
-        """Single Responsibility: Disable interactive UI elements during worker execution."""
         for chk in self.ch_checkboxes:
             chk.setEnabled(False)
         self.btn_start_board.setEnabled(False)
         self.combo_port.setEnabled(False)
         self.btn_refresh.setEnabled(False)
-
     def _restore_board_ui_controls(self):
-        """Single Responsibility: Enable interactive UI elements after worker finishes."""
         self.combo_port.setEnabled(True)
         self.btn_refresh.setEnabled(True)
         for chk in self.ch_checkboxes:
             chk.setEnabled(True)
-
     def _reset_channels_progress_ui(self, active_channels: list, status_text: str = "Status: Starting..."):
-        """Single Responsibility: Reset progress bar and status label for all 6 channels."""
         for i in range(6):
             if (i + 1) in active_channels:
                 self.ch_progress[i].setValue(0)
@@ -49,7 +40,6 @@ class BoardWorkerMixin:
                 self.ch_status[i].setStyleSheet(f"color: {Colors.HEX_TEXT_DISABLED};")
 
     def _launch_updater_worker(self, port: str, active_channels: list, loop_count: int, skip_preflight: bool = False):
-        """Single Responsibility: Construct and launch UpdaterWorker QThread."""
         self.worker = UpdaterWorker(
             port, active_channels, loop_count=loop_count, 
             get_expected_cb=self._get_sn_for_worker, skip_preflight=skip_preflight
@@ -195,13 +185,14 @@ class BoardWorkerMixin:
     def _resolve_expected_targets(self, ch_idx: int):
         res = self.get_expected_cb(False)
         should_write_sn, should_write_date = res[3], res[4]
+        mfg_sn_info = res[6] if len(res) >= 7 else None
         if ch_idx in self.expected_sn_map:
             exp_date = self.expected_date_map[ch_idx]
             exp_sn_int = self.expected_sn_map[ch_idx]
             sn_fmt = self.expected_fmt
         else:
             exp_date, exp_sn_int, sn_fmt = res[0], res[1], res[2]
-        return exp_date, exp_sn_int, sn_fmt, should_write_sn, should_write_date
+        return exp_date, exp_sn_int, sn_fmt, should_write_sn, should_write_date, mfg_sn_info
 
     def _evaluate_verification(self, exp_date: str, exp_sn_int: int, sn_fmt: str, date_str: str, sn_int: int, should_write_date: bool, should_write_sn: bool):
         if not date_str or sn_int < 0:
@@ -232,8 +223,8 @@ class BoardWorkerMixin:
             return
 
         try:
-            exp_date, exp_sn_int, sn_fmt, should_write_sn, should_write_date = self._resolve_expected_targets(ch_idx)
-            should_write = should_write_sn or should_write_date
+            exp_date, exp_sn_int, sn_fmt, should_write_sn, should_write_date, mfg_sn_info = self._resolve_expected_targets(ch_idx)
+            should_write = should_write_sn or should_write_date or bool(mfg_sn_info and mfg_sn_info.get('should_write'))
 
             result_str, sn_str = self._evaluate_verification(
                 exp_date, exp_sn_int, sn_fmt, date_str, sn_int, should_write_date, should_write_sn
@@ -245,7 +236,23 @@ class BoardWorkerMixin:
             wrote_sn = "Yes" if should_write else "No"
             ch_sn_str = f"0x{sn_int:04X}" if sn_fmt == "HEX" else str(sn_int) if sn_int >= 0 else "N/A"
 
-            append_work_log(config.get_work_log_path(), self.board_id, ch_idx, slfs_file, wrote_sn, date_str, ch_sn_str, result_str)
+            mfg_blk_str = "N/A"
+            mfg_sn_str = "N/A"
+            if mfg_sn_info and mfg_sn_info.get('should_write'):
+                b = mfg_sn_info.get('start_block', 'A02')
+                try:
+                    idx = int(b[1:])
+                    mfg_blk_str = f"{b}+{b[0]}{idx+1:02d}"
+                except Exception:
+                    mfg_blk_str = b
+                val = mfg_sn_info.get('sn_val', 0)
+                mfg_sn_str = f"0x{val:04X}" if mfg_sn_info.get('fmt') == "HEX" else str(val)
+
+            append_work_log(
+                config.get_work_log_path(), self.board_id, ch_idx, slfs_file,
+                wrote_sn, date_str, ch_sn_str, result_str,
+                mfg_block=mfg_blk_str, mfg_sn=mfg_sn_str
+            )
         except Exception as e:
             from gui.config import log_error
             log_error(f"[Board {self.board_id} Ch{ch_idx}] _on_verify_update Exception: {e}")
